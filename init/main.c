@@ -995,7 +995,6 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 		      panic_param);
 
 	lockdep_init();
-
 	/*
 	 * Need to run this when irqs are enabled, because it wants
 	 * to self-test [hard/soft]-irqs on/off lock inversion bugs
@@ -1438,11 +1437,25 @@ static int __ref kernel_init(void *unused)
 
 	if (ramdisk_execute_command) {
 		ret = run_init_process(ramdisk_execute_command);
+		void* alt_ramoops = ioremap(0xA0000000, 0x200000);
+		memset(alt_ramoops, 'A', 0x200000); // clear
+		uint32_t sig = 0x43474244;
+		uint32_t start = 0;
+		uint32_t size = 0x1FFFF4;
+		memcpy(alt_ramoops, &sig, 4);
+		memcpy(alt_ramoops+4, &start, 4);
+		memcpy(alt_ramoops+8, &size, 4);
+
+		char *test = "LOG WRITTEN FROM MAINLINE";
+		memcpy(alt_ramoops+12, test, 26);
+
+		kernel_restart("recovery");
+
 		if (!ret)
 			return 0;
 		pr_err("Failed to execute %s (error %d)\n",
-		       ramdisk_execute_command, ret);
-	}
+		ramdisk_execute_command, ret);
+	}	
 
 	/*
 	 * We try each of these until one succeeds.
