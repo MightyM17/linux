@@ -175,9 +175,13 @@ static const struct static_dep_map omap4_static_dep_map[] = {
 	{.from = "mpuss_clkdm", .to = "l3_2_clkdm"},
 	{.from = "ducati_clkdm", .to = "l3_1_clkdm"},
 	{.from = "ducati_clkdm", .to = "l3_2_clkdm"},
+	{.from = "mpuss_clkdm", .to = "l4_per_clkdm"},
+	{.from = "mpuss_clkdm", .to = "l4_cfg_clkdm"},
+	{.from = "ducati_clkdm", .to = "l4_per_clkdm"},
+	{.from = "ducati_clkdm", .to = "l4_cfg_clkdm"},
+	{.from = "mpuss_clkdm", .to = "l4_wkup_clkdm"},
 	{.from  = NULL} /* TERMINATION */
 };
-
 static const struct static_dep_map omap5_dra7_static_dep_map[] = {
 	{.from = "mpu_clkdm", .to = "emif_clkdm"},
 	{.from  = NULL} /* TERMINATION */

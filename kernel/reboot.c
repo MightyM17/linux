@@ -63,7 +63,20 @@ EXPORT_SYMBOL_GPL(pm_power_off_prepare);
  */
 void emergency_restart(void)
 {
-	kmsg_dump(KMSG_DUMP_EMERG);
+	void* alt_ramoops = ioremap(0xA0000000, 0x200000);
+	memset(alt_ramoops, 'A', 0x200000); // clear
+	uint32_t sig = 0x43474244;
+	uint32_t start = 0;
+	uint32_t size = log_buf_len_get();
+	memcpy(alt_ramoops, &sig, 4);
+	memcpy(alt_ramoops + 4, &start, 4);
+	memcpy(alt_ramoops + 8, &size, 4);
+	memcpy(alt_ramoops + 12, log_buf_addr_get(), size);
+
+	u32 flag = REBOOT_FLAG_RECOVERY;
+	char *blcmd = "RESET";
+	__raw_writel(flag, OMAP2_L4_IO_ADDRESS(OMAP_SW_BOOT_CFG_ADDR));
+	__raw_writel(*(u32 *) blcmd, OMAP_SW_BOOT_CFG_ADDR - 0x04);
 	machine_emergency_restart();
 }
 EXPORT_SYMBOL_GPL(emergency_restart);

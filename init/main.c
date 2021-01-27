@@ -110,6 +110,12 @@
 
 #include <kunit/test.h>
 
+#define OMAP2_L4_IO_OFFSET	0xb2000000
+#define OMAP2_L4_IO_ADDRESS(pa)	IOMEM((pa) + OMAP2_L4_IO_OFFSET) /* L4 */
+
+#define OMAP_SW_BOOT_CFG_ADDR	0x4A326FF8
+#define REBOOT_FLAG_RECOVERY	(1 << 1)
+
 static int kernel_init(void *);
 
 extern void init_IRQ(void);
@@ -1440,16 +1446,20 @@ static int __ref kernel_init(void *unused)
 		void* alt_ramoops = ioremap(0xA0000000, 0x200000);
 		memset(alt_ramoops, 'A', 0x200000); // clear
 		uint32_t sig = 0x43474244;
-		uint32_t start = 0;
-		uint32_t size = 0x1FFFF4;
-		memcpy(alt_ramoops, &sig, 4);
-		memcpy(alt_ramoops+4, &start, 4);
-		memcpy(alt_ramoops+8, &size, 4);
+uint32_t start = 0;
+uint32_t size = log_buf_len_get();
+memcpy(alt_ramoops, &sig, 4);
+memcpy(alt_ramoops + 4, &start, 4);
+memcpy(alt_ramoops + 8, &size, 4);
+memcpy(alt_ramoops + 12, log_buf_addr_get(), size);
 
-		char *test = "LOG WRITTEN FROM MAINLINE";
-		memcpy(alt_ramoops+12, test, 26);
 
+		u32 flag = REBOOT_FLAG_RECOVERY;
+		char *blcmd = "RESET";
+		__raw_writel(flag, OMAP2_L4_IO_ADDRESS(OMAP_SW_BOOT_CFG_ADDR));
+		__raw_writel(*(u32 *) blcmd, OMAP_SW_BOOT_CFG_ADDR - 0x04);
 		kernel_restart("recovery");
+
 
 		if (!ret)
 			return 0;
