@@ -176,6 +176,7 @@ static void panic_print_sys_info(void)
  */
 void panic(const char *fmt, ...)
 {
+	emergency_restart();
 	static char buf[1024];
 	va_list args;
 	long i, i_next = 0, len;
