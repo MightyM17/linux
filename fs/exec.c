@@ -1924,49 +1924,81 @@ out_ret:
 int kernel_execve(const char *kernel_filename,
 		  const char *const *argv, const char *const *envp)
 {
+	pr_err("Sent from kernel_execve function");
 	struct filename *filename;
 	struct linux_binprm *bprm;
 	int fd = AT_FDCWD;
 	int retval;
 
 	filename = getname_kernel(kernel_filename);
+	pr_err("IS_ERR(filename) return %d\n", IS_ERR(filename));
 	if (IS_ERR(filename))
+	{
+		pr_err("PTR_ERR(filename) return %d\n", PTR_ERR(filename));
 		return PTR_ERR(filename);
+	}
 
 	bprm = alloc_bprm(fd, filename);
+	pr_err("IS_ERR(bprm) return %d\n", IS_ERR(bprm));
 	if (IS_ERR(bprm)) {
 		retval = PTR_ERR(bprm);
+		pr_err("PTR_ERR(bprm) return %d\n", PTR_ERR(bprm));
 		goto out_ret;
 	}
 
 	retval = count_strings_kernel(argv);
+	pr_err("count_strings_kernel argv %d\n", retval);
 	if (retval < 0)
+	{
+		pr_err("count_strings_kernel argv");
 		goto out_free;
+	}
 	bprm->argc = retval;
 
 	retval = count_strings_kernel(envp);
+	pr_err("count_strings_kernel envp %d\n", retval);
 	if (retval < 0)
+	{
+		pr_err("count_strings_kernel envp");
 		goto out_free;
+	}
 	bprm->envc = retval;
 
 	retval = bprm_stack_limits(bprm);
+	pr_err("count_strings_kernel bprm %d\n", retval);
 	if (retval < 0)
+	{
+		pr_err("count_strings_kernel bprm");
 		goto out_free;
+	}
 
 	retval = copy_string_kernel(bprm->filename, bprm);
+	pr_err("copy_string_kernel(bprm->filename, bprm) %d\n", retval);
 	if (retval < 0)
+	{
+		pr_err("copy_string_kernel(bprm->filename, bprm) ");
 		goto out_free;
+	}
 	bprm->exec = bprm->p;
 
 	retval = copy_strings_kernel(bprm->envc, envp, bprm);
+	pr_err("copy_strings_kernel(bprm->envc, envp, bprm) %d\n", retval);
 	if (retval < 0)
+	{
+		pr_err("copy_strings_kernel(bprm->envc, envp, bprm) ");
 		goto out_free;
+	}
 
 	retval = copy_strings_kernel(bprm->argc, argv, bprm);
+	pr_err("copy_strings_kernel(bprm->argc, argv, bprm); %d\n", retval);
 	if (retval < 0)
+	{
+		pr_err("copy_strings_kernel(bprm->argc, argv, bprm); ");
 		goto out_free;
+	}
 
 	retval = bprm_execve(bprm, fd, filename, 0);
+	pr_err("bprm_execve(bprm, fd, filename, 0); %d\n", retval);
 out_free:
 	free_bprm(bprm);
 out_ret:
