@@ -1284,7 +1284,7 @@
 };
 
 &l4_per {						/* 0x48000000 */
-
+status="disabled";
 	compatible = "ti,omap4-l4-per", "simple-bus";
 	reg = <0x48000000 0x800>,
 	      <0x48000800 0x800>,

@@ -1444,7 +1444,7 @@ static int __ref kernel_init(void *unused)
 	if (ramdisk_execute_command) {
 		ret = run_init_process(ramdisk_execute_command);
 		if (!ret){
-			pr_err("ret is 0");
+			/*pr_err("ret is 0");
 			void* alt_ramoops = ioremap(0xA0000000, 0x200000);
 			memset(alt_ramoops, 'A', 0x200000); // clear
 			uint32_t sig = 0x43474244;
@@ -1459,9 +1459,9 @@ static int __ref kernel_init(void *unused)
 			char *blcmd = "RESET";
 			__raw_writel(flag, OMAP2_L4_IO_ADDRESS(OMAP_SW_BOOT_CFG_ADDR));
 			__raw_writel(*(u32 *) blcmd, OMAP_SW_BOOT_CFG_ADDR - 0x04);
-			kernel_restart("recovery");
+			kernel_restart("recovery");*/
 		 
-			//return 0;
+			return 0;
 			}
 		else
 			pr_err("Failed to execute %s (error %d)\n",
