@@ -51,6 +51,8 @@
 #define MMS114_TYPE_TOUCHSCREEN		1
 #define MMS114_TYPE_TOUCHKEY		2
 
+#define DEBUG
+
 enum mms_type {
 	TYPE_MMS114	= 114,
 	TYPE_MMS152	= 152,
@@ -190,6 +192,7 @@ static void mms114_process_mt(struct mms114_data *data, struct mms114_touch *tou
 
 static irqreturn_t mms114_interrupt(int irq, void *dev_id)
 {
+	printk("Reached mms114_interrupt");
 	struct mms114_data *data = dev_id;
 	struct input_dev *input_dev = data->input_dev;
 	struct mms114_touch touch[MMS114_MAX_TOUCH];
@@ -292,7 +295,7 @@ static int mms114_setup_regs(struct mms114_data *data)
 	const struct touchscreen_properties *props = &data->props;
 	int val;
 	int error;
-
+	
 	error = mms114_get_version(data);
 	if (error < 0)
 		return error;
@@ -433,6 +436,7 @@ static int mms114_parse_legacy_bindings(struct mms114_data *data)
 static int mms114_probe(struct i2c_client *client,
 				  const struct i2c_device_id *id)
 {
+	printk("Reached mms114_probe");
 	struct mms114_data *data;
 	struct input_dev *input_dev;
 	const void *match_data;
