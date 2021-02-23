@@ -116,6 +116,7 @@
 	pinctrl-0 = <&i2c4_pins>;
 };
 
+
 #include "twl6030.dtsi"
 #include "twl6030_omap4.dtsi"
 
@@ -123,6 +124,17 @@
 	/* https://github.com/LineageOS/android_kernel_samsung_espresso10/blob/67333f2574cd95b40c73a4809aea55d7e889b570/arch/arm/mach-omap2/board-espresso-pmic.c#L199 */
 	regulator-min-microvolt = <1200000>;
 	regulator-max-microvolt = <3000000>;
+};
+
+
+&twl_usb_comparator {
+	usb-supply = <&vusb>;
+};
+
+&usb_otg_hs {
+	interface-type = <1>;
+	mode = <3>;
+	power = <50>;
 };
 
 &mmc1 {
