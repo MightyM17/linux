@@ -3,6 +3,7 @@
  * Copyright (C) 2019 Renesas Electronics Corporation
  * Copyright (C) 2016 Laurent Pinchart <laurent.pinchart@ideasonboard.com>
  */
+#define DEBUG
 
 #include <linux/gpio/consumer.h>
 #include <linux/module.h>

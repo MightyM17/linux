@@ -44,8 +44,115 @@
 			status = "okay";			
 			};
 		};
+		
+	reg_touch_ldo_en: regulator-touch-ldo-en  {
+ 		compatible = "regulator-fixed";
+		regulator-name = "touch_ldo_en";
+      		gpios = <&gpio2 22 0>;
+		regulator-always-on;
+		enable-active-high;
+		};
+
+		
+	reg_lcd: regulator-lcd  {
+      		compatible = "regulator-fixed";
+      		regulator-name = "lcd_en";
+      		gpios = <&gpio5 7 0>;
+      		enable-active-high;
+      		//regulator-always-on;
+      		regulator-boot-on;
+		};
+		
+	pwm10: dmtimer-pwm-10 {
+		pinctrl-names = "default";
+		pinctrl-0 = <&pwm10_default>;
+
+		compatible = "ti,omap-dmtimer-pwm";
+		#pwm-cells = <3>;
+		ti,timers = <&timer10>;
+		ti,clock-source = <0x01>;
+	};
+	
+	backlight {
+        	compatible = "pwm-backlight";
+        	pinctrl-names = "default";
+		pinctrl-0 = <&backlight_pins>;
+        	pwms = <&pwm10 0 5000000 0>; 
+        	power-supply = <&reg_lcd>;
+        	enable-gpios = <&gpio3 31 0>;
+        	brightness-levels = <0 4 8 16 32 64 128 255>;
+	        default-brightness-level = <7>;
+        };
+        	
+	bridge {
+        	compatible = "doestek,dtc34lm85am";
+        	enable-gpios = <&gpio5 8 0>;
+        	vdd-supply = <&reg_lcd>;
+        	ports {
+        	
+        	    #address-cells = <1>;
+        	    #size-cells = <0>;
+        	    
+        	    port@0 {
+        	        reg = <0>;
+        	        bridge_in: endpoint {
+        	            remote-endpoint = <&dpi_out>;
+        	        };
+        	    };
+        	    
+        	    port@1 {
+        	        reg = <1>;
+        	        bridge_out: endpoint {
+        	            remote-endpoint = <&panel_in>;
+        	        };
+        	    };
+        	    
+        	};
+    	};
+	
+	panel {
+		compatible ="samsung,ltn070nl01", "panel-lvds";
+		power-supply = <&reg_lcd>;
+		width-mm = <154>;
+		height-mm = <90>;
+		data-mapping = "jeida-24";
+		panel-timing {
+			clock-frequency = <56888>;
+
+			hback-porch = <210>;
+			hactive = <1024>;
+			hfront-porch = <186>;
+			hsync-len = <50>;
+
+			vback-porch = <11>;
+			vactive = <600>;
+			vfront-porch = <24>;
+			vsync-len = <10>;
+
+		};
+		
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&bridge_out>;
+			};
+		};
+	};
+
 };
 &omap4_pmx_core {
+	
+	pwm10_default: pinmux_pwm10_default {
+		pinctrl-single,pins = <
+		OMAP4_IOPAD(0X0D6, PIN_OUTPUT | PIN_OFF_OUTPUT_LOW | MUX_MODE1)
+		>;
+	};
+	
+	backlight_pins: pinmux_backlight_pins {
+		pinctrl-single,pins = <
+		OMAP4_IOPAD(0X0D8, PIN_OUTPUT | PIN_OFF_OUTPUT_LOW | MUX_MODE3)	
+		>;
+	};
+	
 	i2c1_pins: pinmux_i2c1_pins {
 		pinctrl-single,pins = <
 			OMAP4_IOPAD(0x122, PIN_INPUT_PULLUP | MUX_MODE0)	/* i2c1_scl */
@@ -88,6 +195,41 @@
 			OMAP4_IOPAD(0x084, PIN_INPUT_PULLUP | MUX_MODE1)	/* sdmmc2_cmd */
 		>;
 	};
+	
+		dss_dpi_pins: pinmux_dss_dpi_pins {
+		pinctrl-single,pins = <
+			OMAP4_IOPAD(0x162, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data23 */
+			OMAP4_IOPAD(0x164, PIN_OUTPUT | MUX_MODE5) 	/* dispc2_data22 */
+			OMAP4_IOPAD(0x166, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data21 */
+			OMAP4_IOPAD(0x168, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data20 */
+			OMAP4_IOPAD(0x16a, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data19 */
+			OMAP4_IOPAD(0x16c, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data18 */
+			OMAP4_IOPAD(0x16e, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data15 */
+			OMAP4_IOPAD(0x170, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data14 */
+			OMAP4_IOPAD(0x172, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data13 */
+			OMAP4_IOPAD(0x174, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data12 */
+			OMAP4_IOPAD(0x176, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data11 */
+
+			OMAP4_IOPAD(0x1b4, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data10 */
+			OMAP4_IOPAD(0x1b6, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data9 */
+			OMAP4_IOPAD(0x1b8, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data16 */
+			OMAP4_IOPAD(0x1ba, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data17 */
+			OMAP4_IOPAD(0x1bc, PIN_OUTPUT | MUX_MODE5)	/* dispc2_hsync */
+			OMAP4_IOPAD(0x1be, PIN_OUTPUT | MUX_MODE5)	/* dispc2_pclk */
+			OMAP4_IOPAD(0x1c0, PIN_OUTPUT | MUX_MODE5)	/* dispc2_vsync */
+			OMAP4_IOPAD(0x1c2, PIN_OUTPUT | MUX_MODE5)	/* dispc2_de */
+			OMAP4_IOPAD(0x1c4, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data8 */
+			OMAP4_IOPAD(0x1c6, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data7 */
+			OMAP4_IOPAD(0x1c8, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data6 */
+			OMAP4_IOPAD(0x1ca, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data5 */
+			OMAP4_IOPAD(0x1cc, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data4 */
+			OMAP4_IOPAD(0x1ce, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data3 */
+
+			OMAP4_IOPAD(0x1d0, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data2 */
+			OMAP4_IOPAD(0x1d2, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data1 */
+			OMAP4_IOPAD(0x1d4, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data0 */
+		>;
+	};
 };
 
 &i2c1 {
@@ -109,12 +251,38 @@
 &i2c3 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2c3_pins>;
+	
+	touchscreen@48 {
+		compatible = "melfas,mms114";
+		reg = <0x48>;
+		interrupt-parent = <&gpio2>;
+		interrupts = <14 IRQ_TYPE_EDGE_FALLING>;
+		touchscreen-size-x = <1024>;
+		touchscreen-size-y = <600>;	
+		avdd-supply = <&reg_touch_ldo_en>;
+		vdd-supply = <&vcxio>;
+	};
 };
 
 &i2c4 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2c4_pins>;
 };
+
+&dss {
+	status = "ok";
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&dss_dpi_pins>;
+
+	port { //TODO CHECK THIS
+		dpi_out: endpoint {
+			remote-endpoint = <&bridge_in>;
+			data-lines = <24>;
+		};
+	};
+};
+
 
 
 #include "twl6030.dtsi"
@@ -125,7 +293,6 @@
 	regulator-min-microvolt = <1200000>;
 	regulator-max-microvolt = <3000000>;
 };
-
 
 &twl_usb_comparator {
 	usb-supply = <&vusb>;

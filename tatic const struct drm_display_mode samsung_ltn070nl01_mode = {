@@ -1,0 +1,474 @@
+[1mdiff --git a/Documentation/devicetree/bindings/vendor-prefixes.yaml b/Documentation/devicetree/bindings/vendor-prefixes.yaml[m
+[1mindex f03ba0c4ae5e..5f78d34d8371 100644[m
+[1m--- a/Documentation/devicetree/bindings/vendor-prefixes.yaml[m
+[1m+++ b/Documentation/devicetree/bindings/vendor-prefixes.yaml[m
+[36m@@ -282,6 +282,8 @@[m [mpatternProperties:[m
+   "^dh,.*":[m
+     description: DH electronics GmbH[m
+   "^difrnce,.*":[m
+[32m+[m[32m    description: Doestek[m
+[32m+[m[32m  "^doestek,.*":[m
+     description: Shenzhen Yagu Electronic Technology Co., Ltd.[m
+   "^digi,.*":[m
+     description: Digi International Inc.[m
+[1mdiff --git a/arch/arm/boot/dts/omap4-l4.dtsi b/arch/arm/boot/dts/omap4-l4.dtsi[m
+[1mindex 6e7b15b9eae6..c534ac849f67 100644[m
+[1m--- a/arch/arm/boot/dts/omap4-l4.dtsi[m
+[1m+++ b/arch/arm/boot/dts/omap4-l4.dtsi[m
+[36m@@ -1581,7 +1581,7 @@[m [mgpio2: gpio@0 {[m
+ 		};[m
+ [m
+ 		target-module@57000 {			/* 0x48057000, ap 17 16.0 */[m
+[31m-		status="disabled";[m
+[32m+[m		[32m//status="disabled";[m
+ 			compatible = "ti,sysc-omap2", "ti,sysc";[m
+ 			reg = <0x57000 0x4>,[m
+ 			      <0x57010 0x4>,[m
+[36m@@ -1649,7 +1649,7 @@[m [mgpio4: gpio@0 {[m
+ 		};[m
+ [m
+ 		target-module@5b000 {			/* 0x4805b000, ap 21 12.0 */[m
+[31m-		status="disabled";[m
+[32m+[m		[32m//status="disabled";[m
+ 			compatible = "ti,sysc-omap2", "ti,sysc";[m
+ 			reg = <0x5b000 0x4>,[m
+ 			      <0x5b010 0x4>,[m
+[36m@@ -1953,7 +1953,7 @@[m [melm: elm@0 {[m
+ 		};[m
+ [m
+ 		target-module@86000 {			/* 0x48086000, ap 43 24.0 */[m
+[31m-		status="disabled";[m
+[32m+[m		[32m//status="disabled";[m
+ 			compatible = "ti,sysc-omap2-timer", "ti,sysc";[m
+ 			reg = <0x86000 0x4>,[m
+ 			      <0x86010 0x4>,[m
+[1mdiff --git a/arch/arm/boot/dts/omap4-samsung-espresso10.dts b/arch/arm/boot/dts/omap4-samsung-espresso10.dts[m
+[1mindex e3ead6f8dbc6..b74ca533110c 100644[m
+[1m--- a/arch/arm/boot/dts/omap4-samsung-espresso10.dts[m
+[1m+++ b/arch/arm/boot/dts/omap4-samsung-espresso10.dts[m
+[36m@@ -44,8 +44,111 @@[m [mframebuffer0: framebuffer@bef00000 {[m
+ 			status = "okay";			[m
+ 			};[m
+ 		};[m
+[32m+[m[41m		[m
+[32m+[m	[32mreg_touch_ldo_en: regulator-touch-ldo-en  {[m
+[32m+[m[41m [m		[32mcompatible = "regulator-fixed";[m
+[32m+[m		[32mregulator-name = "touch_ldo_en";[m
+[32m+[m[41m      [m		[32mgpios = <&gpio2 22 0>;[m
+[32m+[m		[32mregulator-always-on;[m
+[32m+[m		[32menable-active-high;[m
+[32m+[m		[32m};[m
+[32m+[m
+[32m+[m[41m		[m
+[32m+[m	[32mreg_lcd: regulator-lcd  {[m
+[32m+[m[41m      [m		[32mcompatible = "regulator-fixed";[m
+[32m+[m[41m      [m		[32mregulator-name = "lcd_en";[m
+[32m+[m[41m      [m		[32mgpios = <&gpio5 7 0>;[m
+[32m+[m[41m      [m		[32menable-active-high;[m
+[32m+[m[41m      [m		[32m//regulator-always-on;[m
+[32m+[m[41m      [m		[32mregulator-boot-on;[m
+[32m+[m		[32m};[m
+[32m+[m[41m		[m
+[32m+[m	[32mpwm10: dmtimer-pwm-10 {[m
+[32m+[m		[32mpinctrl-names = "default";[m
+[32m+[m		[32mpinctrl-0 = <&pwm10_default>;[m
+[32m+[m
+[32m+[m		[32mcompatible = "ti,omap-dmtimer-pwm";[m
+[32m+[m		[32m#pwm-cells = <3>;[m
+[32m+[m		[32mti,timers = <&timer10>;[m
+[32m+[m		[32mti,clock-source = <0x01>;[m
+[32m+[m	[32m};[m
+[32m+[m[41m	[m
+[32m+[m	[32mbacklight {[m
+[32m+[m[41m        [m	[32mcompatible = "pwm-backlight";[m
+[32m+[m[41m        [m	[32mpinctrl-names = "default";[m
+[32m+[m		[32mpinctrl-0 = <&backlight_pins>;[m
+[32m+[m[41m        [m	[32mpwms = <&pwm10 0 5000000 0>;[m[41m [m
+[32m+[m[41m        [m	[32mpower-supply = <&reg_lcd>;[m
+[32m+[m[41m        [m	[32menable-gpios = <&gpio3 31 0>;[m
+[32m+[m[41m        [m	[32mbrightness-levels = <0 4 8 16 32 64 128 255>;[m
+[32m+[m	[32m        default-brightness-level = <7>;[m
+[32m+[m[32m        };[m
+[32m+[m[41m        [m
+[32m+[m[32m        lvds-encoder {[m
+[32m+[m[41m        [m	[32mcompatible = "doestek,dtc34lm85al","lvds-encoder";[m
+[32m+[m[41m        [m	[32mports {[m
+[32m+[m[41m            [m		[32m#address-cells = <1>;[m
+[32m+[m[41m            [m		[32m#size-cells = <0>;[m
+[32m+[m[41m            [m		[32mport@0 {[m
+[32m+[m[41m                [m		[32mreg = <0>;[m
+[32m+[m[41m                [m		[32mlvds_enc_in: endpoint {[m
+[32m+[m[41m                    [m			[32mremote-endpoint = <&dpi_out>;[m
+[32m+[m[41m                [m		[32m};[m
+[32m+[m[41m            [m		[32m};[m
+[32m+[m[41m            [m		[32mport@1 {[m
+[32m+[m[41m                [m		[32mreg = <1>;[m
+[32m+[m		[41m            [m	[32mlvds_enc_out: endpoint {[m
+[32m+[m[41m               [m		[41m    [m	[32mremote-endpoint = <&panel_in>;[m
+[32m+[m[41m               [m		[32m};[m
+[32m+[m[41m            [m		[32m};[m
+[32m+[m[41m        [m	[32m};[m
+[32m+[m[41m    [m	[32m};[m
+[32m+[m[41m	[m
+[32m+[m[41m	[m
+[32m+[m	[32mpanel {[m
+[32m+[m		[32mcompatible ="samsung,ltn070nl01", "panel-lvds";[m
+[32m+[m
+[32m+[m		[32mpower-supply = <&reg_lcd_en>; //TODO change to reg_lcd[m
+[32m+[m		[32mwidth-mm = <154>;[m
+[32m+[m		[32mheight-mm = <90>;[m
+[32m+[m		[32mdata-mapping = "jeida-24";[m
+[32m+[m		[32mpanel-timing {[m
+[32m+[m			[32mclock-frequency = <56888>;[m
+[32m+[m
+[32m+[m			[32mhback-porch = <210>;[m
+[32m+[m			[32mhactive = <1024>;[m
+[32m+[m			[32mhfront-porch = <186>;[m
+[32m+[m			[32mhsync-len = <50>;[m
+[32m+[m
+[32m+[m			[32mvback-porch = <11>;[m
+[32m+[m			[32mvactive = <600>;[m
+[32m+[m			[32mvfront-porch = <24>;[m
+[32m+[m			[32mvsync-len = <10>;[m
+[32m+[m
+[32m+[m		[32m};[m
+[32m+[m[41m		[m
+[32m+[m		[32mport {[m
+[32m+[m			[32mpanel_in: endpoint {[m
+[32m+[m				[32mremote-endpoint = <&lvds_enc_out>;[m
+[32m+[m			[32m};[m
+[32m+[m		[32m};[m
+[32m+[m	[32m};[m
+[32m+[m
+ };[m
+ &omap4_pmx_core {[m
+[32m+[m[41m	[m
+[32m+[m	[32mpwm10_default: pinmux_pwm10_default {[m
+[32m+[m		[32mpinctrl-single,pins = <[m
+[32m+[m		[32mOMAP4_IOPAD(0X0D6, PIN_OUTPUT | PIN_OFF_OUTPUT_LOW | MUX_MODE1)[m
+[32m+[m		[32m>;[m
+[32m+[m	[32m};[m
+[32m+[m[41m	[m
+[32m+[m	[32mbacklight_pins: pinmux_backlight_pins {[m
+[32m+[m		[32mpinctrl-single,pins = <[m
+[32m+[m		[32mOMAP4_IOPAD(0X0D8, PIN_OUTPUT | PIN_OFF_OUTPUT_LOW | MUX_MODE3)[m[41m	[m
+[32m+[m		[32m>;[m
+[32m+[m	[32m};[m
+[32m+[m[41m	[m
+ 	i2c1_pins: pinmux_i2c1_pins {[m
+ 		pinctrl-single,pins = <[m
+ 			OMAP4_IOPAD(0x122, PIN_INPUT_PULLUP | MUX_MODE0)	/* i2c1_scl */[m
+[36m@@ -88,6 +191,41 @@[m [mOMAP4_IOPAD(0x082, PIN_INPUT_PULLUP | MUX_MODE1)	/* sdmmc2_clk */[m
+ 			OMAP4_IOPAD(0x084, PIN_INPUT_PULLUP | MUX_MODE1)	/* sdmmc2_cmd */[m
+ 		>;[m
+ 	};[m
+[32m+[m[41m	[m
+[32m+[m		[32mdss_dpi_pins: pinmux_dss_dpi_pins {[m
+[32m+[m		[32mpinctrl-single,pins = <[m
+[32m+[m			[32mOMAP4_IOPAD(0x162, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data23 */[m
+[32m+[m			[32mOMAP4_IOPAD(0x164, PIN_OUTPUT | MUX_MODE5) 	/* dispc2_data22 */[m
+[32m+[m			[32mOMAP4_IOPAD(0x166, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data21 */[m
+[32m+[m			[32mOMAP4_IOPAD(0x168, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data20 */[m
+[32m+[m			[32mOMAP4_IOPAD(0x16a, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data19 */[m
+[32m+[m			[32mOMAP4_IOPAD(0x16c, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data18 */[m
+[32m+[m			[32mOMAP4_IOPAD(0x16e, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data15 */[m
+[32m+[m			[32mOMAP4_IOPAD(0x170, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data14 */[m
+[32m+[m			[32mOMAP4_IOPAD(0x172, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data13 */[m
+[32m+[m			[32mOMAP4_IOPAD(0x174, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data12 */[m
+[32m+[m			[32mOMAP4_IOPAD(0x176, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data11 */[m
+[32m+[m
+[32m+[m			[32mOMAP4_IOPAD(0x1b4, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data10 */[m
+[32m+[m			[32mOMAP4_IOPAD(0x1b6, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data9 */[m
+[32m+[m			[32mOMAP4_IOPAD(0x1b8, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data16 */[m
+[32m+[m			[32mOMAP4_IOPAD(0x1ba, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data17 */[m
+[32m+[m			[32mOMAP4_IOPAD(0x1bc, PIN_OUTPUT | MUX_MODE5)	/* dispc2_hsync */[m
+[32m+[m			[32mOMAP4_IOPAD(0x1be, PIN_OUTPUT | MUX_MODE5)	/* dispc2_pclk */[m
+[32m+[m			[32mOMAP4_IOPAD(0x1c0, PIN_OUTPUT | MUX_MODE5)	/* dispc2_vsync */[m
+[32m+[m			[32mOMAP4_IOPAD(0x1c2, PIN_OUTPUT | MUX_MODE5)	/* dispc2_de */[m
+[32m+[m			[32mOMAP4_IOPAD(0x1c4, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data8 */[m
+[32m+[m			[32mOMAP4_IOPAD(0x1c6, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data7 */[m
+[32m+[m			[32mOMAP4_IOPAD(0x1c8, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data6 */[m
+[32m+[m			[32mOMAP4_IOPAD(0x1ca, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data5 */[m
+[32m+[m			[32mOMAP4_IOPAD(0x1cc, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data4 */[m
+[32m+[m			[32mOMAP4_IOPAD(0x1ce, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data3 */[m
+[32m+[m
+[32m+[m			[32mOMAP4_IOPAD(0x1d0, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data2 */[m
+[32m+[m			[32mOMAP4_IOPAD(0x1d2, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data1 */[m
+[32m+[m			[32mOMAP4_IOPAD(0x1d4, PIN_OUTPUT | MUX_MODE5)	/* dispc2_data0 */[m
+[32m+[m		[32m>;[m
+[32m+[m	[32m};[m
+ };[m
+ [m
+ &i2c1 {[m
+[36m@@ -109,6 +247,17 @@[m [m&i2c2 {[m
+ &i2c3 {[m
+ 	pinctrl-names = "default";[m
+ 	pinctrl-0 = <&i2c3_pins>;[m
+[32m+[m[41m	[m
+[32m+[m	[32mtouchscreen@48 {[m
+[32m+[m		[32mcompatible = "melfas,mms114";[m
+[32m+[m		[32mreg = <0x48>;[m
+[32m+[m		[32minterrupt-parent = <&gpio2>;[m
+[32m+[m		[32minterrupts = <14 IRQ_TYPE_EDGE_FALLING>;[m
+[32m+[m		[32mtouchscreen-size-x = <1024>;[m
+[32m+[m		[32mtouchscreen-size-y = <600>;[m[41m	[m
+[32m+[m		[32mavdd-supply = <&reg_touch_ldo_en>;[m
+[32m+[m		[32mvdd-supply = <&vcxio>;[m
+[32m+[m	[32m};[m
+ };[m
+ [m
+ &i2c4 {[m
+[36m@@ -116,6 +265,21 @@[m [m&i2c4 {[m
+ 	pinctrl-0 = <&i2c4_pins>;[m
+ };[m
+ [m
+[32m+[m[32m&dss {[m
+[32m+[m	[32mstatus = "ok";[m
+[32m+[m
+[32m+[m	[32mpinctrl-names = "default";[m
+[32m+[m	[32mpinctrl-0 = <&dss_dpi_pins>;[m
+[32m+[m
+[32m+[m	[32mport { //TODO CHECK THIS[m
+[32m+[m		[32mdpi_out: endpoint {[m
+[32m+[m			[32mremote-endpoint = <&lvds_enc_in>;[m
+[32m+[m			[32mdata-lines = <24>;[m
+[32m+[m		[32m};[m
+[32m+[m	[32m};[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m
+ [m
+ #include "twl6030.dtsi"[m
+ #include "twl6030_omap4.dtsi"[m
+[36m@@ -126,7 +290,6 @@[m [m&vmmc {[m
+ 	regulator-max-microvolt = <3000000>;[m
+ };[m
+ [m
+[31m-[m
+ &twl_usb_comparator {[m
+ 	usb-supply = <&vusb>;[m
+ };[m
+[1mdiff --git a/arch/arm/boot/dts/omap4.dtsi b/arch/arm/boot/dts/omap4.dtsi[m
+[1mindex df339f5e436e..370ff9d0a328 100644[m
+[1m--- a/arch/arm/boot/dts/omap4.dtsi[m
+[1m+++ b/arch/arm/boot/dts/omap4.dtsi[m
+[36m@@ -453,7 +453,7 @@[m [msgx_module: target-module@56000000 {[m
+ 		 * "10.1.3 DSS Register Manual" for omap4460.[m
+ 		 */[m
+ 		target-module@58000000 {[m
+[31m-		status="disabled";[m
+[32m+[m		[32m//status="disabled";[m
+ 			compatible = "ti,sysc-omap2", "ti,sysc";[m
+ 			reg = <0x58000000 4>,[m
+ 			      <0x58000014 4>;[m
+[1mdiff --git a/drivers/gpu/drm/bridge/lvds-codec.c b/drivers/gpu/drm/bridge/lvds-codec.c[m
+[1mindex dcf579a4cf83..2ceac8bfc1ba 100644[m
+[1m--- a/drivers/gpu/drm/bridge/lvds-codec.c[m
+[1m+++ b/drivers/gpu/drm/bridge/lvds-codec.c[m
+[36m@@ -3,6 +3,7 @@[m
+  * Copyright (C) 2019 Renesas Electronics Corporation[m
+  * Copyright (C) 2016 Laurent Pinchart <laurent.pinchart@ideasonboard.com>[m
+  */[m
+[32m+[m[32m#define DEBUG[m
+ [m
+ #include <linux/gpio/consumer.h>[m
+ #include <linux/module.h>[m
+[36m@@ -155,6 +156,10 @@[m [mstatic const struct of_device_id lvds_codec_match[] = {[m
+ 		.compatible = "thine,thc63lvdm83d",[m
+ 		.data = (void *)DRM_MODE_CONNECTOR_LVDS,[m
+ 	},[m
+[32m+[m	[32m{[m
+[32m+[m		[32m.compatible = "doestek,dtc34lm85al",[m
+[32m+[m		[32m.data = (void *)DRM_MODE_CONNECTOR_LVDS,[m
+[32m+[m	[32m},[m
+ 	{},[m
+ };[m
+ MODULE_DEVICE_TABLE(of, lvds_codec_match);[m
+[1mdiff --git a/drivers/gpu/drm/bridge/simple-bridge.c b/drivers/gpu/drm/bridge/simple-bridge.c[m
+[1mindex d974282c12b2..31e5009618c2 100644[m
+[1m--- a/drivers/gpu/drm/bridge/simple-bridge.c[m
+[1m+++ b/drivers/gpu/drm/bridge/simple-bridge.c[m
+[36m@@ -5,6 +5,7 @@[m
+  *[m
+  * Maxime Ripard <maxime.ripard@free-electrons.com>[m
+  */[m
+[32m+[m[32m#define DEBUG[m
+ [m
+ #include <linux/gpio/consumer.h>[m
+ #include <linux/module.h>[m
+[36m@@ -264,6 +265,17 @@[m [mstatic const struct drm_bridge_timings ti_ths8135_bridge_timings = {[m
+ 	.hold_time_ps = 500,[m
+ };[m
+ [m
+[32m+[m[32m/*[m
+[32m+[m[32m * Information taken from the dtc34lm85am datasheet[m
+[32m+[m[32m */[m
+[32m+[m[32mstatic const struct drm_bridge_timings dtc34lm85am_bridge_timings = {[m
+[32m+[m	[32m/* Timing specifications */[m
+[32m+[m	[32m.input_bus_flags = DRM_BUS_FLAG_PIXDATA_SAMPLE_POSEDGE,[m
+[32m+[m	[32m.setup_time_ps = 2000,[m
+[32m+[m	[32m.hold_time_ps = 2000,[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m
+ static const struct of_device_id simple_bridge_match[] = {[m
+ 	{[m
+ 		.compatible = "dumb-vga-dac",[m
+[36m@@ -294,6 +306,13 @@[m [mstatic const struct of_device_id simple_bridge_match[] = {[m
+ 			.connector_type = DRM_MODE_CONNECTOR_VGA,[m
+ 		},[m
+ 	},[m
+[32m+[m	[32m{[m
+[32m+[m		[32m.compatible = "doestek,dtc34lm85am",[m
+[32m+[m		[32m.data = &(const struct simple_bridge_info) {[m
+[32m+[m			[32m.timings = &dtc34lm85am_bridge_timings,[m
+[32m+[m			[32m.connector_type = DRM_MODE_CONNECTOR_LVDS,[m
+[32m+[m		[32m},[m
+[32m+[m	[32m},[m
+ 	{},[m
+ };[m
+ MODULE_DEVICE_TABLE(of, simple_bridge_match);[m
+[1mdiff --git a/drivers/gpu/drm/panel/panel-simple.c b/drivers/gpu/drm/panel/panel-simple.c[m
+[1mindex 41bbec72b2da..16cf9aca78ea 100644[m
+[1m--- a/drivers/gpu/drm/panel/panel-simple.c[m
+[1m+++ b/drivers/gpu/drm/panel/panel-simple.c[m
+[36m@@ -20,6 +20,7 @@[m
+  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER[m
+  * DEALINGS IN THE SOFTWARE.[m
+  */[m
+[32m+[m[32m#define DEBUG[m
+ [m
+ #include <linux/delay.h>[m
+ #include <linux/gpio/consumer.h>[m
+[36m@@ -3294,6 +3295,32 @@[m [mstatic const struct panel_desc samsung_lsn122dl01_c01 = {[m
+ 	},[m
+ };[m
+ [m
+[32m+[m[32mstatic const struct drm_display_mode samsung_ltn070nl01_mode = {[m
+[32m+[m	[32m.clock = 56888,[m
+[32m+[m	[32m.hdisplay = 1024,[m
+[32m+[m	[32m.hsync_start = 1024 + 210, // + hbp[m
+[32m+[m	[32m.hsync_end = 1024 + 210 + 50, // + hsw[m
+[32m+[m	[32m.htotal = 1024 + 210 + 50 + 186, // + hfp[m
+[32m+[m	[32m.vdisplay = 600,[m
+[32m+[m	[32m.vsync_start = 600 + 11, // + vbp[m
+[32m+[m	[32m.vsync_end = 600 + 11 + 10, // + vsw[m
+[32m+[m	[32m.vtotal = 600 + 11 + 10 + 24, // + vfp[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32mstatic const struct panel_desc samsung_ltn070nl01 = {[m
+[32m+[m	[32m.modes = &samsung_ltn070nl01_mode,[m
+[32m+[m	[32m.num_modes = 1,[m
+[32m+[m	[32m.bpc = 8,[m
+[32m+[m	[32m.size = {[m
+[32m+[m		[32m.width = 154,[m
+[32m+[m		[32m.height = 90,[m
+[32m+[m	[32m},[m
+[32m+[m	[32m.bus_format = MEDIA_BUS_FMT_RGB888_1X7X4_JEIDA,[m
+[32m+[m	[32m.bus_flags = DRM_BUS_FLAG_DE_HIGH,[m
+[32m+[m	[32m.connector_type = DRM_MODE_CONNECTOR_LVDS,[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m
+ static const struct drm_display_mode samsung_ltn101nt05_mode = {[m
+ 	.clock = 54030,[m
+ 	.hdisplay = 1024,[m
+[36m@@ -4270,6 +4297,9 @@[m [mstatic const struct of_device_id platform_of_match[] = {[m
+ 	}, {[m
+ 		.compatible = "samsung,lsn122dl01-c01",[m
+ 		.data = &samsung_lsn122dl01_c01,[m
+[32m+[m	[32m}, {[m
+[32m+[m		[32m.compatible = "samsung,ltn070nl01",[m
+[32m+[m		[32m.data = &samsung_ltn070nl01,[m
+ 	}, {[m
+ 		.compatible = "samsung,ltn101nt05",[m
+ 		.data = &samsung_ltn101nt05,[m
+[1mdiff --git a/drivers/iio/magnetometer/Kconfig b/drivers/iio/magnetometer/Kconfig[m
+[1mindex 1697a8c03506..06b0ec316d7f 100644[m
+[1m--- a/drivers/iio/magnetometer/Kconfig[m
+[1m+++ b/drivers/iio/magnetometer/Kconfig[m
+[36m@@ -205,4 +205,18 @@[m [mconfig SENSORS_RM3100_SPI[m
+ 	  To compile this driver as a module, choose M here: the module[m
+ 	  will be called rm3100-spi.[m
+ [m
+[32m+[m[32mconfig YAMAHA_YAS530[m
+[32m+[m	[32mtristate "Yamaha YAS530 family of 3-Axis Magnetometers (I2C)"[m
+[32m+[m	[32mdepends on I2C[m
+[32m+[m	[32mselect REGMAP_I2C[m
+[32m+[m	[32mselect IIO_BUFFER[m
+[32m+[m	[32mselect IIO_TRIGGERED_BUFFER[m
+[32m+[m	[32mhelp[m
+[32m+[m	[32m  Say Y here to add support for the Yamaha YAS530 series of[m
+[32m+[m	[32m  3-Axis Magnetometers. Right now YAS530, YAS532 and YAS533 are[m
+[32m+[m	[32m  fully supported.[m
+[32m+[m
+[32m+[m	[32m  This driver can also be compiled as a module.[m
+[32m+[m	[32m  To compile this driver as a module, choose M here: the module[m
+[32m+[m	[32m  will be called yamaha-yas.[m
+ endmenu[m
+[1mdiff --git a/drivers/iio/magnetometer/Makefile b/drivers/iio/magnetometer/Makefile[m
+[1mindex ba1bc34b82fa..f95e8297c3ff 100644[m
+[1m--- a/drivers/iio/magnetometer/Makefile[m
+[1m+++ b/drivers/iio/magnetometer/Makefile[m
+[36m@@ -28,3 +28,5 @@[m [mobj-$(CONFIG_SENSORS_HMC5843_SPI)	+= hmc5843_spi.o[m
+ obj-$(CONFIG_SENSORS_RM3100)		+= rm3100-core.o[m
+ obj-$(CONFIG_SENSORS_RM3100_I2C)	+= rm3100-i2c.o[m
+ obj-$(CONFIG_SENSORS_RM3100_SPI)	+= rm3100-spi.o[m
+[32m+[m
+[32m+[m[32mobj-$(CONFIG_YAMAHA_YAS530)		+= yamaha-yas530.o[m[41m [m
+[1mdiff --git a/drivers/input/touchscreen/mms114.c b/drivers/input/touchscreen/mms114.c[m
+[1mindex 6c04ff1e8372..1bec626d126a 100644[m
+[1m--- a/drivers/input/touchscreen/mms114.c[m
+[1m+++ b/drivers/input/touchscreen/mms114.c[m
+[36m@@ -44,15 +44,13 @@[m
+ #define MMS114_MAX_AREA			0xff[m
+ [m
+ #define MMS114_MAX_TOUCH		10[m
+[31m-#define MMS114_PACKET_NUM		8[m
+[32m+[m[32m#define MMS114_PACKET_NUM		6[m
+ [m
+ /* Touch type */[m
+ #define MMS114_TYPE_NONE		0[m
+ #define MMS114_TYPE_TOUCHSCREEN		1[m
+ #define MMS114_TYPE_TOUCHKEY		2[m
+ [m
+[31m-#define DEBUG[m
+[31m-[m
+ enum mms_type {[m
+ 	TYPE_MMS114	= 114,[m
+ 	TYPE_MMS152	= 152,[m
+[36m@@ -192,7 +190,6 @@[m [mstatic void mms114_process_mt(struct mms114_data *data, struct mms114_touch *tou[m
+ [m
+ static irqreturn_t mms114_interrupt(int irq, void *dev_id)[m
+ {[m
+[31m-	printk("Reached mms114_interrupt");[m
+ 	struct mms114_data *data = dev_id;[m
+ 	struct input_dev *input_dev = data->input_dev;[m
+ 	struct mms114_touch touch[MMS114_MAX_TOUCH];[m
+[36m@@ -213,7 +210,8 @@[m [mstatic irqreturn_t mms114_interrupt(int irq, void *dev_id)[m
+ 		goto out;[m
+ [m
+ 	touch_size = packet_size / MMS114_PACKET_NUM;[m
+[31m-[m
+[32m+[m	[32mprintk("packet_size %d", packet_size);[m
+[32m+[m	[32mprintk("touch size %d", touch_size);[m
+ 	error = __mms114_read_reg(data, MMS114_INFORMATION, packet_size,[m
+ 			(u8 *)touch);[m
+ 	if (error < 0)[m
+[36m@@ -295,7 +293,7 @@[m [mstatic int mms114_setup_regs(struct mms114_data *data)[m
+ 	const struct touchscreen_properties *props = &data->props;[m
+ 	int val;[m
+ 	int error;[m
+[31m-	[m
+[32m+[m
+ 	error = mms114_get_version(data);[m
+ 	if (error < 0)[m
+ 		return error;[m
+[36m@@ -436,7 +434,6 @@[m [mstatic int mms114_parse_legacy_bindings(struct mms114_data *data)[m
+ static int mms114_probe(struct i2c_client *client,[m
+ 				  const struct i2c_device_id *id)[m
+ {[m
+[31m-	printk("Reached mms114_probe");[m
+ 	struct mms114_data *data;[m
+ 	struct input_dev *input_dev;[m
+ 	const void *match_data;[m

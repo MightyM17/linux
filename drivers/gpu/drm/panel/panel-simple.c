@@ -20,6 +20,7 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
+#define DEBUG
 
 #include <linux/delay.h>
 #include <linux/gpio/consumer.h>
@@ -3294,6 +3295,32 @@ static const struct panel_desc samsung_lsn122dl01_c01 = {
 	},
 };
 
+static const struct drm_display_mode samsung_ltn070nl01_mode = {
+	.clock = 56888,
+	.hdisplay = 1024,
+	.hsync_start = 1024 + 210, // + hbp
+	.hsync_end = 1024 + 210 + 50, // + hsw
+	.htotal = 1024 + 210 + 50 + 186, // + hfp
+	.vdisplay = 600,
+	.vsync_start = 600 + 11, // + vbp
+	.vsync_end = 600 + 11 + 10, // + vsw
+	.vtotal = 600 + 11 + 10 + 24, // + vfp
+};
+
+static const struct panel_desc samsung_ltn070nl01 = {
+	.modes = &samsung_ltn070nl01_mode,
+	.num_modes = 1,
+	.bpc = 8,
+	.size = {
+		.width = 154,
+		.height = 90,
+	},
+	.bus_format = MEDIA_BUS_FMT_RGB888_1X7X4_JEIDA,
+	.bus_flags = DRM_BUS_FLAG_DE_HIGH,
+	.connector_type = DRM_MODE_CONNECTOR_LVDS,
+};
+
+
 static const struct drm_display_mode samsung_ltn101nt05_mode = {
 	.clock = 54030,
 	.hdisplay = 1024,
@@ -4270,6 +4297,9 @@ static const struct of_device_id platform_of_match[] = {
 	}, {
 		.compatible = "samsung,lsn122dl01-c01",
 		.data = &samsung_lsn122dl01_c01,
+	}, {
+		.compatible = "samsung,ltn070nl01",
+		.data = &samsung_ltn070nl01,
 	}, {
 		.compatible = "samsung,ltn101nt05",
 		.data = &samsung_ltn101nt05,

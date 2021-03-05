@@ -282,6 +282,8 @@ patternProperties:
   "^dh,.*":
     description: DH electronics GmbH
   "^difrnce,.*":
+    description: Doestek
+  "^doestek,.*":
     description: Shenzhen Yagu Electronic Technology Co., Ltd.
   "^digi,.*":
     description: Digi International Inc.

@@ -1581,7 +1581,7 @@
 		};
 
 		target-module@57000 {			/* 0x48057000, ap 17 16.0 */
-		status="disabled";
+		//status="disabled";
 			compatible = "ti,sysc-omap2", "ti,sysc";
 			reg = <0x57000 0x4>,
 			      <0x57010 0x4>,
@@ -1649,7 +1649,7 @@
 		};
 
 		target-module@5b000 {			/* 0x4805b000, ap 21 12.0 */
-		status="disabled";
+		//status="disabled";
 			compatible = "ti,sysc-omap2", "ti,sysc";
 			reg = <0x5b000 0x4>,
 			      <0x5b010 0x4>,
@@ -1953,7 +1953,7 @@
 		};
 
 		target-module@86000 {			/* 0x48086000, ap 43 24.0 */
-		status="disabled";
+		//status="disabled";
 			compatible = "ti,sysc-omap2-timer", "ti,sysc";
 			reg = <0x86000 0x4>,
 			      <0x86010 0x4>,
