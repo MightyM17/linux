@@ -210,8 +210,8 @@ static irqreturn_t mms114_interrupt(int irq, void *dev_id)
 		goto out;
 
 	touch_size = packet_size / MMS114_PACKET_NUM;
-	printk("packet_size %d", packet_size);
-	printk("touch size %d", touch_size);
+	//printk("packet_size %d", packet_size);
+	//printk("touch size %d", touch_size);
 	error = __mms114_read_reg(data, MMS114_INFORMATION, packet_size,
 			(u8 *)touch);
 	if (error < 0)

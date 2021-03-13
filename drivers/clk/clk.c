@@ -4842,8 +4842,12 @@ struct clk_hw *of_clk_get_hw(struct device_node *np, int index,
 	struct of_phandle_args clkspec;
 
 	ret = of_parse_clkspec(np, index, con_id, &clkspec);
+	//printk("ret is %x \n", ret);
 	if (ret)
+	{
+		//printk("ret error woohoo! \n");
 		return ERR_PTR(ret);
+	}
 
 	hw = of_clk_get_hw_from_clkspec(&clkspec);
 	of_node_put(clkspec.np);

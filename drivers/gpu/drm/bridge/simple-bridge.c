@@ -5,8 +5,6 @@
  *
  * Maxime Ripard <maxime.ripard@free-electrons.com>
  */
-#define DEBUG
-
 #include <linux/gpio/consumer.h>
 #include <linux/module.h>
 #include <linux/of_device.h>
@@ -265,17 +263,6 @@ static const struct drm_bridge_timings ti_ths8135_bridge_timings = {
 	.hold_time_ps = 500,
 };
 
-/*
- * Information taken from the dtc34lm85am datasheet
- */
-static const struct drm_bridge_timings dtc34lm85am_bridge_timings = {
-	/* Timing specifications */
-	.input_bus_flags = DRM_BUS_FLAG_PIXDATA_SAMPLE_POSEDGE,
-	.setup_time_ps = 2000,
-	.hold_time_ps = 2000,
-};
-
-
 static const struct of_device_id simple_bridge_match[] = {
 	{
 		.compatible = "dumb-vga-dac",
@@ -304,13 +291,6 @@ static const struct of_device_id simple_bridge_match[] = {
 		.data = &(const struct simple_bridge_info) {
 			.timings = &ti_ths8134_bridge_timings,
 			.connector_type = DRM_MODE_CONNECTOR_VGA,
-		},
-	},
-	{
-		.compatible = "doestek,dtc34lm85am",
-		.data = &(const struct simple_bridge_info) {
-			.timings = &dtc34lm85am_bridge_timings,
-			.connector_type = DRM_MODE_CONNECTOR_LVDS,
 		},
 	},
 	{},
