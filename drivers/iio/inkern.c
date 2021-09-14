@@ -10,7 +10,6 @@
 #include <linux/of.h>
 
 #include <linux/iio/iio.h>
-#include <linux/iio/iio-opaque.h>
 #include "iio_core.h"
 #include <linux/iio/machine.h>
 #include <linux/iio/driver.h>
@@ -360,24 +359,30 @@ void iio_channel_release(struct iio_channel *channel)
 }
 EXPORT_SYMBOL_GPL(iio_channel_release);
 
-static void devm_iio_channel_free(void *iio_channel)
+static void devm_iio_channel_free(struct device *dev, void *res)
 {
-	iio_channel_release(iio_channel);
+	struct iio_channel *channel = *(struct iio_channel **)res;
+
+	iio_channel_release(channel);
 }
 
 struct iio_channel *devm_iio_channel_get(struct device *dev,
 					 const char *channel_name)
 {
-	struct iio_channel *channel;
-	int ret;
+	struct iio_channel **ptr, *channel;
+
+	ptr = devres_alloc(devm_iio_channel_free, sizeof(*ptr), GFP_KERNEL);
+	if (!ptr)
+		return ERR_PTR(-ENOMEM);
 
 	channel = iio_channel_get(dev, channel_name);
-	if (IS_ERR(channel))
+	if (IS_ERR(channel)) {
+		devres_free(ptr);
 		return channel;
+	}
 
-	ret = devm_add_action_or_reset(dev, devm_iio_channel_free, channel);
-	if (ret)
-		return ERR_PTR(ret);
+	*ptr = channel;
+	devres_add(dev, ptr);
 
 	return channel;
 }
@@ -387,16 +392,20 @@ struct iio_channel *devm_of_iio_channel_get_by_name(struct device *dev,
 						    struct device_node *np,
 						    const char *channel_name)
 {
-	struct iio_channel *channel;
-	int ret;
+	struct iio_channel **ptr, *channel;
+
+	ptr = devres_alloc(devm_iio_channel_free, sizeof(*ptr), GFP_KERNEL);
+	if (!ptr)
+		return ERR_PTR(-ENOMEM);
 
 	channel = of_iio_channel_get_by_name(np, channel_name);
-	if (IS_ERR(channel))
+	if (IS_ERR(channel)) {
+		devres_free(ptr);
 		return channel;
+	}
 
-	ret = devm_add_action_or_reset(dev, devm_iio_channel_free, channel);
-	if (ret)
-		return ERR_PTR(ret);
+	*ptr = channel;
+	devres_add(dev, ptr);
 
 	return channel;
 }
@@ -487,24 +496,29 @@ void iio_channel_release_all(struct iio_channel *channels)
 }
 EXPORT_SYMBOL_GPL(iio_channel_release_all);
 
-static void devm_iio_channel_free_all(void *iio_channels)
+static void devm_iio_channel_free_all(struct device *dev, void *res)
 {
-	iio_channel_release_all(iio_channels);
+	struct iio_channel *channels = *(struct iio_channel **)res;
+
+	iio_channel_release_all(channels);
 }
 
 struct iio_channel *devm_iio_channel_get_all(struct device *dev)
 {
-	struct iio_channel *channels;
-	int ret;
+	struct iio_channel **ptr, *channels;
+
+	ptr = devres_alloc(devm_iio_channel_free_all, sizeof(*ptr), GFP_KERNEL);
+	if (!ptr)
+		return ERR_PTR(-ENOMEM);
 
 	channels = iio_channel_get_all(dev);
-	if (IS_ERR(channels))
+	if (IS_ERR(channels)) {
+		devres_free(ptr);
 		return channels;
+	}
 
-	ret = devm_add_action_or_reset(dev, devm_iio_channel_free_all,
-				       channels);
-	if (ret)
-		return ERR_PTR(ret);
+	*ptr = channels;
+	devres_add(dev, ptr);
 
 	return channels;
 }
@@ -539,10 +553,9 @@ static int iio_channel_read(struct iio_channel *chan, int *val, int *val2,
 
 int iio_read_channel_raw(struct iio_channel *chan, int *val)
 {
-	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(chan->indio_dev);
 	int ret;
 
-	mutex_lock(&iio_dev_opaque->info_exist_lock);
+	mutex_lock(&chan->indio_dev->info_exist_lock);
 	if (chan->indio_dev->info == NULL) {
 		ret = -ENODEV;
 		goto err_unlock;
@@ -550,7 +563,7 @@ int iio_read_channel_raw(struct iio_channel *chan, int *val)
 
 	ret = iio_channel_read(chan, val, NULL, IIO_CHAN_INFO_RAW);
 err_unlock:
-	mutex_unlock(&iio_dev_opaque->info_exist_lock);
+	mutex_unlock(&chan->indio_dev->info_exist_lock);
 
 	return ret;
 }
@@ -558,10 +571,9 @@ EXPORT_SYMBOL_GPL(iio_read_channel_raw);
 
 int iio_read_channel_average_raw(struct iio_channel *chan, int *val)
 {
-	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(chan->indio_dev);
 	int ret;
 
-	mutex_lock(&iio_dev_opaque->info_exist_lock);
+	mutex_lock(&chan->indio_dev->info_exist_lock);
 	if (chan->indio_dev->info == NULL) {
 		ret = -ENODEV;
 		goto err_unlock;
@@ -569,7 +581,7 @@ int iio_read_channel_average_raw(struct iio_channel *chan, int *val)
 
 	ret = iio_channel_read(chan, val, NULL, IIO_CHAN_INFO_AVERAGE_RAW);
 err_unlock:
-	mutex_unlock(&iio_dev_opaque->info_exist_lock);
+	mutex_unlock(&chan->indio_dev->info_exist_lock);
 
 	return ret;
 }
@@ -634,10 +646,9 @@ static int iio_convert_raw_to_processed_unlocked(struct iio_channel *chan,
 int iio_convert_raw_to_processed(struct iio_channel *chan, int raw,
 	int *processed, unsigned int scale)
 {
-	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(chan->indio_dev);
 	int ret;
 
-	mutex_lock(&iio_dev_opaque->info_exist_lock);
+	mutex_lock(&chan->indio_dev->info_exist_lock);
 	if (chan->indio_dev->info == NULL) {
 		ret = -ENODEV;
 		goto err_unlock;
@@ -646,7 +657,7 @@ int iio_convert_raw_to_processed(struct iio_channel *chan, int raw,
 	ret = iio_convert_raw_to_processed_unlocked(chan, raw, processed,
 							scale);
 err_unlock:
-	mutex_unlock(&iio_dev_opaque->info_exist_lock);
+	mutex_unlock(&chan->indio_dev->info_exist_lock);
 
 	return ret;
 }
@@ -655,10 +666,9 @@ EXPORT_SYMBOL_GPL(iio_convert_raw_to_processed);
 int iio_read_channel_attribute(struct iio_channel *chan, int *val, int *val2,
 			       enum iio_chan_info_enum attribute)
 {
-	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(chan->indio_dev);
 	int ret;
 
-	mutex_lock(&iio_dev_opaque->info_exist_lock);
+	mutex_lock(&chan->indio_dev->info_exist_lock);
 	if (chan->indio_dev->info == NULL) {
 		ret = -ENODEV;
 		goto err_unlock;
@@ -666,7 +676,7 @@ int iio_read_channel_attribute(struct iio_channel *chan, int *val, int *val2,
 
 	ret = iio_channel_read(chan, val, val2, attribute);
 err_unlock:
-	mutex_unlock(&iio_dev_opaque->info_exist_lock);
+	mutex_unlock(&chan->indio_dev->info_exist_lock);
 
 	return ret;
 }
@@ -681,10 +691,9 @@ EXPORT_SYMBOL_GPL(iio_read_channel_offset);
 int iio_read_channel_processed_scale(struct iio_channel *chan, int *val,
 				     unsigned int scale)
 {
-	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(chan->indio_dev);
 	int ret;
 
-	mutex_lock(&iio_dev_opaque->info_exist_lock);
+	mutex_lock(&chan->indio_dev->info_exist_lock);
 	if (chan->indio_dev->info == NULL) {
 		ret = -ENODEV;
 		goto err_unlock;
@@ -705,7 +714,7 @@ int iio_read_channel_processed_scale(struct iio_channel *chan, int *val,
 	}
 
 err_unlock:
-	mutex_unlock(&iio_dev_opaque->info_exist_lock);
+	mutex_unlock(&chan->indio_dev->info_exist_lock);
 
 	return ret;
 }
@@ -739,10 +748,9 @@ int iio_read_avail_channel_attribute(struct iio_channel *chan,
 				     const int **vals, int *type, int *length,
 				     enum iio_chan_info_enum attribute)
 {
-	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(chan->indio_dev);
 	int ret;
 
-	mutex_lock(&iio_dev_opaque->info_exist_lock);
+	mutex_lock(&chan->indio_dev->info_exist_lock);
 	if (!chan->indio_dev->info) {
 		ret = -ENODEV;
 		goto err_unlock;
@@ -750,7 +758,7 @@ int iio_read_avail_channel_attribute(struct iio_channel *chan,
 
 	ret = iio_channel_read_avail(chan, vals, type, length, attribute);
 err_unlock:
-	mutex_unlock(&iio_dev_opaque->info_exist_lock);
+	mutex_unlock(&chan->indio_dev->info_exist_lock);
 
 	return ret;
 }
@@ -822,11 +830,10 @@ static int iio_channel_read_max(struct iio_channel *chan,
 
 int iio_read_max_channel_raw(struct iio_channel *chan, int *val)
 {
-	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(chan->indio_dev);
 	int ret;
 	int type;
 
-	mutex_lock(&iio_dev_opaque->info_exist_lock);
+	mutex_lock(&chan->indio_dev->info_exist_lock);
 	if (!chan->indio_dev->info) {
 		ret = -ENODEV;
 		goto err_unlock;
@@ -834,7 +841,7 @@ int iio_read_max_channel_raw(struct iio_channel *chan, int *val)
 
 	ret = iio_channel_read_max(chan, val, NULL, &type, IIO_CHAN_INFO_RAW);
 err_unlock:
-	mutex_unlock(&iio_dev_opaque->info_exist_lock);
+	mutex_unlock(&chan->indio_dev->info_exist_lock);
 
 	return ret;
 }
@@ -842,11 +849,10 @@ EXPORT_SYMBOL_GPL(iio_read_max_channel_raw);
 
 int iio_get_channel_type(struct iio_channel *chan, enum iio_chan_type *type)
 {
-	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(chan->indio_dev);
 	int ret = 0;
 	/* Need to verify underlying driver has not gone away */
 
-	mutex_lock(&iio_dev_opaque->info_exist_lock);
+	mutex_lock(&chan->indio_dev->info_exist_lock);
 	if (chan->indio_dev->info == NULL) {
 		ret = -ENODEV;
 		goto err_unlock;
@@ -854,7 +860,7 @@ int iio_get_channel_type(struct iio_channel *chan, enum iio_chan_type *type)
 
 	*type = chan->channel->type;
 err_unlock:
-	mutex_unlock(&iio_dev_opaque->info_exist_lock);
+	mutex_unlock(&chan->indio_dev->info_exist_lock);
 
 	return ret;
 }
@@ -870,10 +876,9 @@ static int iio_channel_write(struct iio_channel *chan, int val, int val2,
 int iio_write_channel_attribute(struct iio_channel *chan, int val, int val2,
 				enum iio_chan_info_enum attribute)
 {
-	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(chan->indio_dev);
 	int ret;
 
-	mutex_lock(&iio_dev_opaque->info_exist_lock);
+	mutex_lock(&chan->indio_dev->info_exist_lock);
 	if (chan->indio_dev->info == NULL) {
 		ret = -ENODEV;
 		goto err_unlock;
@@ -881,7 +886,7 @@ int iio_write_channel_attribute(struct iio_channel *chan, int val, int val2,
 
 	ret = iio_channel_write(chan, val, val2, attribute);
 err_unlock:
-	mutex_unlock(&iio_dev_opaque->info_exist_lock);
+	mutex_unlock(&chan->indio_dev->info_exist_lock);
 
 	return ret;
 }

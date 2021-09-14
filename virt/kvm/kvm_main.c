@@ -51,7 +51,6 @@
 #include <linux/io.h>
 #include <linux/lockdep.h>
 #include <linux/kthread.h>
-#include <linux/suspend.h>
 
 #include <asm/processor.h>
 #include <asm/ioctl.h>
@@ -115,6 +114,7 @@ static DEFINE_PER_CPU(struct kvm_vcpu *, kvm_running_vcpu);
 struct dentry *kvm_debugfs_dir;
 EXPORT_SYMBOL_GPL(kvm_debugfs_dir);
 
+static int kvm_debugfs_num_entries;
 static const struct file_operations stat_fops_per_vm;
 
 static long kvm_vcpu_ioctl(struct file *file, unsigned int ioctl,
@@ -187,6 +187,16 @@ bool kvm_is_reserved_pfn(kvm_pfn_t pfn)
 		       !kvm_is_zone_device_pfn(pfn);
 
 	return true;
+}
+
+bool kvm_is_transparent_hugepage(kvm_pfn_t pfn)
+{
+	struct page *page = pfn_to_page(pfn);
+
+	if (!PageTransCompoundMap(page))
+		return false;
+
+	return is_transparent_hugepage(compound_head(page));
 }
 
 /*
@@ -297,7 +307,6 @@ bool kvm_make_all_cpus_request(struct kvm *kvm, unsigned int req)
 {
 	return kvm_make_all_cpus_request_except(kvm, req, NULL);
 }
-EXPORT_SYMBOL_GPL(kvm_make_all_cpus_request);
 
 #ifndef CONFIG_HAVE_KVM_ARCH_TLB_FLUSH_ALL
 void kvm_flush_remote_tlbs(struct kvm *kvm)
@@ -308,7 +317,6 @@ void kvm_flush_remote_tlbs(struct kvm *kvm)
 	 */
 	long dirty_count = smp_load_acquire(&kvm->tlbs_dirty);
 
-	++kvm->stat.generic.remote_tlb_flush_requests;
 	/*
 	 * We want to publish modifications to the page tables before reading
 	 * mode. Pairs with a memory barrier in arch-specific code.
@@ -322,7 +330,7 @@ void kvm_flush_remote_tlbs(struct kvm *kvm)
 	 */
 	if (!kvm_arch_flush_remote_tlb(kvm)
 	    || kvm_make_all_cpus_request(kvm, KVM_REQ_TLB_FLUSH))
-		++kvm->stat.generic.remote_tlb_flush;
+		++kvm->stat.remote_tlb_flush;
 	cmpxchg(&kvm->tlbs_dirty, dirty_count, 0);
 }
 EXPORT_SYMBOL_GPL(kvm_flush_remote_tlbs);
@@ -406,7 +414,6 @@ static void kvm_vcpu_init(struct kvm_vcpu *vcpu, struct kvm *kvm, unsigned id)
 	vcpu->preempted = false;
 	vcpu->ready = false;
 	preempt_notifier_init(&vcpu->preempt_notifier, &kvm_preempt_ops);
-	vcpu->last_used_slot = 0;
 }
 
 void kvm_vcpu_destroy(struct kvm_vcpu *vcpu)
@@ -488,6 +495,17 @@ static __always_inline int __kvm_handle_hva_range(struct kvm *kvm,
 
 	idx = srcu_read_lock(&kvm->srcu);
 
+	/* The on_lock() path does not yet support lock elision. */
+	if (!IS_KVM_NULL_FN(range->on_lock)) {
+		locked = true;
+		KVM_MMU_LOCK(kvm);
+
+		range->on_lock(kvm, range->start, range->end);
+
+		if (IS_KVM_NULL_FN(range->handler))
+			goto out_unlock;
+	}
+
 	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++) {
 		slots = __kvm_memslots(kvm, i);
 		kvm_for_each_memslot(slot, slots) {
@@ -519,10 +537,6 @@ static __always_inline int __kvm_handle_hva_range(struct kvm *kvm,
 			if (!locked) {
 				locked = true;
 				KVM_MMU_LOCK(kvm);
-				if (!IS_KVM_NULL_FN(range->on_lock))
-					range->on_lock(kvm, range->start, range->end);
-				if (IS_KVM_NULL_FN(range->handler))
-					break;
 			}
 			ret |= range->handler(kvm, &gfn_range);
 		}
@@ -531,6 +545,7 @@ static __always_inline int __kvm_handle_hva_range(struct kvm *kvm,
 	if (range->flush_on_ret && (ret || kvm->tlbs_dirty))
 		kvm_flush_remote_tlbs(kvm);
 
+out_unlock:
 	if (locked)
 		KVM_MMU_UNLOCK(kvm);
 
@@ -588,20 +603,16 @@ static void kvm_mmu_notifier_change_pte(struct mmu_notifier *mn,
 	trace_kvm_set_spte_hva(address);
 
 	/*
-	 * .change_pte() must be surrounded by .invalidate_range_{start,end}().
-	 * If mmu_notifier_count is zero, then no in-progress invalidations,
-	 * including this one, found a relevant memslot at start(); rechecking
-	 * memslots here is unnecessary.  Note, a false positive (count elevated
-	 * by a different invalidation) is sub-optimal but functionally ok.
+	 * .change_pte() must be surrounded by .invalidate_range_{start,end}(),
+	 * and so always runs with an elevated notifier count.  This obviates
+	 * the need to bump the sequence count.
 	 */
-	WARN_ON_ONCE(!READ_ONCE(kvm->mn_active_invalidate_count));
-	if (!READ_ONCE(kvm->mmu_notifier_count))
-		return;
+	WARN_ON_ONCE(!kvm->mmu_notifier_count);
 
 	kvm_handle_hva_range(mn, address, address + 1, pte, kvm_set_spte_gfn);
 }
 
-void kvm_inc_notifier_count(struct kvm *kvm, unsigned long start,
+static void kvm_inc_notifier_count(struct kvm *kvm, unsigned long start,
 				   unsigned long end)
 {
 	/*
@@ -646,24 +657,12 @@ static int kvm_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
 
 	trace_kvm_unmap_hva_range(range->start, range->end);
 
-	/*
-	 * Prevent memslot modification between range_start() and range_end()
-	 * so that conditionally locking provides the same result in both
-	 * functions.  Without that guarantee, the mmu_notifier_count
-	 * adjustments will be imbalanced.
-	 *
-	 * Pairs with the decrement in range_end().
-	 */
-	spin_lock(&kvm->mn_invalidate_lock);
-	kvm->mn_active_invalidate_count++;
-	spin_unlock(&kvm->mn_invalidate_lock);
-
 	__kvm_handle_hva_range(kvm, &hva_range);
 
 	return 0;
 }
 
-void kvm_dec_notifier_count(struct kvm *kvm, unsigned long start,
+static void kvm_dec_notifier_count(struct kvm *kvm, unsigned long start,
 				   unsigned long end)
 {
 	/*
@@ -694,21 +693,8 @@ static void kvm_mmu_notifier_invalidate_range_end(struct mmu_notifier *mn,
 		.flush_on_ret	= false,
 		.may_block	= mmu_notifier_range_blockable(range),
 	};
-	bool wake;
 
 	__kvm_handle_hva_range(kvm, &hva_range);
-
-	/* Pairs with the increment in range_start(). */
-	spin_lock(&kvm->mn_invalidate_lock);
-	wake = (--kvm->mn_active_invalidate_count == 0);
-	spin_unlock(&kvm->mn_invalidate_lock);
-
-	/*
-	 * There can only be one waiter, since the wait happens under
-	 * slots_lock.
-	 */
-	if (wake)
-		rcuwait_wake_up(&kvm->mn_memslots_update_rcuwait);
 
 	BUG_ON(kvm->mmu_notifier_count < 0);
 }
@@ -793,38 +779,6 @@ static int kvm_init_mmu_notifier(struct kvm *kvm)
 
 #endif /* CONFIG_MMU_NOTIFIER && KVM_ARCH_WANT_MMU_NOTIFIER */
 
-#ifdef CONFIG_HAVE_KVM_PM_NOTIFIER
-static int kvm_pm_notifier_call(struct notifier_block *bl,
-				unsigned long state,
-				void *unused)
-{
-	struct kvm *kvm = container_of(bl, struct kvm, pm_notifier);
-
-	return kvm_arch_pm_notifier(kvm, state);
-}
-
-static void kvm_init_pm_notifier(struct kvm *kvm)
-{
-	kvm->pm_notifier.notifier_call = kvm_pm_notifier_call;
-	/* Suspend KVM before we suspend ftrace, RCU, etc. */
-	kvm->pm_notifier.priority = INT_MAX;
-	register_pm_notifier(&kvm->pm_notifier);
-}
-
-static void kvm_destroy_pm_notifier(struct kvm *kvm)
-{
-	unregister_pm_notifier(&kvm->pm_notifier);
-}
-#else /* !CONFIG_HAVE_KVM_PM_NOTIFIER */
-static void kvm_init_pm_notifier(struct kvm *kvm)
-{
-}
-
-static void kvm_destroy_pm_notifier(struct kvm *kvm)
-{
-}
-#endif /* CONFIG_HAVE_KVM_PM_NOTIFIER */
-
 static struct kvm_memslots *kvm_alloc_memslots(void)
 {
 	int i;
@@ -872,24 +826,9 @@ static void kvm_free_memslots(struct kvm *kvm, struct kvm_memslots *slots)
 	kvfree(slots);
 }
 
-static umode_t kvm_stats_debugfs_mode(const struct _kvm_stats_desc *pdesc)
-{
-	switch (pdesc->desc.flags & KVM_STATS_TYPE_MASK) {
-	case KVM_STATS_TYPE_INSTANT:
-		return 0444;
-	case KVM_STATS_TYPE_CUMULATIVE:
-	case KVM_STATS_TYPE_PEAK:
-	default:
-		return 0644;
-	}
-}
-
-
 static void kvm_destroy_vm_debugfs(struct kvm *kvm)
 {
 	int i;
-	int kvm_debugfs_num_entries = kvm_vm_stats_header.num_desc +
-				      kvm_vcpu_stats_header.num_desc;
 
 	if (!kvm->debugfs_dentry)
 		return;
@@ -905,75 +844,34 @@ static void kvm_destroy_vm_debugfs(struct kvm *kvm)
 
 static int kvm_create_vm_debugfs(struct kvm *kvm, int fd)
 {
-	static DEFINE_MUTEX(kvm_debugfs_lock);
-	struct dentry *dent;
 	char dir_name[ITOA_MAX_LEN * 2];
 	struct kvm_stat_data *stat_data;
-	const struct _kvm_stats_desc *pdesc;
-	int i, ret;
-	int kvm_debugfs_num_entries = kvm_vm_stats_header.num_desc +
-				      kvm_vcpu_stats_header.num_desc;
+	struct kvm_stats_debugfs_item *p;
 
 	if (!debugfs_initialized())
 		return 0;
 
 	snprintf(dir_name, sizeof(dir_name), "%d-%d", task_pid_nr(current), fd);
-	mutex_lock(&kvm_debugfs_lock);
-	dent = debugfs_lookup(dir_name, kvm_debugfs_dir);
-	if (dent) {
-		pr_warn_ratelimited("KVM: debugfs: duplicate directory %s\n", dir_name);
-		dput(dent);
-		mutex_unlock(&kvm_debugfs_lock);
-		return 0;
-	}
-	dent = debugfs_create_dir(dir_name, kvm_debugfs_dir);
-	mutex_unlock(&kvm_debugfs_lock);
-	if (IS_ERR(dent))
-		return 0;
+	kvm->debugfs_dentry = debugfs_create_dir(dir_name, kvm_debugfs_dir);
 
-	kvm->debugfs_dentry = dent;
 	kvm->debugfs_stat_data = kcalloc(kvm_debugfs_num_entries,
 					 sizeof(*kvm->debugfs_stat_data),
 					 GFP_KERNEL_ACCOUNT);
 	if (!kvm->debugfs_stat_data)
 		return -ENOMEM;
 
-	for (i = 0; i < kvm_vm_stats_header.num_desc; ++i) {
-		pdesc = &kvm_vm_stats_desc[i];
+	for (p = debugfs_entries; p->name; p++) {
 		stat_data = kzalloc(sizeof(*stat_data), GFP_KERNEL_ACCOUNT);
 		if (!stat_data)
 			return -ENOMEM;
 
 		stat_data->kvm = kvm;
-		stat_data->desc = pdesc;
-		stat_data->kind = KVM_STAT_VM;
-		kvm->debugfs_stat_data[i] = stat_data;
-		debugfs_create_file(pdesc->name, kvm_stats_debugfs_mode(pdesc),
+		stat_data->dbgfs_item = p;
+		kvm->debugfs_stat_data[p - debugfs_entries] = stat_data;
+		debugfs_create_file(p->name, KVM_DBGFS_GET_MODE(p),
 				    kvm->debugfs_dentry, stat_data,
 				    &stat_fops_per_vm);
 	}
-
-	for (i = 0; i < kvm_vcpu_stats_header.num_desc; ++i) {
-		pdesc = &kvm_vcpu_stats_desc[i];
-		stat_data = kzalloc(sizeof(*stat_data), GFP_KERNEL_ACCOUNT);
-		if (!stat_data)
-			return -ENOMEM;
-
-		stat_data->kvm = kvm;
-		stat_data->desc = pdesc;
-		stat_data->kind = KVM_STAT_VCPU;
-		kvm->debugfs_stat_data[i + kvm_vm_stats_header.num_desc] = stat_data;
-		debugfs_create_file(pdesc->name, kvm_stats_debugfs_mode(pdesc),
-				    kvm->debugfs_dentry, stat_data,
-				    &stat_fops_per_vm);
-	}
-
-	ret = kvm_arch_create_vm_debugfs(kvm);
-	if (ret) {
-		kvm_destroy_vm_debugfs(kvm);
-		return i;
-	}
-
 	return 0;
 }
 
@@ -994,17 +892,6 @@ void __weak kvm_arch_pre_destroy_vm(struct kvm *kvm)
 {
 }
 
-/*
- * Called after per-vm debugfs created.  When called kvm->debugfs_dentry should
- * be setup already, so we can create arch-specific debugfs entries under it.
- * Cleanup should be automatic done in kvm_destroy_vm_debugfs() recursively, so
- * a per-arch destroy interface is not needed.
- */
-int __weak kvm_arch_create_vm_debugfs(struct kvm *kvm)
-{
-	return 0;
-}
-
 static struct kvm *kvm_create_vm(unsigned long type)
 {
 	struct kvm *kvm = kvm_arch_alloc_vm();
@@ -1021,10 +908,6 @@ static struct kvm *kvm_create_vm(unsigned long type)
 	mutex_init(&kvm->lock);
 	mutex_init(&kvm->irq_lock);
 	mutex_init(&kvm->slots_lock);
-	mutex_init(&kvm->slots_arch_lock);
-	spin_lock_init(&kvm->mn_invalidate_lock);
-	rcuwait_init(&kvm->mn_memslots_update_rcuwait);
-
 	INIT_LIST_HEAD(&kvm->devices);
 
 	BUILD_BUG_ON(KVM_MEM_SLOTS_NUM > SHRT_MAX);
@@ -1079,7 +962,6 @@ static struct kvm *kvm_create_vm(unsigned long type)
 	mutex_unlock(&kvm_lock);
 
 	preempt_notifier_inc();
-	kvm_init_pm_notifier(kvm);
 
 	return kvm;
 
@@ -1127,7 +1009,6 @@ static void kvm_destroy_vm(struct kvm *kvm)
 	int i;
 	struct mm_struct *mm = kvm->mm;
 
-	kvm_destroy_pm_notifier(kvm);
 	kvm_uevent_notify_change(KVM_EVENT_DESTROY_VM, kvm);
 	kvm_destroy_vm_debugfs(kvm);
 	kvm_arch_sync_events(kvm);
@@ -1147,16 +1028,6 @@ static void kvm_destroy_vm(struct kvm *kvm)
 	kvm_coalesced_mmio_free(kvm);
 #if defined(CONFIG_MMU_NOTIFIER) && defined(KVM_ARCH_WANT_MMU_NOTIFIER)
 	mmu_notifier_unregister(&kvm->mmu_notifier, kvm->mm);
-	/*
-	 * At this point, pending calls to invalidate_range_start()
-	 * have completed but no more MMU notifiers will run, so
-	 * mn_active_invalidate_count may remain unbalanced.
-	 * No threads can be waiting in install_new_memslots as the
-	 * last reference on KVM has been dropped, but freeing
-	 * memslots would deadlock without this manual intervention.
-	 */
-	WARN_ON(rcuwait_active(&kvm->mn_memslots_update_rcuwait));
-	kvm->mn_active_invalidate_count = 0;
 #else
 	kvm_arch_flush_shadow_all(kvm);
 #endif
@@ -1177,16 +1048,6 @@ void kvm_get_kvm(struct kvm *kvm)
 	refcount_inc(&kvm->users_count);
 }
 EXPORT_SYMBOL_GPL(kvm_get_kvm);
-
-/*
- * Make sure the vm is not during destruction, which is a safe version of
- * kvm_get_kvm().  Return true if kvm referenced successfully, false otherwise.
- */
-bool kvm_get_kvm_safe(struct kvm *kvm)
-{
-	return refcount_inc_not_zero(&kvm->users_count);
-}
-EXPORT_SYMBOL_GPL(kvm_get_kvm_safe);
 
 void kvm_put_kvm(struct kvm *kvm)
 {
@@ -1248,8 +1109,8 @@ static inline void kvm_memslot_delete(struct kvm_memslots *slots,
 
 	slots->used_slots--;
 
-	if (atomic_read(&slots->last_used_slot) >= slots->used_slots)
-		atomic_set(&slots->last_used_slot, 0);
+	if (atomic_read(&slots->lru_slot) >= slots->used_slots)
+		atomic_set(&slots->lru_slot, 0);
 
 	for (i = slots->id_to_index[memslot->id]; i < slots->used_slots; i++) {
 		mslots[i] = mslots[i + 1];
@@ -1418,30 +1279,7 @@ static struct kvm_memslots *install_new_memslots(struct kvm *kvm,
 	WARN_ON(gen & KVM_MEMSLOT_GEN_UPDATE_IN_PROGRESS);
 	slots->generation = gen | KVM_MEMSLOT_GEN_UPDATE_IN_PROGRESS;
 
-	/*
-	 * Do not store the new memslots while there are invalidations in
-	 * progress, otherwise the locking in invalidate_range_start and
-	 * invalidate_range_end will be unbalanced.
-	 */
-	spin_lock(&kvm->mn_invalidate_lock);
-	prepare_to_rcuwait(&kvm->mn_memslots_update_rcuwait);
-	while (kvm->mn_active_invalidate_count) {
-		set_current_state(TASK_UNINTERRUPTIBLE);
-		spin_unlock(&kvm->mn_invalidate_lock);
-		schedule();
-		spin_lock(&kvm->mn_invalidate_lock);
-	}
-	finish_rcuwait(&kvm->mn_memslots_update_rcuwait);
 	rcu_assign_pointer(kvm->memslots[as_id], slots);
-	spin_unlock(&kvm->mn_invalidate_lock);
-
-	/*
-	 * Acquired in kvm_set_memslot. Must be released before synchronize
-	 * SRCU below in order to avoid deadlock with another thread
-	 * acquiring the slots_arch_lock in an srcu critical section.
-	 */
-	mutex_unlock(&kvm->slots_arch_lock);
-
 	synchronize_srcu_expedited(&kvm->srcu);
 
 	/*
@@ -1468,18 +1306,6 @@ static struct kvm_memslots *install_new_memslots(struct kvm *kvm,
 	return old_memslots;
 }
 
-static size_t kvm_memslots_size(int slots)
-{
-	return sizeof(struct kvm_memslots) +
-	       (sizeof(struct kvm_memory_slot) * slots);
-}
-
-static void kvm_copy_memslots(struct kvm_memslots *to,
-			      struct kvm_memslots *from)
-{
-	memcpy(to, from, kvm_memslots_size(from->used_slots));
-}
-
 /*
  * Note, at a minimum, the current number of used slots must be allocated, even
  * when deleting a memslot, as we need a complete duplicate of the memslots for
@@ -1489,16 +1315,19 @@ static struct kvm_memslots *kvm_dup_memslots(struct kvm_memslots *old,
 					     enum kvm_mr_change change)
 {
 	struct kvm_memslots *slots;
-	size_t new_size;
+	size_t old_size, new_size;
+
+	old_size = sizeof(struct kvm_memslots) +
+		   (sizeof(struct kvm_memory_slot) * old->used_slots);
 
 	if (change == KVM_MR_CREATE)
-		new_size = kvm_memslots_size(old->used_slots + 1);
+		new_size = old_size + sizeof(struct kvm_memory_slot);
 	else
-		new_size = kvm_memslots_size(old->used_slots);
+		new_size = old_size;
 
 	slots = kvzalloc(new_size, GFP_KERNEL_ACCOUNT);
 	if (likely(slots))
-		kvm_copy_memslots(slots, old);
+		memcpy(slots, old, old_size);
 
 	return slots;
 }
@@ -1513,27 +1342,9 @@ static int kvm_set_memslot(struct kvm *kvm,
 	struct kvm_memslots *slots;
 	int r;
 
-	/*
-	 * Released in install_new_memslots.
-	 *
-	 * Must be held from before the current memslots are copied until
-	 * after the new memslots are installed with rcu_assign_pointer,
-	 * then released before the synchronize srcu in install_new_memslots.
-	 *
-	 * When modifying memslots outside of the slots_lock, must be held
-	 * before reading the pointer to the current memslots until after all
-	 * changes to those memslots are complete.
-	 *
-	 * These rules ensure that installing new memslots does not lose
-	 * changes made to the previous memslots.
-	 */
-	mutex_lock(&kvm->slots_arch_lock);
-
 	slots = kvm_dup_memslots(__kvm_memslots(kvm, as_id), change);
-	if (!slots) {
-		mutex_unlock(&kvm->slots_arch_lock);
+	if (!slots)
 		return -ENOMEM;
-	}
 
 	if (change == KVM_MR_DELETE || change == KVM_MR_MOVE) {
 		/*
@@ -1544,9 +1355,10 @@ static int kvm_set_memslot(struct kvm *kvm,
 		slot->flags |= KVM_MEMSLOT_INVALID;
 
 		/*
-		 * We can re-use the memory from the old memslots.
-		 * It will be overwritten with a copy of the new memslots
-		 * after reacquiring the slots_arch_lock below.
+		 * We can re-use the old memslots, the only difference from the
+		 * newly installed memslots is the invalid flag, which will get
+		 * dropped by update_memslots anyway.  We'll also revert to the
+		 * old memslots if preparing the new memory region fails.
 		 */
 		slots = install_new_memslots(kvm, as_id, slots);
 
@@ -1558,17 +1370,6 @@ static int kvm_set_memslot(struct kvm *kvm,
 		 *	- kvm_is_visible_gfn (mmu_check_root)
 		 */
 		kvm_arch_flush_shadow_memslot(kvm, slot);
-
-		/* Released in install_new_memslots. */
-		mutex_lock(&kvm->slots_arch_lock);
-
-		/*
-		 * The arch-specific fields of the memslots could have changed
-		 * between releasing the slots_arch_lock in
-		 * install_new_memslots and here, so get a fresh copy of the
-		 * slots.
-		 */
-		kvm_copy_memslots(slots, __kvm_memslots(kvm, as_id));
 	}
 
 	r = kvm_arch_prepare_memory_region(kvm, new, mem, change);
@@ -1584,13 +1385,8 @@ static int kvm_set_memslot(struct kvm *kvm,
 	return 0;
 
 out_slots:
-	if (change == KVM_MR_DELETE || change == KVM_MR_MOVE) {
-		slot = id_to_memslot(slots, old->id);
-		slot->flags &= ~KVM_MEMSLOT_INVALID;
+	if (change == KVM_MR_DELETE || change == KVM_MR_MOVE)
 		slots = install_new_memslots(kvm, as_id, slots);
-	} else {
-		mutex_unlock(&kvm->slots_arch_lock);
-	}
 	kvfree(slots);
 	return r;
 }
@@ -2049,26 +1845,7 @@ EXPORT_SYMBOL_GPL(gfn_to_memslot);
 
 struct kvm_memory_slot *kvm_vcpu_gfn_to_memslot(struct kvm_vcpu *vcpu, gfn_t gfn)
 {
-	struct kvm_memslots *slots = kvm_vcpu_memslots(vcpu);
-	struct kvm_memory_slot *slot;
-	int slot_index;
-
-	slot = try_get_memslot(slots, vcpu->last_used_slot, gfn);
-	if (slot)
-		return slot;
-
-	/*
-	 * Fall back to searching all memslots. We purposely use
-	 * search_memslots() instead of __gfn_to_memslot() to avoid
-	 * thrashing the VM-wide last_used_index in kvm_memslots.
-	 */
-	slot = search_memslots(slots, gfn, &slot_index);
-	if (slot) {
-		vcpu->last_used_slot = slot_index;
-		return slot;
-	}
-
-	return NULL;
+	return __gfn_to_memslot(kvm_vcpu_memslots(vcpu), gfn);
 }
 EXPORT_SYMBOL_GPL(kvm_vcpu_gfn_to_memslot);
 
@@ -2277,13 +2054,6 @@ static bool vma_is_valid(struct vm_area_struct *vma, bool write_fault)
 	return true;
 }
 
-static int kvm_try_get_pfn(kvm_pfn_t pfn)
-{
-	if (kvm_is_reserved_pfn(pfn))
-		return 1;
-	return get_page_unless_zero(pfn_to_page(pfn));
-}
-
 static int hva_to_pfn_remapped(struct vm_area_struct *vma,
 			       unsigned long addr, bool *async,
 			       bool write_fault, bool *writable,
@@ -2327,27 +2097,19 @@ static int hva_to_pfn_remapped(struct vm_area_struct *vma,
 	 * Get a reference here because callers of *hva_to_pfn* and
 	 * *gfn_to_pfn* ultimately call kvm_release_pfn_clean on the
 	 * returned pfn.  This is only needed if the VMA has VM_MIXEDMAP
-	 * set, but the kvm_try_get_pfn/kvm_release_pfn_clean pair will
+	 * set, but the kvm_get_pfn/kvm_release_pfn_clean pair will
 	 * simply do nothing for reserved pfns.
 	 *
 	 * Whoever called remap_pfn_range is also going to call e.g.
 	 * unmap_mapping_range before the underlying pages are freed,
 	 * causing a call to our MMU notifier.
-	 *
-	 * Certain IO or PFNMAP mappings can be backed with valid
-	 * struct pages, but be allocated without refcounting e.g.,
-	 * tail pages of non-compound higher order allocations, which
-	 * would then underflow the refcount when the caller does the
-	 * required put_page. Don't allow those pages here.
 	 */ 
-	if (!kvm_try_get_pfn(pfn))
-		r = -EFAULT;
+	kvm_get_pfn(pfn);
 
 out:
 	pte_unmap_unlock(ptep, ptl);
 	*p_pfn = pfn;
-
-	return r;
+	return 0;
 }
 
 /*
@@ -2392,7 +2154,7 @@ static kvm_pfn_t hva_to_pfn(unsigned long addr, bool atomic, bool *async,
 	}
 
 retry:
-	vma = vma_lookup(current->mm, addr);
+	vma = find_vma_intersection(current->mm, addr, addr + 1);
 
 	if (vma == NULL)
 		pfn = KVM_PFN_ERR_FAULT;
@@ -2723,6 +2485,13 @@ void kvm_set_pfn_accessed(kvm_pfn_t pfn)
 		mark_page_accessed(pfn_to_page(pfn));
 }
 EXPORT_SYMBOL_GPL(kvm_set_pfn_accessed);
+
+void kvm_get_pfn(kvm_pfn_t pfn)
+{
+	if (!kvm_is_reserved_pfn(pfn))
+		get_page(pfn_to_page(pfn));
+}
+EXPORT_SYMBOL_GPL(kvm_get_pfn);
 
 static int next_segment(unsigned long len, int offset)
 {
@@ -3160,8 +2929,6 @@ static int kvm_vcpu_check_block(struct kvm_vcpu *vcpu)
 		goto out;
 	if (signal_pending(current))
 		goto out;
-	if (kvm_check_request(KVM_REQ_UNBLOCK, vcpu))
-		goto out;
 
 	ret = 0;
 out:
@@ -3173,9 +2940,9 @@ static inline void
 update_halt_poll_stats(struct kvm_vcpu *vcpu, u64 poll_ns, bool waited)
 {
 	if (waited)
-		vcpu->stat.generic.halt_poll_fail_ns += poll_ns;
+		vcpu->stat.halt_poll_fail_ns += poll_ns;
 	else
-		vcpu->stat.generic.halt_poll_success_ns += poll_ns;
+		vcpu->stat.halt_poll_success_ns += poll_ns;
 }
 
 /*
@@ -3193,32 +2960,22 @@ void kvm_vcpu_block(struct kvm_vcpu *vcpu)
 	if (vcpu->halt_poll_ns && !kvm_arch_no_poll(vcpu)) {
 		ktime_t stop = ktime_add_ns(ktime_get(), vcpu->halt_poll_ns);
 
-		++vcpu->stat.generic.halt_attempted_poll;
+		++vcpu->stat.halt_attempted_poll;
 		do {
 			/*
 			 * This sets KVM_REQ_UNHALT if an interrupt
 			 * arrives.
 			 */
 			if (kvm_vcpu_check_block(vcpu) < 0) {
-				++vcpu->stat.generic.halt_successful_poll;
+				++vcpu->stat.halt_successful_poll;
 				if (!vcpu_valid_wakeup(vcpu))
-					++vcpu->stat.generic.halt_poll_invalid;
-
-				KVM_STATS_LOG_HIST_UPDATE(
-				      vcpu->stat.generic.halt_poll_success_hist,
-				      ktime_to_ns(ktime_get()) -
-				      ktime_to_ns(start));
+					++vcpu->stat.halt_poll_invalid;
 				goto out;
 			}
-			cpu_relax();
 			poll_end = cur = ktime_get();
-		} while (kvm_vcpu_can_poll(cur, stop));
-
-		KVM_STATS_LOG_HIST_UPDATE(
-				vcpu->stat.generic.halt_poll_fail_hist,
-				ktime_to_ns(ktime_get()) - ktime_to_ns(start));
+		} while (single_task_running() && !need_resched() &&
+			 ktime_before(cur, stop));
 	}
-
 
 	prepare_to_rcuwait(&vcpu->wait);
 	for (;;) {
@@ -3232,12 +2989,6 @@ void kvm_vcpu_block(struct kvm_vcpu *vcpu)
 	}
 	finish_rcuwait(&vcpu->wait);
 	cur = ktime_get();
-	if (waited) {
-		vcpu->stat.generic.halt_wait_ns +=
-			ktime_to_ns(cur) - ktime_to_ns(poll_end);
-		KVM_STATS_LOG_HIST_UPDATE(vcpu->stat.generic.halt_wait_hist,
-				ktime_to_ns(cur) - ktime_to_ns(poll_end));
-	}
 out:
 	kvm_arch_vcpu_unblocking(vcpu);
 	block_ns = ktime_to_ns(cur) - ktime_to_ns(start);
@@ -3276,7 +3027,7 @@ bool kvm_vcpu_wake_up(struct kvm_vcpu *vcpu)
 	waitp = kvm_arch_vcpu_get_wait(vcpu);
 	if (rcuwait_wake_up(waitp)) {
 		WRITE_ONCE(vcpu->ready, true);
-		++vcpu->stat.generic.halt_wakeup;
+		++vcpu->stat.halt_wakeup;
 		return true;
 	}
 
@@ -3609,10 +3360,6 @@ static int kvm_vm_ioctl_create_vcpu(struct kvm *kvm, u32 id)
 	vcpu->vcpu_idx = atomic_read(&kvm->online_vcpus);
 	BUG_ON(kvm->vcpus[vcpu->vcpu_idx]);
 
-	/* Fill the stats id string for the vcpu */
-	snprintf(vcpu->stats_id, sizeof(vcpu->stats_id), "kvm-%d/vcpu-%d",
-		 task_pid_nr(current), id);
-
 	/* Now it's all set up, let userspace reach it */
 	kvm_get_kvm(kvm);
 	r = create_vcpu_fd(vcpu);
@@ -3662,44 +3409,6 @@ static int kvm_vcpu_ioctl_set_sigmask(struct kvm_vcpu *vcpu, sigset_t *sigset)
 	return 0;
 }
 
-static ssize_t kvm_vcpu_stats_read(struct file *file, char __user *user_buffer,
-			      size_t size, loff_t *offset)
-{
-	struct kvm_vcpu *vcpu = file->private_data;
-
-	return kvm_stats_read(vcpu->stats_id, &kvm_vcpu_stats_header,
-			&kvm_vcpu_stats_desc[0], &vcpu->stat,
-			sizeof(vcpu->stat), user_buffer, size, offset);
-}
-
-static const struct file_operations kvm_vcpu_stats_fops = {
-	.read = kvm_vcpu_stats_read,
-	.llseek = noop_llseek,
-};
-
-static int kvm_vcpu_ioctl_get_stats_fd(struct kvm_vcpu *vcpu)
-{
-	int fd;
-	struct file *file;
-	char name[15 + ITOA_MAX_LEN + 1];
-
-	snprintf(name, sizeof(name), "kvm-vcpu-stats:%d", vcpu->vcpu_id);
-
-	fd = get_unused_fd_flags(O_CLOEXEC);
-	if (fd < 0)
-		return fd;
-
-	file = anon_inode_getfile(name, &kvm_vcpu_stats_fops, vcpu, O_RDONLY);
-	if (IS_ERR(file)) {
-		put_unused_fd(fd);
-		return PTR_ERR(file);
-	}
-	file->f_mode |= FMODE_PREAD;
-	fd_install(fd, file);
-
-	return fd;
-}
-
 static long kvm_vcpu_ioctl(struct file *filp,
 			   unsigned int ioctl, unsigned long arg)
 {
@@ -3709,7 +3418,7 @@ static long kvm_vcpu_ioctl(struct file *filp,
 	struct kvm_fpu *fpu = NULL;
 	struct kvm_sregs *kvm_sregs = NULL;
 
-	if (vcpu->kvm->mm != current->mm || vcpu->kvm->vm_bugged)
+	if (vcpu->kvm->mm != current->mm)
 		return -EIO;
 
 	if (unlikely(_IOC_TYPE(ioctl) != KVMIO))
@@ -3897,10 +3606,6 @@ out_free1:
 		r = kvm_arch_vcpu_ioctl_set_fpu(vcpu, fpu);
 		break;
 	}
-	case KVM_GET_STATS_FD: {
-		r = kvm_vcpu_ioctl_get_stats_fd(vcpu);
-		break;
-	}
 	default:
 		r = kvm_arch_vcpu_ioctl(filp, ioctl, arg);
 	}
@@ -3919,7 +3624,7 @@ static long kvm_vcpu_compat_ioctl(struct file *filp,
 	void __user *argp = compat_ptr(arg);
 	int r;
 
-	if (vcpu->kvm->mm != current->mm || vcpu->kvm->vm_bugged)
+	if (vcpu->kvm->mm != current->mm)
 		return -EIO;
 
 	switch (ioctl) {
@@ -3985,7 +3690,7 @@ static long kvm_device_ioctl(struct file *filp, unsigned int ioctl,
 {
 	struct kvm_device *dev = filp->private_data;
 
-	if (dev->kvm->mm != current->mm || dev->kvm->vm_bugged)
+	if (dev->kvm->mm != current->mm)
 		return -EIO;
 
 	switch (ioctl) {
@@ -4159,8 +3864,6 @@ static long kvm_vm_ioctl_check_extension_generic(struct kvm *kvm, long arg)
 #else
 		return 0;
 #endif
-	case KVM_CAP_BINARY_STATS_FD:
-		return 1;
 	default:
 		break;
 	}
@@ -4264,42 +3967,6 @@ static int kvm_vm_ioctl_enable_cap_generic(struct kvm *kvm,
 	}
 }
 
-static ssize_t kvm_vm_stats_read(struct file *file, char __user *user_buffer,
-			      size_t size, loff_t *offset)
-{
-	struct kvm *kvm = file->private_data;
-
-	return kvm_stats_read(kvm->stats_id, &kvm_vm_stats_header,
-				&kvm_vm_stats_desc[0], &kvm->stat,
-				sizeof(kvm->stat), user_buffer, size, offset);
-}
-
-static const struct file_operations kvm_vm_stats_fops = {
-	.read = kvm_vm_stats_read,
-	.llseek = noop_llseek,
-};
-
-static int kvm_vm_ioctl_get_stats_fd(struct kvm *kvm)
-{
-	int fd;
-	struct file *file;
-
-	fd = get_unused_fd_flags(O_CLOEXEC);
-	if (fd < 0)
-		return fd;
-
-	file = anon_inode_getfile("kvm-vm-stats",
-			&kvm_vm_stats_fops, kvm, O_RDONLY);
-	if (IS_ERR(file)) {
-		put_unused_fd(fd);
-		return PTR_ERR(file);
-	}
-	file->f_mode |= FMODE_PREAD;
-	fd_install(fd, file);
-
-	return fd;
-}
-
 static long kvm_vm_ioctl(struct file *filp,
 			   unsigned int ioctl, unsigned long arg)
 {
@@ -4307,7 +3974,7 @@ static long kvm_vm_ioctl(struct file *filp,
 	void __user *argp = (void __user *)arg;
 	int r;
 
-	if (kvm->mm != current->mm || kvm->vm_bugged)
+	if (kvm->mm != current->mm)
 		return -EIO;
 	switch (ioctl) {
 	case KVM_CREATE_VCPU:
@@ -4482,9 +4149,6 @@ static long kvm_vm_ioctl(struct file *filp,
 	case KVM_RESET_DIRTY_RINGS:
 		r = kvm_vm_ioctl_reset_dirty_pages(kvm);
 		break;
-	case KVM_GET_STATS_FD:
-		r = kvm_vm_ioctl_get_stats_fd(kvm);
-		break;
 	default:
 		r = kvm_arch_vm_ioctl(filp, ioctl, arg);
 	}
@@ -4502,43 +4166,15 @@ struct compat_kvm_dirty_log {
 	};
 };
 
-struct compat_kvm_clear_dirty_log {
-	__u32 slot;
-	__u32 num_pages;
-	__u64 first_page;
-	union {
-		compat_uptr_t dirty_bitmap; /* one bit per page */
-		__u64 padding2;
-	};
-};
-
 static long kvm_vm_compat_ioctl(struct file *filp,
 			   unsigned int ioctl, unsigned long arg)
 {
 	struct kvm *kvm = filp->private_data;
 	int r;
 
-	if (kvm->mm != current->mm || kvm->vm_bugged)
+	if (kvm->mm != current->mm)
 		return -EIO;
 	switch (ioctl) {
-#ifdef CONFIG_KVM_GENERIC_DIRTYLOG_READ_PROTECT
-	case KVM_CLEAR_DIRTY_LOG: {
-		struct compat_kvm_clear_dirty_log compat_log;
-		struct kvm_clear_dirty_log log;
-
-		if (copy_from_user(&compat_log, (void __user *)arg,
-				   sizeof(compat_log)))
-			return -EFAULT;
-		log.slot	 = compat_log.slot;
-		log.num_pages	 = compat_log.num_pages;
-		log.first_page	 = compat_log.first_page;
-		log.padding2	 = compat_log.padding2;
-		log.dirty_bitmap = compat_ptr(compat_log.dirty_bitmap);
-
-		r = kvm_vm_ioctl_clear_dirty_log(kvm, &log);
-		break;
-	}
-#endif
 	case KVM_GET_DIRTY_LOG: {
 		struct compat_kvm_dirty_log compat_log;
 		struct kvm_dirty_log log;
@@ -4591,9 +4227,6 @@ static int kvm_dev_ioctl_create_vm(unsigned long type)
 	r = get_unused_fd_flags(O_CLOEXEC);
 	if (r < 0)
 		goto put_kvm;
-
-	snprintf(kvm->stats_id, sizeof(kvm->stats_id),
-			"kvm-%d", task_pid_nr(current));
 
 	file = anon_inode_getfile("kvm-vm", &kvm_vm_fops, kvm, O_RDWR);
 	if (IS_ERR(file)) {
@@ -5080,16 +4713,16 @@ static int kvm_debugfs_open(struct inode *inode, struct file *file,
 	struct kvm_stat_data *stat_data = (struct kvm_stat_data *)
 					  inode->i_private;
 
-	/*
-	 * The debugfs files are a reference to the kvm struct which
-        * is still valid when kvm_destroy_vm is called.  kvm_get_kvm_safe
-        * avoids the race between open and the removal of the debugfs directory.
+	/* The debugfs files are a reference to the kvm struct which
+	 * is still valid when kvm_destroy_vm is called.
+	 * To avoid the race between open and the removal of the debugfs
+	 * directory we test against the users count.
 	 */
-	if (!kvm_get_kvm_safe(stat_data->kvm))
+	if (!refcount_inc_not_zero(&stat_data->kvm->users_count))
 		return -ENOENT;
 
 	if (simple_attr_open(inode, file, get,
-		    kvm_stats_debugfs_mode(stat_data->desc) & 0222
+		    KVM_DBGFS_GET_MODE(stat_data->dbgfs_item) & 0222
 		    ? set : NULL,
 		    fmt)) {
 		kvm_put_kvm(stat_data->kvm);
@@ -5112,14 +4745,14 @@ static int kvm_debugfs_release(struct inode *inode, struct file *file)
 
 static int kvm_get_stat_per_vm(struct kvm *kvm, size_t offset, u64 *val)
 {
-	*val = *(u64 *)((void *)(&kvm->stat) + offset);
+	*val = *(ulong *)((void *)kvm + offset);
 
 	return 0;
 }
 
 static int kvm_clear_stat_per_vm(struct kvm *kvm, size_t offset)
 {
-	*(u64 *)((void *)(&kvm->stat) + offset) = 0;
+	*(ulong *)((void *)kvm + offset) = 0;
 
 	return 0;
 }
@@ -5132,7 +4765,7 @@ static int kvm_get_stat_per_vcpu(struct kvm *kvm, size_t offset, u64 *val)
 	*val = 0;
 
 	kvm_for_each_vcpu(i, vcpu, kvm)
-		*val += *(u64 *)((void *)(&vcpu->stat) + offset);
+		*val += *(u64 *)((void *)vcpu + offset);
 
 	return 0;
 }
@@ -5143,7 +4776,7 @@ static int kvm_clear_stat_per_vcpu(struct kvm *kvm, size_t offset)
 	struct kvm_vcpu *vcpu;
 
 	kvm_for_each_vcpu(i, vcpu, kvm)
-		*(u64 *)((void *)(&vcpu->stat) + offset) = 0;
+		*(u64 *)((void *)vcpu + offset) = 0;
 
 	return 0;
 }
@@ -5153,14 +4786,14 @@ static int kvm_stat_data_get(void *data, u64 *val)
 	int r = -EFAULT;
 	struct kvm_stat_data *stat_data = (struct kvm_stat_data *)data;
 
-	switch (stat_data->kind) {
+	switch (stat_data->dbgfs_item->kind) {
 	case KVM_STAT_VM:
 		r = kvm_get_stat_per_vm(stat_data->kvm,
-					stat_data->desc->desc.offset, val);
+					stat_data->dbgfs_item->offset, val);
 		break;
 	case KVM_STAT_VCPU:
 		r = kvm_get_stat_per_vcpu(stat_data->kvm,
-					  stat_data->desc->desc.offset, val);
+					  stat_data->dbgfs_item->offset, val);
 		break;
 	}
 
@@ -5175,14 +4808,14 @@ static int kvm_stat_data_clear(void *data, u64 val)
 	if (val)
 		return -EINVAL;
 
-	switch (stat_data->kind) {
+	switch (stat_data->dbgfs_item->kind) {
 	case KVM_STAT_VM:
 		r = kvm_clear_stat_per_vm(stat_data->kvm,
-					  stat_data->desc->desc.offset);
+					  stat_data->dbgfs_item->offset);
 		break;
 	case KVM_STAT_VCPU:
 		r = kvm_clear_stat_per_vcpu(stat_data->kvm,
-					    stat_data->desc->desc.offset);
+					    stat_data->dbgfs_item->offset);
 		break;
 	}
 
@@ -5239,7 +4872,6 @@ static int vm_stat_clear(void *_offset, u64 val)
 }
 
 DEFINE_SIMPLE_ATTRIBUTE(vm_stat_fops, vm_stat_get, vm_stat_clear, "%llu\n");
-DEFINE_SIMPLE_ATTRIBUTE(vm_stat_readonly_fops, vm_stat_get, NULL, "%llu\n");
 
 static int vcpu_stat_get(void *_offset, u64 *val)
 {
@@ -5276,7 +4908,11 @@ static int vcpu_stat_clear(void *_offset, u64 val)
 
 DEFINE_SIMPLE_ATTRIBUTE(vcpu_stat_fops, vcpu_stat_get, vcpu_stat_clear,
 			"%llu\n");
-DEFINE_SIMPLE_ATTRIBUTE(vcpu_stat_readonly_fops, vcpu_stat_get, NULL, "%llu\n");
+
+static const struct file_operations *stat_fops[] = {
+	[KVM_STAT_VCPU] = &vcpu_stat_fops,
+	[KVM_STAT_VM]   = &vm_stat_fops,
+};
 
 static void kvm_uevent_notify_change(unsigned int type, struct kvm *kvm)
 {
@@ -5312,7 +4948,7 @@ static void kvm_uevent_notify_change(unsigned int type, struct kvm *kvm)
 	}
 	add_uevent_var(env, "PID=%d", kvm->userspace_pid);
 
-	if (kvm->debugfs_dentry) {
+	if (!IS_ERR_OR_NULL(kvm->debugfs_dentry)) {
 		char *tmp, *p = kmalloc(PATH_MAX, GFP_KERNEL_ACCOUNT);
 
 		if (p) {
@@ -5330,32 +4966,15 @@ static void kvm_uevent_notify_change(unsigned int type, struct kvm *kvm)
 
 static void kvm_init_debug(void)
 {
-	const struct file_operations *fops;
-	const struct _kvm_stats_desc *pdesc;
-	int i;
+	struct kvm_stats_debugfs_item *p;
 
 	kvm_debugfs_dir = debugfs_create_dir("kvm", NULL);
 
-	for (i = 0; i < kvm_vm_stats_header.num_desc; ++i) {
-		pdesc = &kvm_vm_stats_desc[i];
-		if (kvm_stats_debugfs_mode(pdesc) & 0222)
-			fops = &vm_stat_fops;
-		else
-			fops = &vm_stat_readonly_fops;
-		debugfs_create_file(pdesc->name, kvm_stats_debugfs_mode(pdesc),
-				kvm_debugfs_dir,
-				(void *)(long)pdesc->desc.offset, fops);
-	}
-
-	for (i = 0; i < kvm_vcpu_stats_header.num_desc; ++i) {
-		pdesc = &kvm_vcpu_stats_desc[i];
-		if (kvm_stats_debugfs_mode(pdesc) & 0222)
-			fops = &vcpu_stat_fops;
-		else
-			fops = &vcpu_stat_readonly_fops;
-		debugfs_create_file(pdesc->name, kvm_stats_debugfs_mode(pdesc),
-				kvm_debugfs_dir,
-				(void *)(long)pdesc->desc.offset, fops);
+	kvm_debugfs_num_entries = 0;
+	for (p = debugfs_entries; p->name; ++p, kvm_debugfs_num_entries++) {
+		debugfs_create_file(p->name, KVM_DBGFS_GET_MODE(p),
+				    kvm_debugfs_dir, (void *)(long)p->offset,
+				    stat_fops[p->kind]);
 	}
 }
 
@@ -5404,7 +5023,7 @@ static void kvm_sched_out(struct preempt_notifier *pn,
 {
 	struct kvm_vcpu *vcpu = preempt_notifier_to_vcpu(pn);
 
-	if (current->on_rq) {
+	if (current->state == TASK_RUNNING) {
 		WRITE_ONCE(vcpu->preempted, true);
 		WRITE_ONCE(vcpu->ready, true);
 	}
@@ -5505,8 +5124,7 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
 		kmem_cache_create_usercopy("kvm_vcpu", vcpu_size, vcpu_align,
 					   SLAB_ACCOUNT,
 					   offsetof(struct kvm_vcpu, arch),
-					   offsetofend(struct kvm_vcpu, stats_id)
-					   - offsetof(struct kvm_vcpu, arch),
+					   sizeof_field(struct kvm_vcpu, arch),
 					   NULL);
 	if (!kvm_vcpu_cache) {
 		r = -ENOMEM;

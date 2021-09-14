@@ -248,9 +248,9 @@ static inline cfi_check_fn find_shadow_check_fn(unsigned long ptr)
 {
 	cfi_check_fn fn;
 
-	rcu_read_lock_sched_notrace();
+	rcu_read_lock_sched();
 	fn = ptr_to_check_fn(rcu_dereference_sched(cfi_shadow), ptr);
-	rcu_read_unlock_sched_notrace();
+	rcu_read_unlock_sched();
 
 	return fn;
 }
@@ -269,11 +269,11 @@ static inline cfi_check_fn find_module_check_fn(unsigned long ptr)
 	cfi_check_fn fn = NULL;
 	struct module *mod;
 
-	rcu_read_lock_sched_notrace();
+	rcu_read_lock_sched();
 	mod = __module_address(ptr);
 	if (mod)
 		fn = mod->cfi_check;
-	rcu_read_unlock_sched_notrace();
+	rcu_read_unlock_sched();
 
 	return fn;
 }

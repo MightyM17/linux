@@ -697,18 +697,16 @@ struct phy *phy_get(struct device *dev, const char *string)
 	struct phy *phy;
 	struct device_link *link;
 
+	if (string == NULL) {
+		dev_WARN(dev, "missing string\n");
+		return ERR_PTR(-EINVAL);
+	}
+
 	if (dev->of_node) {
-		if (string)
-			index = of_property_match_string(dev->of_node, "phy-names",
-				string);
-		else
-			index = 0;
+		index = of_property_match_string(dev->of_node, "phy-names",
+			string);
 		phy = _of_phy_get(dev->of_node, index);
 	} else {
-		if (string == NULL) {
-			dev_WARN(dev, "missing string\n");
-			return ERR_PTR(-EINVAL);
-		}
 		phy = phy_find(dev, string);
 	}
 	if (IS_ERR(phy))

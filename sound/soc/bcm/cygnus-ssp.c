@@ -1308,6 +1308,7 @@ static int cygnus_ssp_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct device_node *child_node;
+	struct resource *res;
 	struct cygnus_audio *cygaud;
 	int err;
 	int node_count;
@@ -1319,11 +1320,13 @@ static int cygnus_ssp_probe(struct platform_device *pdev)
 
 	dev_set_drvdata(dev, cygaud);
 
-	cygaud->audio = devm_platform_ioremap_resource_byname(pdev, "aud");
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "aud");
+	cygaud->audio = devm_ioremap_resource(dev, res);
 	if (IS_ERR(cygaud->audio))
 		return PTR_ERR(cygaud->audio);
 
-	cygaud->i2s_in = devm_platform_ioremap_resource_byname(pdev, "i2s_in");
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "i2s_in");
+	cygaud->i2s_in = devm_ioremap_resource(dev, res);
 	if (IS_ERR(cygaud->i2s_in))
 		return PTR_ERR(cygaud->i2s_in);
 

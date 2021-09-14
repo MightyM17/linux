@@ -85,11 +85,9 @@ static struct class	*mdpy_class;
 static struct cdev	mdpy_cdev;
 static struct device	mdpy_dev;
 static u32		mdpy_count;
-static const struct vfio_device_ops mdpy_dev_ops;
 
 /* State of each mdev device */
 struct mdev_state {
-	struct vfio_device vdev;
 	u8 *vconfig;
 	u32 bar_mask;
 	struct mutex ops_lock;
@@ -164,9 +162,11 @@ static void handle_pci_cfg_write(struct mdev_state *mdev_state, u16 offset,
 	}
 }
 
-static ssize_t mdev_access(struct mdev_state *mdev_state, char *buf,
-			   size_t count, loff_t pos, bool is_write)
+static ssize_t mdev_access(struct mdev_device *mdev, char *buf, size_t count,
+			   loff_t pos, bool is_write)
 {
+	struct mdev_state *mdev_state = mdev_get_drvdata(mdev);
+	struct device *dev = mdev_dev(mdev);
 	int ret = 0;
 
 	mutex_lock(&mdev_state->ops_lock);
@@ -187,9 +187,8 @@ static ssize_t mdev_access(struct mdev_state *mdev_state, char *buf,
 			memcpy(buf, mdev_state->memblk, count);
 
 	} else {
-		dev_info(mdev_state->vdev.dev,
-			 "%s: %s @0x%llx (unhandled)\n", __func__,
-			 is_write ? "WR" : "RD", pos);
+		dev_info(dev, "%s: %s @0x%llx (unhandled)\n",
+			 __func__, is_write ? "WR" : "RD", pos);
 		ret = -1;
 		goto accessfailed;
 	}
@@ -203,8 +202,9 @@ accessfailed:
 	return ret;
 }
 
-static int mdpy_reset(struct mdev_state *mdev_state)
+static int mdpy_reset(struct mdev_device *mdev)
 {
+	struct mdev_state *mdev_state = mdev_get_drvdata(mdev);
 	u32 stride, i;
 
 	/* initialize with gray gradient */
@@ -216,14 +216,13 @@ static int mdpy_reset(struct mdev_state *mdev_state)
 	return 0;
 }
 
-static int mdpy_probe(struct mdev_device *mdev)
+static int mdpy_create(struct mdev_device *mdev)
 {
 	const struct mdpy_type *type =
 		&mdpy_types[mdev_get_type_group_id(mdev)];
 	struct device *dev = mdev_dev(mdev);
 	struct mdev_state *mdev_state;
 	u32 fbsize;
-	int ret;
 
 	if (mdpy_count >= max_devices)
 		return -ENOMEM;
@@ -231,68 +230,56 @@ static int mdpy_probe(struct mdev_device *mdev)
 	mdev_state = kzalloc(sizeof(struct mdev_state), GFP_KERNEL);
 	if (mdev_state == NULL)
 		return -ENOMEM;
-	vfio_init_group_dev(&mdev_state->vdev, &mdev->dev, &mdpy_dev_ops);
 
 	mdev_state->vconfig = kzalloc(MDPY_CONFIG_SPACE_SIZE, GFP_KERNEL);
 	if (mdev_state->vconfig == NULL) {
-		ret = -ENOMEM;
-		goto err_state;
+		kfree(mdev_state);
+		return -ENOMEM;
 	}
 
 	fbsize = roundup_pow_of_two(type->width * type->height * type->bytepp);
 
 	mdev_state->memblk = vmalloc_user(fbsize);
 	if (!mdev_state->memblk) {
-		ret = -ENOMEM;
-		goto err_vconfig;
+		kfree(mdev_state->vconfig);
+		kfree(mdev_state);
+		return -ENOMEM;
 	}
 	dev_info(dev, "%s: %s (%dx%d)\n", __func__, type->name, type->width,
 		 type->height);
 
 	mutex_init(&mdev_state->ops_lock);
 	mdev_state->mdev = mdev;
+	mdev_set_drvdata(mdev, mdev_state);
+
 	mdev_state->type    = type;
 	mdev_state->memsize = fbsize;
 	mdpy_create_config_space(mdev_state);
-	mdpy_reset(mdev_state);
+	mdpy_reset(mdev);
 
 	mdpy_count++;
-
-	ret = vfio_register_group_dev(&mdev_state->vdev);
-	if (ret)
-		goto err_mem;
-	dev_set_drvdata(&mdev->dev, mdev_state);
 	return 0;
-err_mem:
-	vfree(mdev_state->memblk);
-err_vconfig:
-	kfree(mdev_state->vconfig);
-err_state:
-	vfio_uninit_group_dev(&mdev_state->vdev);
-	kfree(mdev_state);
-	return ret;
 }
 
-static void mdpy_remove(struct mdev_device *mdev)
+static int mdpy_remove(struct mdev_device *mdev)
 {
-	struct mdev_state *mdev_state = dev_get_drvdata(&mdev->dev);
+	struct mdev_state *mdev_state = mdev_get_drvdata(mdev);
+	struct device *dev = mdev_dev(mdev);
 
-	dev_info(&mdev->dev, "%s\n", __func__);
+	dev_info(dev, "%s\n", __func__);
 
-	vfio_unregister_group_dev(&mdev_state->vdev);
+	mdev_set_drvdata(mdev, NULL);
 	vfree(mdev_state->memblk);
 	kfree(mdev_state->vconfig);
-	vfio_uninit_group_dev(&mdev_state->vdev);
 	kfree(mdev_state);
 
 	mdpy_count--;
+	return 0;
 }
 
-static ssize_t mdpy_read(struct vfio_device *vdev, char __user *buf,
+static ssize_t mdpy_read(struct mdev_device *mdev, char __user *buf,
 			 size_t count, loff_t *ppos)
 {
-	struct mdev_state *mdev_state =
-		container_of(vdev, struct mdev_state, vdev);
 	unsigned int done = 0;
 	int ret;
 
@@ -302,8 +289,8 @@ static ssize_t mdpy_read(struct vfio_device *vdev, char __user *buf,
 		if (count >= 4 && !(*ppos % 4)) {
 			u32 val;
 
-			ret = mdev_access(mdev_state, (char *)&val, sizeof(val),
-					  *ppos, false);
+			ret =  mdev_access(mdev, (char *)&val, sizeof(val),
+					   *ppos, false);
 			if (ret <= 0)
 				goto read_err;
 
@@ -314,7 +301,7 @@ static ssize_t mdpy_read(struct vfio_device *vdev, char __user *buf,
 		} else if (count >= 2 && !(*ppos % 2)) {
 			u16 val;
 
-			ret = mdev_access(mdev_state, (char *)&val, sizeof(val),
+			ret = mdev_access(mdev, (char *)&val, sizeof(val),
 					  *ppos, false);
 			if (ret <= 0)
 				goto read_err;
@@ -326,7 +313,7 @@ static ssize_t mdpy_read(struct vfio_device *vdev, char __user *buf,
 		} else {
 			u8 val;
 
-			ret = mdev_access(mdev_state, (char *)&val, sizeof(val),
+			ret = mdev_access(mdev, (char *)&val, sizeof(val),
 					  *ppos, false);
 			if (ret <= 0)
 				goto read_err;
@@ -349,11 +336,9 @@ read_err:
 	return -EFAULT;
 }
 
-static ssize_t mdpy_write(struct vfio_device *vdev, const char __user *buf,
+static ssize_t mdpy_write(struct mdev_device *mdev, const char __user *buf,
 			  size_t count, loff_t *ppos)
 {
-	struct mdev_state *mdev_state =
-		container_of(vdev, struct mdev_state, vdev);
 	unsigned int done = 0;
 	int ret;
 
@@ -366,7 +351,7 @@ static ssize_t mdpy_write(struct vfio_device *vdev, const char __user *buf,
 			if (copy_from_user(&val, buf, sizeof(val)))
 				goto write_err;
 
-			ret = mdev_access(mdev_state, (char *)&val, sizeof(val),
+			ret = mdev_access(mdev, (char *)&val, sizeof(val),
 					  *ppos, true);
 			if (ret <= 0)
 				goto write_err;
@@ -378,7 +363,7 @@ static ssize_t mdpy_write(struct vfio_device *vdev, const char __user *buf,
 			if (copy_from_user(&val, buf, sizeof(val)))
 				goto write_err;
 
-			ret = mdev_access(mdev_state, (char *)&val, sizeof(val),
+			ret = mdev_access(mdev, (char *)&val, sizeof(val),
 					  *ppos, true);
 			if (ret <= 0)
 				goto write_err;
@@ -390,7 +375,7 @@ static ssize_t mdpy_write(struct vfio_device *vdev, const char __user *buf,
 			if (copy_from_user(&val, buf, sizeof(val)))
 				goto write_err;
 
-			ret = mdev_access(mdev_state, (char *)&val, sizeof(val),
+			ret = mdev_access(mdev, (char *)&val, sizeof(val),
 					  *ppos, true);
 			if (ret <= 0)
 				goto write_err;
@@ -408,10 +393,9 @@ write_err:
 	return -EFAULT;
 }
 
-static int mdpy_mmap(struct vfio_device *vdev, struct vm_area_struct *vma)
+static int mdpy_mmap(struct mdev_device *mdev, struct vm_area_struct *vma)
 {
-	struct mdev_state *mdev_state =
-		container_of(vdev, struct mdev_state, vdev);
+	struct mdev_state *mdev_state = mdev_get_drvdata(mdev);
 
 	if (vma->vm_pgoff != MDPY_MEMORY_BAR_OFFSET >> PAGE_SHIFT)
 		return -EINVAL;
@@ -425,10 +409,16 @@ static int mdpy_mmap(struct vfio_device *vdev, struct vm_area_struct *vma)
 	return remap_vmalloc_range(vma, mdev_state->memblk, 0);
 }
 
-static int mdpy_get_region_info(struct mdev_state *mdev_state,
+static int mdpy_get_region_info(struct mdev_device *mdev,
 				struct vfio_region_info *region_info,
 				u16 *cap_type_id, void **cap_type)
 {
+	struct mdev_state *mdev_state;
+
+	mdev_state = mdev_get_drvdata(mdev);
+	if (!mdev_state)
+		return -EINVAL;
+
 	if (region_info->index >= VFIO_PCI_NUM_REGIONS &&
 	    region_info->index != MDPY_DISPLAY_REGION)
 		return -EINVAL;
@@ -457,13 +447,15 @@ static int mdpy_get_region_info(struct mdev_state *mdev_state,
 	return 0;
 }
 
-static int mdpy_get_irq_info(struct vfio_irq_info *irq_info)
+static int mdpy_get_irq_info(struct mdev_device *mdev,
+			     struct vfio_irq_info *irq_info)
 {
 	irq_info->count = 0;
 	return 0;
 }
 
-static int mdpy_get_device_info(struct vfio_device_info *dev_info)
+static int mdpy_get_device_info(struct mdev_device *mdev,
+				struct vfio_device_info *dev_info)
 {
 	dev_info->flags = VFIO_DEVICE_FLAGS_PCI;
 	dev_info->num_regions = VFIO_PCI_NUM_REGIONS;
@@ -471,9 +463,11 @@ static int mdpy_get_device_info(struct vfio_device_info *dev_info)
 	return 0;
 }
 
-static int mdpy_query_gfx_plane(struct mdev_state *mdev_state,
+static int mdpy_query_gfx_plane(struct mdev_device *mdev,
 				struct vfio_device_gfx_plane_info *plane)
 {
+	struct mdev_state *mdev_state = mdev_get_drvdata(mdev);
+
 	if (plane->flags & VFIO_GFX_PLANE_TYPE_PROBE) {
 		if (plane->flags == (VFIO_GFX_PLANE_TYPE_PROBE |
 				     VFIO_GFX_PLANE_TYPE_REGION))
@@ -502,13 +496,14 @@ static int mdpy_query_gfx_plane(struct mdev_state *mdev_state,
 	return 0;
 }
 
-static long mdpy_ioctl(struct vfio_device *vdev, unsigned int cmd,
+static long mdpy_ioctl(struct mdev_device *mdev, unsigned int cmd,
 		       unsigned long arg)
 {
 	int ret = 0;
 	unsigned long minsz;
-	struct mdev_state *mdev_state =
-		container_of(vdev, struct mdev_state, vdev);
+	struct mdev_state *mdev_state;
+
+	mdev_state = mdev_get_drvdata(mdev);
 
 	switch (cmd) {
 	case VFIO_DEVICE_GET_INFO:
@@ -523,7 +518,7 @@ static long mdpy_ioctl(struct vfio_device *vdev, unsigned int cmd,
 		if (info.argsz < minsz)
 			return -EINVAL;
 
-		ret = mdpy_get_device_info(&info);
+		ret = mdpy_get_device_info(mdev, &info);
 		if (ret)
 			return ret;
 
@@ -548,7 +543,7 @@ static long mdpy_ioctl(struct vfio_device *vdev, unsigned int cmd,
 		if (info.argsz < minsz)
 			return -EINVAL;
 
-		ret = mdpy_get_region_info(mdev_state, &info, &cap_type_id,
+		ret = mdpy_get_region_info(mdev, &info, &cap_type_id,
 					   &cap_type);
 		if (ret)
 			return ret;
@@ -572,7 +567,7 @@ static long mdpy_ioctl(struct vfio_device *vdev, unsigned int cmd,
 		    (info.index >= mdev_state->dev_info.num_irqs))
 			return -EINVAL;
 
-		ret = mdpy_get_irq_info(&info);
+		ret = mdpy_get_irq_info(mdev, &info);
 		if (ret)
 			return ret;
 
@@ -595,7 +590,7 @@ static long mdpy_ioctl(struct vfio_device *vdev, unsigned int cmd,
 		if (plane.argsz < minsz)
 			return -EINVAL;
 
-		ret = mdpy_query_gfx_plane(mdev_state, &plane);
+		ret = mdpy_query_gfx_plane(mdev, &plane);
 		if (ret)
 			return ret;
 
@@ -609,16 +604,30 @@ static long mdpy_ioctl(struct vfio_device *vdev, unsigned int cmd,
 		return -EINVAL;
 
 	case VFIO_DEVICE_RESET:
-		return mdpy_reset(mdev_state);
+		return mdpy_reset(mdev);
 	}
 	return -ENOTTY;
+}
+
+static int mdpy_open(struct mdev_device *mdev)
+{
+	if (!try_module_get(THIS_MODULE))
+		return -ENODEV;
+
+	return 0;
+}
+
+static void mdpy_close(struct mdev_device *mdev)
+{
+	module_put(THIS_MODULE);
 }
 
 static ssize_t
 resolution_show(struct device *dev, struct device_attribute *attr,
 		char *buf)
 {
-	struct mdev_state *mdev_state = dev_get_drvdata(dev);
+	struct mdev_device *mdev = mdev_from_dev(dev);
+	struct mdev_state *mdev_state = mdev_get_drvdata(mdev);
 
 	return sprintf(buf, "%dx%d\n",
 		       mdev_state->type->width,
@@ -707,28 +716,18 @@ static struct attribute_group *mdev_type_groups[] = {
 	NULL,
 };
 
-static const struct vfio_device_ops mdpy_dev_ops = {
-	.read = mdpy_read,
-	.write = mdpy_write,
-	.ioctl = mdpy_ioctl,
-	.mmap = mdpy_mmap,
-};
-
-static struct mdev_driver mdpy_driver = {
-	.driver = {
-		.name = "mdpy",
-		.owner = THIS_MODULE,
-		.mod_name = KBUILD_MODNAME,
-		.dev_groups = mdev_dev_groups,
-	},
-	.probe = mdpy_probe,
-	.remove	= mdpy_remove,
-};
-
 static const struct mdev_parent_ops mdev_fops = {
 	.owner			= THIS_MODULE,
-	.device_driver          = &mdpy_driver,
+	.mdev_attr_groups	= mdev_dev_groups,
 	.supported_type_groups	= mdev_type_groups,
+	.create			= mdpy_create,
+	.remove			= mdpy_remove,
+	.open			= mdpy_open,
+	.release		= mdpy_close,
+	.read			= mdpy_read,
+	.write			= mdpy_write,
+	.ioctl			= mdpy_ioctl,
+	.mmap			= mdpy_mmap,
 };
 
 static const struct file_operations vd_fops = {
@@ -753,15 +752,11 @@ static int __init mdpy_dev_init(void)
 	cdev_add(&mdpy_cdev, mdpy_devt, MINORMASK + 1);
 	pr_info("%s: major %d\n", __func__, MAJOR(mdpy_devt));
 
-	ret = mdev_register_driver(&mdpy_driver);
-	if (ret)
-		goto err_cdev;
-
 	mdpy_class = class_create(THIS_MODULE, MDPY_CLASS_NAME);
 	if (IS_ERR(mdpy_class)) {
 		pr_err("Error: failed to register mdpy_dev class\n");
 		ret = PTR_ERR(mdpy_class);
-		goto err_driver;
+		goto failed1;
 	}
 	mdpy_dev.class = mdpy_class;
 	mdpy_dev.release = mdpy_device_release;
@@ -769,21 +764,19 @@ static int __init mdpy_dev_init(void)
 
 	ret = device_register(&mdpy_dev);
 	if (ret)
-		goto err_class;
+		goto failed2;
 
 	ret = mdev_register_device(&mdpy_dev, &mdev_fops);
 	if (ret)
-		goto err_device;
+		goto failed3;
 
 	return 0;
 
-err_device:
+failed3:
 	device_unregister(&mdpy_dev);
-err_class:
+failed2:
 	class_destroy(mdpy_class);
-err_driver:
-	mdev_unregister_driver(&mdpy_driver);
-err_cdev:
+failed1:
 	cdev_del(&mdpy_cdev);
 	unregister_chrdev_region(mdpy_devt, MINORMASK + 1);
 	return ret;
@@ -795,7 +788,6 @@ static void __exit mdpy_dev_exit(void)
 	mdev_unregister_device(&mdpy_dev);
 
 	device_unregister(&mdpy_dev);
-	mdev_unregister_driver(&mdpy_driver);
 	cdev_del(&mdpy_cdev);
 	unregister_chrdev_region(mdpy_devt, MINORMASK + 1);
 	class_destroy(mdpy_class);

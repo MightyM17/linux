@@ -8,7 +8,8 @@
 
 static inline bool xfs_is_always_cow_inode(struct xfs_inode *ip)
 {
-	return ip->i_mount->m_always_cow && xfs_has_reflink(ip->i_mount);
+	return ip->i_mount->m_always_cow &&
+		xfs_sb_version_hasreflink(&ip->i_mount->m_sb);
 }
 
 static inline bool xfs_is_cow_inode(struct xfs_inode *ip)

@@ -14,7 +14,6 @@
 
 #ifdef CONFIG_EFI
 extern void efi_init(void);
-extern void efifb_setup_from_dmi(struct screen_info *si, const char *opt);
 #else
 #define efi_init()
 #endif
@@ -86,6 +85,10 @@ static inline void free_screen_info(struct screen_info *si)
 {
 }
 
+static inline void efifb_setup_from_dmi(struct screen_info *si, const char *opt)
+{
+}
+
 #define EFI_ALLOC_ALIGN		SZ_64K
 
 /*
@@ -134,7 +137,7 @@ void efi_virtmap_unload(void);
 
 static inline void efi_capsule_flush_cache_range(void *addr, int size)
 {
-	dcache_clean_inval_poc((unsigned long)addr, (unsigned long)addr + size);
+	__flush_dcache_area(addr, size);
 }
 
 #endif /* _ASM_EFI_H */

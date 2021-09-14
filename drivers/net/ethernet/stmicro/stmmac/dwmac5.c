@@ -183,8 +183,7 @@ static void dwmac5_handle_dma_err(struct net_device *ndev,
 			STAT_OFF(dma_errors), stats);
 }
 
-int dwmac5_safety_feat_config(void __iomem *ioaddr, unsigned int asp,
-			      struct stmmac_safety_feature_cfg *safety_feat_cfg)
+int dwmac5_safety_feat_config(void __iomem *ioaddr, unsigned int asp)
 {
 	u32 value;
 
@@ -194,16 +193,11 @@ int dwmac5_safety_feat_config(void __iomem *ioaddr, unsigned int asp,
 	/* 1. Enable Safety Features */
 	value = readl(ioaddr + MTL_ECC_CONTROL);
 	value |= MEEAO; /* MTL ECC Error Addr Status Override */
-	if (safety_feat_cfg->tsoee)
-		value |= TSOEE; /* TSO ECC */
-	if (safety_feat_cfg->mrxpee)
-		value |= MRXPEE; /* MTL RX Parser ECC */
-	if (safety_feat_cfg->mestee)
-		value |= MESTEE; /* MTL EST ECC */
-	if (safety_feat_cfg->mrxee)
-		value |= MRXEE; /* MTL RX FIFO ECC */
-	if (safety_feat_cfg->mtxee)
-		value |= MTXEE; /* MTL TX FIFO ECC */
+	value |= TSOEE; /* TSO ECC */
+	value |= MRXPEE; /* MTL RX Parser ECC */
+	value |= MESTEE; /* MTL EST ECC */
+	value |= MRXEE; /* MTL RX FIFO ECC */
+	value |= MTXEE; /* MTL TX FIFO ECC */
 	writel(value, ioaddr + MTL_ECC_CONTROL);
 
 	/* 2. Enable MTL Safety Interrupts */
@@ -225,16 +219,13 @@ int dwmac5_safety_feat_config(void __iomem *ioaddr, unsigned int asp,
 
 	/* 5. Enable Parity and Timeout for FSM */
 	value = readl(ioaddr + MAC_FSM_CONTROL);
-	if (safety_feat_cfg->prtyen)
-		value |= PRTYEN; /* FSM Parity Feature */
-	if (safety_feat_cfg->tmouten)
-		value |= TMOUTEN; /* FSM Timeout Feature */
+	value |= PRTYEN; /* FSM Parity Feature */
+	value |= TMOUTEN; /* FSM Timeout Feature */
 	writel(value, ioaddr + MAC_FSM_CONTROL);
 
 	/* 4. Enable Data Parity Protection */
 	value = readl(ioaddr + MTL_DPP_CONTROL);
-	if (safety_feat_cfg->edpp)
-		value |= EDPP;
+	value |= EDPP;
 	writel(value, ioaddr + MTL_DPP_CONTROL);
 
 	/*
@@ -244,8 +235,7 @@ int dwmac5_safety_feat_config(void __iomem *ioaddr, unsigned int asp,
 	if (asp <= 0x2)
 		return 0;
 
-	if (safety_feat_cfg->epsi)
-		value |= EPSI;
+	value |= EPSI;
 	writel(value, ioaddr + MTL_DPP_CONTROL);
 	return 0;
 }

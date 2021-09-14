@@ -9,7 +9,6 @@
 #define _LINUX_THREAD_INFO_H
 
 #include <linux/types.h>
-#include <linux/limits.h>
 #include <linux/bug.h>
 #include <linux/restart_block.h>
 #include <linux/errno.h>

@@ -39,13 +39,11 @@ static u32 iomap_read_reg(struct m_can_classdev *cdev, int reg)
 	return readl(priv->base + reg);
 }
 
-static int iomap_read_fifo(struct m_can_classdev *cdev, int offset, void *val, size_t val_count)
+static u32 iomap_read_fifo(struct m_can_classdev *cdev, int offset)
 {
 	struct m_can_pci_priv *priv = cdev_to_priv(cdev);
 
-	ioread32_rep(priv->base + offset, val, val_count);
-
-	return 0;
+	return readl(priv->base + offset);
 }
 
 static int iomap_write_reg(struct m_can_classdev *cdev, int reg, int val)
@@ -57,12 +55,11 @@ static int iomap_write_reg(struct m_can_classdev *cdev, int reg, int val)
 	return 0;
 }
 
-static int iomap_write_fifo(struct m_can_classdev *cdev, int offset,
-			    const void *val, size_t val_count)
+static int iomap_write_fifo(struct m_can_classdev *cdev, int offset, int val)
 {
 	struct m_can_pci_priv *priv = cdev_to_priv(cdev);
 
-	iowrite32_rep(priv->base + offset, val, val_count);
+	writel(val, priv->base + offset);
 
 	return 0;
 }

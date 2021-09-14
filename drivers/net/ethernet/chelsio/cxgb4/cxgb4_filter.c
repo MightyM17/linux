@@ -198,7 +198,7 @@ static void set_nat_params(struct adapter *adap, struct filter_entry *f,
 				      WORD_MASK, f->fs.nat_lip[3] |
 				      f->fs.nat_lip[2] << 8 |
 				      f->fs.nat_lip[1] << 16 |
-				      (u64)f->fs.nat_lip[0] << 24, 1);
+				      (u64)f->fs.nat_lip[0] << 25, 1);
 		}
 	}
 
@@ -1042,7 +1042,7 @@ void clear_all_filters(struct adapter *adapter)
 				cxgb4_del_filter(dev, f->tid, &f->fs);
 		}
 
-		sb = adapter->tids.stid_base;
+		sb = t4_read_reg(adapter, LE_DB_SRVR_START_INDEX_A);
 		for (i = 0; i < sb; i++) {
 			f = (struct filter_entry *)adapter->tids.tid_tab[i];
 
@@ -1441,7 +1441,7 @@ static int cxgb4_set_hash_filter(struct net_device *dev,
 	} else if (iconf & USE_ENC_IDX_F) {
 		if (f->fs.val.encap_vld) {
 			struct port_info *pi = netdev_priv(f->dev);
-			static const u8 match_all_mac[] = { 0, 0, 0, 0, 0, 0 };
+			u8 match_all_mac[] = { 0, 0, 0, 0, 0, 0 };
 
 			/* allocate MPS TCAM entry */
 			ret = t4_alloc_encap_mac_filt(adapter, pi->viid,
@@ -1688,7 +1688,7 @@ int __cxgb4_set_filter(struct net_device *dev, int ftid,
 	} else if (iconf & USE_ENC_IDX_F) {
 		if (f->fs.val.encap_vld) {
 			struct port_info *pi = netdev_priv(f->dev);
-			static const u8 match_all_mac[] = { 0, 0, 0, 0, 0, 0 };
+			u8 match_all_mac[] = { 0, 0, 0, 0, 0, 0 };
 
 			/* allocate MPS TCAM entry */
 			ret = t4_alloc_encap_mac_filt(adapter, pi->viid,

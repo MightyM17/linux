@@ -327,7 +327,7 @@ int start_userspace(unsigned long stub_stack)
 	}
 
 	/* set stack pointer to the end of the stack page, so it can grow downwards */
-	sp = (unsigned long)stack + UM_KERN_PAGE_SIZE;
+	sp = (unsigned long) stack + UM_KERN_PAGE_SIZE - sizeof(void *);
 
 	flags = CLONE_FILES | SIGCHLD;
 

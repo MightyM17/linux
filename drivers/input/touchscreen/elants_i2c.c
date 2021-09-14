@@ -1369,7 +1369,8 @@ static bool elants_acpi_is_hid_device(struct device *dev)
 }
 #endif
 
-static int elants_i2c_probe(struct i2c_client *client)
+static int elants_i2c_probe(struct i2c_client *client,
+			    const struct i2c_device_id *id)
 {
 	union i2c_smbus_data dummy;
 	struct elants_data *ts;
@@ -1395,7 +1396,7 @@ static int elants_i2c_probe(struct i2c_client *client)
 	init_completion(&ts->cmd_done);
 
 	ts->client = client;
-	ts->chip_id = (enum elants_chip_id)(uintptr_t)device_get_match_data(&client->dev);
+	ts->chip_id = (enum elants_chip_id)id->driver_data;
 	i2c_set_clientdata(client, ts);
 
 	ts->vcc33 = devm_regulator_get(&client->dev, "vcc33");
@@ -1635,15 +1636,15 @@ MODULE_DEVICE_TABLE(acpi, elants_acpi_id);
 
 #ifdef CONFIG_OF
 static const struct of_device_id elants_of_match[] = {
-	{ .compatible = "elan,ekth3500", .data = (void *)EKTH3500 },
-	{ .compatible = "elan,ektf3624", .data = (void *)EKTF3624 },
+	{ .compatible = "elan,ekth3500" },
+	{ .compatible = "elan,ektf3624" },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, elants_of_match);
 #endif
 
 static struct i2c_driver elants_i2c_driver = {
-	.probe_new = elants_i2c_probe,
+	.probe = elants_i2c_probe,
 	.id_table = elants_i2c_id,
 	.driver = {
 		.name = DEVICE_NAME,

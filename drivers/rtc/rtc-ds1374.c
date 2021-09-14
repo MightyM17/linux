@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * RTC client/driver for the Maxim/Dallas DS1374 Real-Time Clock over I2C
  *
@@ -7,7 +6,11 @@
  *
  * Copyright (C) 2014 Rose Technology
  * Copyright (C) 2006-2007 Freescale Semiconductor
- * Copyright (c) 2005 MontaVista Software, Inc.
+ *
+ * 2005 (c) MontaVista Software, Inc. This file is licensed under
+ * the terms of the GNU General Public License version 2. This program
+ * is licensed "as is" without any warranty of any kind, whether express
+ * or implied.
  */
 /*
  * It would be more efficient to use i2c msgs/i2c_transfer directly but, as

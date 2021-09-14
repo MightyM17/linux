@@ -749,8 +749,7 @@ static int snd_portman_probe(struct platform_device *pdev)
 		goto free_pardev;
 	}
 
-	err = portman_create(card, pardev, &pm);
-	if (err < 0) {
+	if ((err = portman_create(card, pardev, &pm)) < 0) {
 		snd_printd("Cannot create main component\n");
 		goto release_pardev;
 	}
@@ -763,22 +762,19 @@ static int snd_portman_probe(struct platform_device *pdev)
 		goto __err;
 	}
 	
-	err = snd_portman_rawmidi_create(card);
-	if (err < 0) {
+	if ((err = snd_portman_rawmidi_create(card)) < 0) {
 		snd_printd("Creating Rawmidi component failed\n");
 		goto __err;
 	}
 
 	/* init device */
-	err = portman_device_init(pm);
-	if (err < 0)
+	if ((err = portman_device_init(pm)) < 0)
 		goto __err;
 
 	platform_set_drvdata(pdev, card);
 
 	/* At this point card will be usable */
-	err = snd_card_register(card);
-	if (err < 0) {
+	if ((err = snd_card_register(card)) < 0) {
 		snd_printd("Cannot register card\n");
 		goto __err;
 	}
@@ -835,8 +831,7 @@ static int __init snd_portman_module_init(void)
 {
 	int err;
 
-	err = platform_driver_register(&snd_portman_driver);
-	if (err < 0)
+	if ((err = platform_driver_register(&snd_portman_driver)) < 0)
 		return err;
 
 	if (parport_register_driver(&portman_parport_driver) != 0) {

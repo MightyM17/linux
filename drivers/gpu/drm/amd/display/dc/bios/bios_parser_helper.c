@@ -82,6 +82,9 @@ void bios_set_scratch_critical_state(
 uint32_t bios_get_vga_enabled_displays(
 	struct dc_bios *bios)
 {
-	return REG_READ(BIOS_SCRATCH_3) & 0XFFFF;
+	uint32_t active_disp = 1;
+
+	active_disp = REG_READ(BIOS_SCRATCH_3) & 0XFFFF;
+	return active_disp;
 }
 

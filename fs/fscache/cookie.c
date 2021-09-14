@@ -19,8 +19,6 @@ static atomic_t fscache_object_debug_id = ATOMIC_INIT(0);
 
 #define fscache_cookie_hash_shift 15
 static struct hlist_bl_head fscache_cookie_hash[1 << fscache_cookie_hash_shift];
-static LIST_HEAD(fscache_cookies);
-static DEFINE_RWLOCK(fscache_cookies_lock);
 
 static int fscache_acquire_non_index_cookie(struct fscache_cookie *cookie,
 					    loff_t object_size);
@@ -31,29 +29,21 @@ static int fscache_attach_object(struct fscache_cookie *cookie,
 
 static void fscache_print_cookie(struct fscache_cookie *cookie, char prefix)
 {
-	struct fscache_object *object;
-	struct hlist_node *o;
+	struct hlist_node *object;
 	const u8 *k;
 	unsigned loop;
 
-	pr_err("%c-cookie c=%08x [p=%08x fl=%lx nc=%u na=%u]\n",
-	       prefix,
-	       cookie->debug_id,
-	       cookie->parent ? cookie->parent->debug_id : 0,
-	       cookie->flags,
+	pr_err("%c-cookie c=%p [p=%p fl=%lx nc=%u na=%u]\n",
+	       prefix, cookie, cookie->parent, cookie->flags,
 	       atomic_read(&cookie->n_children),
 	       atomic_read(&cookie->n_active));
-	pr_err("%c-cookie d=%p{%s} n=%p\n",
-	       prefix,
-	       cookie->def,
-	       cookie->def ? cookie->def->name : "?",
-	       cookie->netfs_data);
+	pr_err("%c-cookie d=%p n=%p\n",
+	       prefix, cookie->def, cookie->netfs_data);
 
-	o = READ_ONCE(cookie->backing_objects.first);
-	if (o) {
-		object = hlist_entry(o, struct fscache_object, cookie_link);
-		pr_err("%c-cookie o=%u\n", prefix, object->debug_id);
-	}
+	object = READ_ONCE(cookie->backing_objects.first);
+	if (object)
+		pr_err("%c-cookie o=%p\n",
+		       prefix, hlist_entry(object, struct fscache_object, cookie_link));
 
 	pr_err("%c-key=[%u] '", prefix, cookie->key_len);
 	k = (cookie->key_len <= sizeof(cookie->inline_key)) ?
@@ -67,9 +57,6 @@ void fscache_free_cookie(struct fscache_cookie *cookie)
 {
 	if (cookie) {
 		BUG_ON(!hlist_empty(&cookie->backing_objects));
-		write_lock(&fscache_cookies_lock);
-		list_del(&cookie->proc_link);
-		write_unlock(&fscache_cookies_lock);
 		if (cookie->aux_len > sizeof(cookie->inline_aux))
 			kfree(cookie->aux);
 		if (cookie->key_len > sizeof(cookie->inline_key))
@@ -87,8 +74,10 @@ void fscache_free_cookie(struct fscache_cookie *cookie)
 static int fscache_set_key(struct fscache_cookie *cookie,
 			   const void *index_key, size_t index_key_len)
 {
+	unsigned long long h;
 	u32 *buf;
 	int bufs;
+	int i;
 
 	bufs = DIV_ROUND_UP(index_key_len, sizeof(*buf));
 
@@ -102,7 +91,17 @@ static int fscache_set_key(struct fscache_cookie *cookie,
 	}
 
 	memcpy(buf, index_key, index_key_len);
-	cookie->key_hash = fscache_hash(0, buf, bufs);
+
+	/* Calculate a hash and combine this with the length in the first word
+	 * or first half word
+	 */
+	h = (unsigned long)cookie->parent;
+	h += index_key_len + cookie->type;
+
+	for (i = 0; i < bufs; i++)
+		h += buf[i];
+
+	cookie->key_hash = h ^ (h >> 32);
 	return 0;
 }
 
@@ -129,8 +128,6 @@ static long fscache_compare_cookie(const struct fscache_cookie *a,
 	}
 	return memcmp(ka, kb, a->key_len);
 }
-
-static atomic_t fscache_cookie_debug_id = ATOMIC_INIT(1);
 
 /*
  * Allocate a cookie.
@@ -164,9 +161,8 @@ struct fscache_cookie *fscache_alloc_cookie(
 			goto nomem;
 	}
 
-	refcount_set(&cookie->ref, 1);
+	atomic_set(&cookie->usage, 1);
 	atomic_set(&cookie->n_children, 0);
-	cookie->debug_id = atomic_inc_return(&fscache_cookie_debug_id);
 
 	/* We keep the active count elevated until relinquishment to prevent an
 	 * attempt to wake up every time the object operations queue quiesces.
@@ -185,10 +181,6 @@ struct fscache_cookie *fscache_alloc_cookie(
 	/* radix tree insertion won't use the preallocation pool unless it's
 	 * told it may not wait */
 	INIT_RADIX_TREE(&cookie->stores, GFP_NOFS & ~__GFP_DIRECT_RECLAIM);
-
-	write_lock(&fscache_cookies_lock);
-	list_add_tail(&cookie->proc_link, &fscache_cookies);
-	write_unlock(&fscache_cookies_lock);
 	return cookie;
 
 nomem:
@@ -225,8 +217,8 @@ struct fscache_cookie *fscache_hash_cookie(struct fscache_cookie *candidate)
 
 collision:
 	if (test_and_set_bit(FSCACHE_COOKIE_ACQUIRED, &cursor->flags)) {
-		trace_fscache_cookie(cursor->debug_id, refcount_read(&cursor->ref),
-				     fscache_cookie_collision);
+		trace_fscache_cookie(cursor, fscache_cookie_collision,
+				     atomic_read(&cursor->usage));
 		pr_err("Duplicate cookie detected\n");
 		fscache_print_cookie(cursor, 'O');
 		fscache_print_cookie(candidate, 'N');
@@ -305,8 +297,7 @@ struct fscache_cookie *__fscache_acquire_cookie(
 
 	cookie = fscache_hash_cookie(candidate);
 	if (!cookie) {
-		trace_fscache_cookie(candidate->debug_id, 1,
-				     fscache_cookie_discard);
+		trace_fscache_cookie(candidate, fscache_cookie_discard, 1);
 		goto out;
 	}
 
@@ -364,7 +355,7 @@ void __fscache_enable_cookie(struct fscache_cookie *cookie,
 			     bool (*can_enable)(void *data),
 			     void *data)
 {
-	_enter("%x", cookie->debug_id);
+	_enter("%p", cookie);
 
 	trace_fscache_enable(cookie);
 
@@ -461,8 +452,10 @@ static int fscache_acquire_non_index_cookie(struct fscache_cookie *cookie,
 
 	/* we may be required to wait for lookup to complete at this point */
 	if (!fscache_defer_lookup) {
+		_debug("non-deferred lookup %p", &cookie->flags);
 		wait_on_bit(&cookie->flags, FSCACHE_COOKIE_LOOKING_UP,
 			    TASK_UNINTERRUPTIBLE);
+		_debug("complete");
 		if (test_bit(FSCACHE_COOKIE_UNAVAILABLE, &cookie->flags))
 			goto unavailable;
 	}
@@ -487,7 +480,7 @@ static int fscache_alloc_object(struct fscache_cache *cache,
 	struct fscache_object *object;
 	int ret;
 
-	_enter("%s,%x{%s}", cache->tag->name, cookie->debug_id, cookie->def->name);
+	_enter("%p,%p{%s}", cache, cookie, cookie->def->name);
 
 	spin_lock(&cookie->lock);
 	hlist_for_each_entry(object, &cookie->backing_objects,
@@ -607,6 +600,8 @@ static int fscache_attach_object(struct fscache_cookie *cookie,
 
 	/* Attach to the cookie.  The object already has a ref on it. */
 	hlist_add_head(&object->cookie_link, &cookie->backing_objects);
+
+	fscache_objlist_add(object);
 	ret = 0;
 
 cant_attach_object:
@@ -663,7 +658,7 @@ EXPORT_SYMBOL(__fscache_invalidate);
  */
 void __fscache_wait_on_invalidate(struct fscache_cookie *cookie)
 {
-	_enter("%x", cookie->debug_id);
+	_enter("%p", cookie);
 
 	wait_on_bit(&cookie->flags, FSCACHE_COOKIE_INVALIDATING,
 		    TASK_UNINTERRUPTIBLE);
@@ -718,7 +713,7 @@ void __fscache_disable_cookie(struct fscache_cookie *cookie,
 	struct fscache_object *object;
 	bool awaken = false;
 
-	_enter("%x,%u", cookie->debug_id, invalidate);
+	_enter("%p,%u", cookie, invalidate);
 
 	trace_fscache_disable(cookie);
 
@@ -808,8 +803,8 @@ void __fscache_relinquish_cookie(struct fscache_cookie *cookie,
 		return;
 	}
 
-	_enter("%x{%s,%d},%d",
-	       cookie->debug_id, cookie->def->name,
+	_enter("%p{%s,%p,%d},%d",
+	       cookie, cookie->def->name, cookie->netfs_data,
 	       atomic_read(&cookie->n_active), retire);
 
 	trace_fscache_relinquish(cookie, retire);
@@ -826,12 +821,13 @@ void __fscache_relinquish_cookie(struct fscache_cookie *cookie,
 	BUG_ON(!radix_tree_empty(&cookie->stores));
 
 	if (cookie->parent) {
-		ASSERTCMP(refcount_read(&cookie->parent->ref), >, 0);
+		ASSERTCMP(atomic_read(&cookie->parent->usage), >, 0);
 		ASSERTCMP(atomic_read(&cookie->parent->n_children), >, 0);
 		atomic_dec(&cookie->parent->n_children);
 	}
 
 	/* Dispose of the netfs's link to the cookie */
+	ASSERTCMP(atomic_read(&cookie->usage), >, 0);
 	fscache_cookie_put(cookie, fscache_cookie_put_relinquish);
 
 	_leave("");
@@ -861,17 +857,17 @@ void fscache_cookie_put(struct fscache_cookie *cookie,
 			enum fscache_cookie_trace where)
 {
 	struct fscache_cookie *parent;
-	int ref;
+	int usage;
 
-	_enter("%x", cookie->debug_id);
+	_enter("%p", cookie);
 
 	do {
-		unsigned int cookie_debug_id = cookie->debug_id;
-		bool zero = __refcount_dec_and_test(&cookie->ref, &ref);
+		usage = atomic_dec_return(&cookie->usage);
+		trace_fscache_cookie(cookie, where, usage);
 
-		trace_fscache_cookie(cookie_debug_id, ref - 1, where);
-		if (!zero)
+		if (usage > 0)
 			return;
+		BUG_ON(usage < 0);
 
 		parent = cookie->parent;
 		fscache_unhash_cookie(cookie);
@@ -882,19 +878,6 @@ void fscache_cookie_put(struct fscache_cookie *cookie,
 	} while (cookie);
 
 	_leave("");
-}
-
-/*
- * Get a reference to a cookie.
- */
-struct fscache_cookie *fscache_cookie_get(struct fscache_cookie *cookie,
-					  enum fscache_cookie_trace where)
-{
-	int ref;
-
-	__refcount_inc(&cookie->ref, &ref);
-	trace_fscache_cookie(cookie->debug_id, ref + 1, where);
-	return cookie;
 }
 
 /*
@@ -975,97 +958,3 @@ inconsistent:
 	return -ESTALE;
 }
 EXPORT_SYMBOL(__fscache_check_consistency);
-
-/*
- * Generate a list of extant cookies in /proc/fs/fscache/cookies
- */
-static int fscache_cookies_seq_show(struct seq_file *m, void *v)
-{
-	struct fscache_cookie *cookie;
-	unsigned int keylen = 0, auxlen = 0;
-	char _type[3], *type;
-	u8 *p;
-
-	if (v == &fscache_cookies) {
-		seq_puts(m,
-			 "COOKIE   PARENT   USAGE CHILD ACT TY FL  DEF              NETFS_DATA\n"
-			 "======== ======== ===== ===== === == === ================ ==========\n"
-			 );
-		return 0;
-	}
-
-	cookie = list_entry(v, struct fscache_cookie, proc_link);
-
-	switch (cookie->type) {
-	case 0:
-		type = "IX";
-		break;
-	case 1:
-		type = "DT";
-		break;
-	default:
-		snprintf(_type, sizeof(_type), "%02u",
-			 cookie->type);
-		type = _type;
-		break;
-	}
-
-	seq_printf(m,
-		   "%08x %08x %5u %5u %3u %s %03lx %-16s %px",
-		   cookie->debug_id,
-		   cookie->parent ? cookie->parent->debug_id : 0,
-		   refcount_read(&cookie->ref),
-		   atomic_read(&cookie->n_children),
-		   atomic_read(&cookie->n_active),
-		   type,
-		   cookie->flags,
-		   cookie->def->name,
-		   cookie->netfs_data);
-
-	keylen = cookie->key_len;
-	auxlen = cookie->aux_len;
-
-	if (keylen > 0 || auxlen > 0) {
-		seq_puts(m, " ");
-		p = keylen <= sizeof(cookie->inline_key) ?
-			cookie->inline_key : cookie->key;
-		for (; keylen > 0; keylen--)
-			seq_printf(m, "%02x", *p++);
-		if (auxlen > 0) {
-			seq_puts(m, ", ");
-			p = auxlen <= sizeof(cookie->inline_aux) ?
-				cookie->inline_aux : cookie->aux;
-			for (; auxlen > 0; auxlen--)
-				seq_printf(m, "%02x", *p++);
-		}
-	}
-
-	seq_puts(m, "\n");
-	return 0;
-}
-
-static void *fscache_cookies_seq_start(struct seq_file *m, loff_t *_pos)
-	__acquires(fscache_cookies_lock)
-{
-	read_lock(&fscache_cookies_lock);
-	return seq_list_start_head(&fscache_cookies, *_pos);
-}
-
-static void *fscache_cookies_seq_next(struct seq_file *m, void *v, loff_t *_pos)
-{
-	return seq_list_next(v, &fscache_cookies, _pos);
-}
-
-static void fscache_cookies_seq_stop(struct seq_file *m, void *v)
-	__releases(rcu)
-{
-	read_unlock(&fscache_cookies_lock);
-}
-
-
-const struct seq_operations fscache_cookies_seq_ops = {
-	.start  = fscache_cookies_seq_start,
-	.next   = fscache_cookies_seq_next,
-	.stop   = fscache_cookies_seq_stop,
-	.show   = fscache_cookies_seq_show,
-};

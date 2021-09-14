@@ -21,7 +21,6 @@
 #include "xfs_trans_space.h"
 #include "xfs_trace.h"
 #include "xfs_trans.h"
-#include "xfs_ialloc.h"
 
 /* ----- Kernel only functions below ----- */
 int
@@ -63,7 +62,7 @@ xfs_readlink_bmap_ilocked(
 			byte_cnt = pathlen;
 
 		cur_chunk = bp->b_addr;
-		if (xfs_has_crc(mp)) {
+		if (xfs_sb_version_hascrc(&mp->m_sb)) {
 			if (!xfs_symlink_hdr_ok(ip->i_ino, offset,
 							byte_cnt, bp)) {
 				error = -EFSCORRUPTED;
@@ -107,7 +106,7 @@ xfs_readlink(
 
 	ASSERT(ip->i_df.if_format != XFS_DINODE_FMT_LOCAL);
 
-	if (xfs_is_shutdown(mp))
+	if (XFS_FORCED_SHUTDOWN(mp))
 		return -EIO;
 
 	xfs_ilock(ip, XFS_ILOCK_SHARED);
@@ -162,13 +161,12 @@ xfs_symlink(
 	struct xfs_dquot	*gdqp = NULL;
 	struct xfs_dquot	*pdqp = NULL;
 	uint			resblks;
-	xfs_ino_t		ino;
 
 	*ipp = NULL;
 
 	trace_xfs_symlink(dp, link_name);
 
-	if (xfs_is_shutdown(mp))
+	if (XFS_FORCED_SHUTDOWN(mp))
 		return -EIO;
 
 	/*
@@ -225,11 +223,8 @@ xfs_symlink(
 	/*
 	 * Allocate an inode for the symlink.
 	 */
-	error = xfs_dialloc(&tp, dp->i_ino, S_IFLNK, &ino);
-	if (!error)
-		error = xfs_init_new_inode(mnt_userns, tp, dp, ino,
-				S_IFLNK | (mode & ~S_IFMT), 1, 0, prid,
-				false, &ip);
+	error = xfs_dir_ialloc(mnt_userns, &tp, dp, S_IFLNK | (mode & ~S_IFMT),
+			       1, 0, prid, false, &ip);
 	if (error)
 		goto out_trans_cancel;
 
@@ -321,8 +316,9 @@ xfs_symlink(
 	 * symlink transaction goes to disk before returning to
 	 * the user.
 	 */
-	if (xfs_has_wsync(mp) || xfs_has_dirsync(mp))
+	if (mp->m_flags & (XFS_MOUNT_WSYNC|XFS_MOUNT_DIRSYNC)) {
 		xfs_trans_set_sync(tp);
+	}
 
 	error = xfs_trans_commit(tp);
 	if (error)
@@ -444,7 +440,7 @@ xfs_inactive_symlink_rmt(
 	xfs_trans_log_inode(tp, ip, XFS_ILOG_CORE);
 	error = xfs_trans_commit(tp);
 	if (error) {
-		ASSERT(xfs_is_shutdown(mp));
+		ASSERT(XFS_FORCED_SHUTDOWN(mp));
 		goto error_unlock;
 	}
 
@@ -477,7 +473,7 @@ xfs_inactive_symlink(
 
 	trace_xfs_inactive_symlink(ip);
 
-	if (xfs_is_shutdown(mp))
+	if (XFS_FORCED_SHUTDOWN(mp))
 		return -EIO;
 
 	xfs_ilock(ip, XFS_ILOCK_EXCL);

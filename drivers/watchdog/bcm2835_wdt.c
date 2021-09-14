@@ -205,13 +205,9 @@ static int bcm2835_wdt_probe(struct platform_device *pdev)
 	if (err)
 		return err;
 
-	if (of_device_is_system_power_controller(pdev->dev.parent->of_node)) {
-		if (!pm_power_off) {
-			pm_power_off = bcm2835_power_off;
-			bcm2835_power_off_wdt = wdt;
-		} else {
-			dev_info(dev, "Poweroff handler already present!\n");
-		}
+	if (pm_power_off == NULL) {
+		pm_power_off = bcm2835_power_off;
+		bcm2835_power_off_wdt = wdt;
 	}
 
 	dev_info(dev, "Broadcom BCM2835 watchdog timer");

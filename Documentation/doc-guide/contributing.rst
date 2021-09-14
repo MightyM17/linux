@@ -237,10 +237,10 @@ We have been trying to improve the situation through the creation of
 a set of "books" that group documentation for specific readers.  These
 include:
 
- - Documentation/admin-guide/index.rst
- - Documentation/core-api/index.rst
- - Documentation/driver-api/index.rst
- - Documentation/userspace-api/index.rst
+ - :doc:`../admin-guide/index`
+ - :doc:`../core-api/index`
+ - :doc:`../driver-api/index`
+ - :doc:`../userspace-api/index`
 
 As well as this book on documentation itself.
 

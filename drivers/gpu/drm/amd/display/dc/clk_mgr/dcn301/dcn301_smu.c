@@ -133,7 +133,7 @@ int dcn301_smu_set_dispclk(struct clk_mgr_internal *clk_mgr, int requested_dispc
 	actual_dispclk_set_mhz = dcn301_smu_send_msg_with_param(
 			clk_mgr,
 			VBIOSSMC_MSG_SetDispclkFreq,
-			khz_to_mhz_ceil(requested_dispclk_khz));
+			requested_dispclk_khz / 1000);
 
 	return actual_dispclk_set_mhz * 1000;
 }
@@ -147,7 +147,7 @@ int dcn301_smu_set_dprefclk(struct clk_mgr_internal *clk_mgr)
 	actual_dprefclk_set_mhz = dcn301_smu_send_msg_with_param(
 			clk_mgr,
 			VBIOSSMC_MSG_SetDprefclkFreq,
-			khz_to_mhz_ceil(clk_mgr->base.dprefclk_khz));
+			clk_mgr->base.dprefclk_khz / 1000);
 
 	/* TODO: add code for programing DP DTO, currently this is down by command table */
 
@@ -163,7 +163,7 @@ int dcn301_smu_set_hard_min_dcfclk(struct clk_mgr_internal *clk_mgr, int request
 	actual_dcfclk_set_mhz = dcn301_smu_send_msg_with_param(
 			clk_mgr,
 			VBIOSSMC_MSG_SetHardMinDcfclkByFreq,
-			khz_to_mhz_ceil(requested_dcfclk_khz));
+			requested_dcfclk_khz / 1000);
 
 	return actual_dcfclk_set_mhz * 1000;
 }
@@ -177,7 +177,7 @@ int dcn301_smu_set_min_deep_sleep_dcfclk(struct clk_mgr_internal *clk_mgr, int r
 	actual_min_ds_dcfclk_mhz = dcn301_smu_send_msg_with_param(
 			clk_mgr,
 			VBIOSSMC_MSG_SetMinDeepSleepDcfclk,
-			khz_to_mhz_ceil(requested_min_ds_dcfclk_khz));
+			requested_min_ds_dcfclk_khz / 1000);
 
 	return actual_min_ds_dcfclk_mhz * 1000;
 }
@@ -191,7 +191,7 @@ int dcn301_smu_set_dppclk(struct clk_mgr_internal *clk_mgr, int requested_dpp_kh
 	actual_dppclk_set_mhz = dcn301_smu_send_msg_with_param(
 			clk_mgr,
 			VBIOSSMC_MSG_SetDppclkFreq,
-			khz_to_mhz_ceil(requested_dpp_khz));
+			requested_dpp_khz / 1000);
 
 	return actual_dppclk_set_mhz * 1000;
 }

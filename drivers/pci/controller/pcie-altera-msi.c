@@ -55,7 +55,7 @@ static void altera_msi_isr(struct irq_desc *desc)
 	struct altera_msi *msi;
 	unsigned long status;
 	u32 bit;
-	int ret;
+	u32 virq;
 
 	chained_irq_enter(chip, desc);
 	msi = irq_desc_get_handler_data(desc);
@@ -65,9 +65,11 @@ static void altera_msi_isr(struct irq_desc *desc)
 			/* Dummy read from vector to clear the interrupt */
 			readl_relaxed(msi->vector_base + (bit * sizeof(u32)));
 
-			ret = generic_handle_domain_irq(msi->inner_domain, bit);
-			if (ret)
-				dev_err_ratelimited(&msi->pdev->dev, "unexpected MSI\n");
+			virq = irq_find_mapping(msi->inner_domain, bit);
+			if (virq)
+				generic_handle_irq(virq);
+			else
+				dev_err(&msi->pdev->dev, "unexpected MSI\n");
 		}
 	}
 

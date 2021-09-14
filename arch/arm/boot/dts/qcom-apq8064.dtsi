@@ -766,40 +766,40 @@
 					#size-cells = <0>;
 					#io-channel-cells = <2>;
 
-					vcoin: adc-channel@0 {
+					vcoin: adc-channel@00 {
 						reg = <0x00 0x00>;
 					};
-					vbat: adc-channel@1 {
+					vbat: adc-channel@01 {
 						reg = <0x00 0x01>;
 					};
-					dcin: adc-channel@2 {
+					dcin: adc-channel@02 {
 						reg = <0x00 0x02>;
 					};
-					vph_pwr: adc-channel@4 {
+					vph_pwr: adc-channel@04 {
 						reg = <0x00 0x04>;
 					};
-					batt_therm: adc-channel@8 {
+					batt_therm: adc-channel@08 {
 						reg = <0x00 0x08>;
 					};
-					batt_id: adc-channel@9 {
+					batt_id: adc-channel@09 {
 						reg = <0x00 0x09>;
 					};
-					usb_vbus: adc-channel@a {
+					usb_vbus: adc-channel@0a {
 						reg = <0x00 0x0a>;
 					};
-					die_temp: adc-channel@b {
+					die_temp: adc-channel@0b {
 						reg = <0x00 0x0b>;
 					};
-					ref_625mv: adc-channel@c {
+					ref_625mv: adc-channel@0c {
 						reg = <0x00 0x0c>;
 					};
-					ref_1250mv: adc-channel@d {
+					ref_1250mv: adc-channel@0d {
 						reg = <0x00 0x0d>;
 					};
-					chg_temp: adc-channel@e {
+					chg_temp: adc-channel@0e {
 						reg = <0x00 0x0e>;
 					};
-					ref_muxoff: adc-channel@f {
+					ref_muxoff: adc-channel@0f {
 						reg = <0x00 0x0f>;
 					};
 				};
@@ -1262,9 +1262,9 @@
 				<&mmcc DSI1_BYTE_CLK>,
 				<&mmcc DSI_PIXEL_CLK>,
 				<&mmcc DSI1_ESC_CLK>;
-			clock-names = "iface", "bus", "core_mmss",
-					"src", "byte", "pixel",
-					"core";
+			clock-names = "iface_clk", "bus_clk", "core_mmss_clk",
+					"src_clk", "byte_clk", "pixel_clk",
+					"core_clk";
 
 			assigned-clocks = <&mmcc DSI1_BYTE_SRC>,
 					<&mmcc DSI1_ESC_SRC>,

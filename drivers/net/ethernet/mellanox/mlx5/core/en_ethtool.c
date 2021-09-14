@@ -420,7 +420,6 @@ int mlx5e_ethtool_set_channels(struct mlx5e_priv *priv,
 	unsigned int count = ch->combined_count;
 	struct mlx5e_params new_params;
 	bool arfs_enabled;
-	int rss_cnt;
 	bool opened;
 	int err = 0;
 
@@ -452,27 +451,6 @@ int mlx5e_ethtool_set_channels(struct mlx5e_priv *priv,
 	if (priv->htb.maj_id) {
 		err = -EINVAL;
 		netdev_err(priv->netdev, "%s: HTB offload is active, cannot change the number of channels\n",
-			   __func__);
-		goto out;
-	}
-
-	/* Don't allow changing the number of channels if non-default RSS contexts exist,
-	 * the kernel doesn't protect against set_channels operations that break them.
-	 */
-	rss_cnt = mlx5e_rx_res_rss_cnt(priv->rx_res) - 1;
-	if (rss_cnt) {
-		err = -EINVAL;
-		netdev_err(priv->netdev, "%s: Non-default RSS contexts exist (%d), cannot change the number of channels\n",
-			   __func__, rss_cnt);
-		goto out;
-	}
-
-	/* Don't allow changing the number of channels if MQPRIO mode channel offload is active,
-	 * because it defines a partition over the channels queues.
-	 */
-	if (cur_params->mqprio.mode == TC_MQPRIO_MODE_CHANNEL) {
-		err = -EINVAL;
-		netdev_err(priv->netdev, "%s: MQPRIO mode channel offload is active, cannot change the number of channels\n",
 			   __func__);
 		goto out;
 	}
@@ -534,9 +512,7 @@ int mlx5e_ethtool_get_coalesce(struct mlx5e_priv *priv,
 }
 
 static int mlx5e_get_coalesce(struct net_device *netdev,
-			      struct ethtool_coalesce *coal,
-			      struct kernel_ethtool_coalesce *kernel_coal,
-			      struct netlink_ext_ack *extack)
+			      struct ethtool_coalesce *coal)
 {
 	struct mlx5e_priv *priv = netdev_priv(netdev);
 
@@ -654,9 +630,7 @@ int mlx5e_ethtool_set_coalesce(struct mlx5e_priv *priv,
 }
 
 static int mlx5e_set_coalesce(struct net_device *netdev,
-			      struct ethtool_coalesce *coal,
-			      struct kernel_ethtool_coalesce *kernel_coal,
-			      struct netlink_ext_ack *extack)
+			      struct ethtool_coalesce *coal)
 {
 	struct mlx5e_priv *priv    = netdev_priv(netdev);
 
@@ -1198,7 +1172,7 @@ static int mlx5e_set_link_ksettings(struct net_device *netdev,
 
 u32 mlx5e_ethtool_get_rxfh_key_size(struct mlx5e_priv *priv)
 {
-	return sizeof_field(struct mlx5e_rss_params_hash, toeplitz_hash_key);
+	return sizeof(priv->rss_params.toeplitz_hash_key);
 }
 
 static u32 mlx5e_get_rxfh_key_size(struct net_device *netdev)
@@ -1220,64 +1194,88 @@ static u32 mlx5e_get_rxfh_indir_size(struct net_device *netdev)
 	return mlx5e_ethtool_get_rxfh_indir_size(priv);
 }
 
-static int mlx5e_get_rxfh_context(struct net_device *dev, u32 *indir,
-				  u8 *key, u8 *hfunc, u32 rss_context)
-{
-	struct mlx5e_priv *priv = netdev_priv(dev);
-	int err;
-
-	mutex_lock(&priv->state_lock);
-	err = mlx5e_rx_res_rss_get_rxfh(priv->rx_res, rss_context, indir, key, hfunc);
-	mutex_unlock(&priv->state_lock);
-	return err;
-}
-
-static int mlx5e_set_rxfh_context(struct net_device *dev, const u32 *indir,
-				  const u8 *key, const u8 hfunc,
-				  u32 *rss_context, bool delete)
-{
-	struct mlx5e_priv *priv = netdev_priv(dev);
-	int err;
-
-	mutex_lock(&priv->state_lock);
-	if (delete) {
-		err = mlx5e_rx_res_rss_destroy(priv->rx_res, *rss_context);
-		goto unlock;
-	}
-
-	if (*rss_context == ETH_RXFH_CONTEXT_ALLOC) {
-		unsigned int count = priv->channels.params.num_channels;
-
-		err = mlx5e_rx_res_rss_init(priv->rx_res, rss_context, count);
-		if (err)
-			goto unlock;
-	}
-
-	err = mlx5e_rx_res_rss_set_rxfh(priv->rx_res, *rss_context, indir, key,
-					hfunc == ETH_RSS_HASH_NO_CHANGE ? NULL : &hfunc);
-
-unlock:
-	mutex_unlock(&priv->state_lock);
-	return err;
-}
-
 int mlx5e_get_rxfh(struct net_device *netdev, u32 *indir, u8 *key,
 		   u8 *hfunc)
 {
-	return mlx5e_get_rxfh_context(netdev, indir, key, hfunc, 0);
+	struct mlx5e_priv *priv = netdev_priv(netdev);
+	struct mlx5e_rss_params *rss = &priv->rss_params;
+
+	if (indir)
+		memcpy(indir, rss->indirection_rqt,
+		       sizeof(rss->indirection_rqt));
+
+	if (key)
+		memcpy(key, rss->toeplitz_hash_key,
+		       sizeof(rss->toeplitz_hash_key));
+
+	if (hfunc)
+		*hfunc = rss->hfunc;
+
+	return 0;
 }
 
 int mlx5e_set_rxfh(struct net_device *dev, const u32 *indir,
 		   const u8 *key, const u8 hfunc)
 {
 	struct mlx5e_priv *priv = netdev_priv(dev);
-	int err;
+	struct mlx5e_rss_params *rss = &priv->rss_params;
+	int inlen = MLX5_ST_SZ_BYTES(modify_tir_in);
+	bool refresh_tirs = false;
+	bool refresh_rqt = false;
+	void *in;
+
+	if ((hfunc != ETH_RSS_HASH_NO_CHANGE) &&
+	    (hfunc != ETH_RSS_HASH_XOR) &&
+	    (hfunc != ETH_RSS_HASH_TOP))
+		return -EINVAL;
+
+	in = kvzalloc(inlen, GFP_KERNEL);
+	if (!in)
+		return -ENOMEM;
 
 	mutex_lock(&priv->state_lock);
-	err = mlx5e_rx_res_rss_set_rxfh(priv->rx_res, 0, indir, key,
-					hfunc == ETH_RSS_HASH_NO_CHANGE ? NULL : &hfunc);
+
+	if (hfunc != ETH_RSS_HASH_NO_CHANGE && hfunc != rss->hfunc) {
+		rss->hfunc = hfunc;
+		refresh_rqt = true;
+		refresh_tirs = true;
+	}
+
+	if (indir) {
+		memcpy(rss->indirection_rqt, indir,
+		       sizeof(rss->indirection_rqt));
+		refresh_rqt = true;
+	}
+
+	if (key) {
+		memcpy(rss->toeplitz_hash_key, key,
+		       sizeof(rss->toeplitz_hash_key));
+		refresh_tirs = refresh_tirs || rss->hfunc == ETH_RSS_HASH_TOP;
+	}
+
+	if (refresh_rqt && test_bit(MLX5E_STATE_OPENED, &priv->state)) {
+		struct mlx5e_redirect_rqt_param rrp = {
+			.is_rss = true,
+			{
+				.rss = {
+					.hfunc = rss->hfunc,
+					.channels  = &priv->channels,
+				},
+			},
+		};
+		u32 rqtn = priv->indir_rqt.rqtn;
+
+		mlx5e_redirect_rqt(priv, rqtn, MLX5E_INDIR_RQT_SIZE, rrp);
+	}
+
+	if (refresh_tirs)
+		mlx5e_modify_tirs_hash(priv, in);
+
 	mutex_unlock(&priv->state_lock);
-	return err;
+
+	kvfree(in);
+
+	return 0;
 }
 
 #define MLX5E_PFC_PREVEN_AUTO_TOUT_MSEC		100
@@ -1626,13 +1624,12 @@ static int mlx5e_set_fecparam(struct net_device *netdev,
 {
 	struct mlx5e_priv *priv = netdev_priv(netdev);
 	struct mlx5_core_dev *mdev = priv->mdev;
-	unsigned long fec_bitmap;
 	u16 fec_policy = 0;
 	int mode;
 	int err;
 
-	bitmap_from_arr32(&fec_bitmap, &fecparam->fec, sizeof(fecparam->fec) * BITS_PER_BYTE);
-	if (bitmap_weight(&fec_bitmap, ETHTOOL_FEC_LLRS_BIT + 1) > 1)
+	if (bitmap_weight((unsigned long *)&fecparam->fec,
+			  ETHTOOL_FEC_LLRS_BIT + 1) > 1)
 		return -EOPNOTSUPP;
 
 	for (mode = 0; mode < ARRAY_SIZE(pplm_fec_2_ethtool); mode++) {
@@ -1896,13 +1893,6 @@ int mlx5e_modify_rx_cqe_compression_locked(struct mlx5e_priv *priv, bool new_val
 	if (curr_val == new_val)
 		return 0;
 
-	if (new_val && !priv->profile->rx_ptp_support &&
-	    priv->tstamp.rx_filter != HWTSTAMP_FILTER_NONE) {
-		netdev_err(priv->netdev,
-			   "Profile doesn't support enabling of CQE compression while hardware time-stamping is enabled.\n");
-		return -EINVAL;
-	}
-
 	new_params = priv->channels.params;
 	MLX5E_SET_PFLAG(&new_params, MLX5E_PFLAG_RX_CQE_COMPRESS, new_val);
 	if (priv->tstamp.rx_filter != HWTSTAMP_FILTER_NONE)
@@ -1994,7 +1984,7 @@ static int set_pflag_tx_mpwqe_common(struct net_device *netdev, u32 flag, bool e
 	struct mlx5_core_dev *mdev = priv->mdev;
 	struct mlx5e_params new_params;
 
-	if (enable && !mlx5e_tx_mpwqe_supported(mdev))
+	if (enable && !MLX5_CAP_ETH(mdev, enhanced_multi_pkt_send_wqe))
 		return -EOPNOTSUPP;
 
 	new_params = priv->channels.params;
@@ -2360,8 +2350,6 @@ const struct ethtool_ops mlx5e_ethtool_ops = {
 	.get_rxfh_indir_size = mlx5e_get_rxfh_indir_size,
 	.get_rxfh          = mlx5e_get_rxfh,
 	.set_rxfh          = mlx5e_set_rxfh,
-	.get_rxfh_context  = mlx5e_get_rxfh_context,
-	.set_rxfh_context  = mlx5e_set_rxfh_context,
 	.get_rxnfc         = mlx5e_get_rxnfc,
 	.set_rxnfc         = mlx5e_set_rxnfc,
 	.get_tunable       = mlx5e_get_tunable,

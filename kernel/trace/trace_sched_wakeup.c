@@ -26,9 +26,9 @@ static struct task_struct	*wakeup_task;
 static int			wakeup_cpu;
 static int			wakeup_current_cpu;
 static unsigned			wakeup_prio = -1;
-static bool			wakeup_rt;
-static bool			wakeup_dl;
-static bool			tracing_dl;
+static int			wakeup_rt;
+static int			wakeup_dl;
+static int			tracing_dl = 0;
 
 static arch_spinlock_t wakeup_lock =
 	(arch_spinlock_t)__ARCH_SPIN_LOCK_UNLOCKED;
@@ -498,7 +498,7 @@ static void __wakeup_reset(struct trace_array *tr)
 {
 	wakeup_cpu = -1;
 	wakeup_prio = -1;
-	tracing_dl = false;
+	tracing_dl = 0;
 
 	if (wakeup_task)
 		put_task_struct(wakeup_task);
@@ -572,9 +572,9 @@ probe_wakeup(void *ignore, struct task_struct *p)
 	 * another task until the first one wakes up.
 	 */
 	if (dl_task(p))
-		tracing_dl = true;
+		tracing_dl = 1;
 	else
-		tracing_dl = false;
+		tracing_dl = 0;
 
 	wakeup_task = get_task_struct(p);
 
@@ -685,8 +685,8 @@ static int wakeup_tracer_init(struct trace_array *tr)
 	if (wakeup_busy)
 		return -EBUSY;
 
-	wakeup_dl = false;
-	wakeup_rt = false;
+	wakeup_dl = 0;
+	wakeup_rt = 0;
 	return __wakeup_tracer_init(tr);
 }
 
@@ -695,8 +695,8 @@ static int wakeup_rt_tracer_init(struct trace_array *tr)
 	if (wakeup_busy)
 		return -EBUSY;
 
-	wakeup_dl = false;
-	wakeup_rt = true;
+	wakeup_dl = 0;
+	wakeup_rt = 1;
 	return __wakeup_tracer_init(tr);
 }
 
@@ -705,8 +705,8 @@ static int wakeup_dl_tracer_init(struct trace_array *tr)
 	if (wakeup_busy)
 		return -EBUSY;
 
-	wakeup_dl = true;
-	wakeup_rt = false;
+	wakeup_dl = 1;
+	wakeup_rt = 0;
 	return __wakeup_tracer_init(tr);
 }
 

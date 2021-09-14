@@ -86,7 +86,7 @@ static int tb_service_probe(struct device *dev)
 	return driver->probe(svc, id);
 }
 
-static void tb_service_remove(struct device *dev)
+static int tb_service_remove(struct device *dev)
 {
 	struct tb_service *svc = tb_to_service(dev);
 	struct tb_service_driver *driver;
@@ -94,6 +94,8 @@ static void tb_service_remove(struct device *dev)
 	driver = container_of(dev->driver, struct tb_service_driver, driver);
 	if (driver->remove)
 		driver->remove(svc);
+
+	return 0;
 }
 
 static void tb_service_shutdown(struct device *dev)
@@ -879,12 +881,11 @@ int tb_domain_init(void)
 	int ret;
 
 	tb_test_init();
-	tb_debugfs_init();
-	tb_acpi_init();
 
+	tb_debugfs_init();
 	ret = tb_xdomain_init();
 	if (ret)
-		goto err_acpi;
+		goto err_debugfs;
 	ret = bus_register(&tb_bus_type);
 	if (ret)
 		goto err_xdomain;
@@ -893,8 +894,7 @@ int tb_domain_init(void)
 
 err_xdomain:
 	tb_xdomain_exit();
-err_acpi:
-	tb_acpi_exit();
+err_debugfs:
 	tb_debugfs_exit();
 	tb_test_exit();
 
@@ -907,7 +907,6 @@ void tb_domain_exit(void)
 	ida_destroy(&tb_domain_ida);
 	tb_nvm_exit();
 	tb_xdomain_exit();
-	tb_acpi_exit();
 	tb_debugfs_exit();
 	tb_test_exit();
 }

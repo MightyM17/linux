@@ -18,7 +18,6 @@
 #include <sysdep/mcontext.h>
 #include <um_malloc.h>
 #include <sys/ucontext.h>
-#include <timetravel.h>
 
 void (*sig_info[NSIG])(int, struct siginfo *, struct uml_pt_regs *) = {
 	[SIGTRAP]	= relay_signal,
@@ -63,30 +62,17 @@ static void sig_handler_common(int sig, struct siginfo *si, mcontext_t *mc)
 #define SIGALRM_BIT 1
 #define SIGALRM_MASK (1 << SIGALRM_BIT)
 
-int signals_enabled;
-#ifdef UML_CONFIG_UML_TIME_TRAVEL_SUPPORT
-static int signals_blocked;
-#else
-#define signals_blocked 0
-#endif
+static int signals_enabled;
 static unsigned int signals_pending;
 static unsigned int signals_active = 0;
 
 void sig_handler(int sig, struct siginfo *si, mcontext_t *mc)
 {
-	int enabled = signals_enabled;
+	int enabled;
 
-	if ((signals_blocked || !enabled) && (sig == SIGIO)) {
-		/*
-		 * In TT_MODE_EXTERNAL, need to still call time-travel
-		 * handlers unless signals are also blocked for the
-		 * external time message processing. This will mark
-		 * signals_pending by itself (only if necessary.)
-		 */
-		if (!signals_blocked && time_travel_mode == TT_MODE_EXTERNAL)
-			sigio_run_timetravel_handlers();
-		else
-			signals_pending |= SIGIO_MASK;
+	enabled = signals_enabled;
+	if (!enabled && (sig == SIGIO)) {
+		signals_pending |= SIGIO_MASK;
 		return;
 	}
 
@@ -143,7 +129,7 @@ void set_sigstack(void *sig_stack, int size)
 	stack_t stack = {
 		.ss_flags = 0,
 		.ss_sp = sig_stack,
-		.ss_size = size
+		.ss_size = size - sizeof(void *)
 	};
 
 	if (sigaltstack(&stack, NULL) != 0)
@@ -348,6 +334,11 @@ void unblock_signals(void)
 	}
 }
 
+int get_signals(void)
+{
+	return signals_enabled;
+}
+
 int set_signals(int enable)
 {
 	int ret;
@@ -376,39 +367,6 @@ int set_signals_trace(int enable)
 
 	return ret;
 }
-
-#ifdef UML_CONFIG_UML_TIME_TRAVEL_SUPPORT
-void mark_sigio_pending(void)
-{
-	signals_pending |= SIGIO_MASK;
-}
-
-void block_signals_hard(void)
-{
-	if (signals_blocked)
-		return;
-	signals_blocked = 1;
-	barrier();
-}
-
-void unblock_signals_hard(void)
-{
-	if (!signals_blocked)
-		return;
-	/* Must be set to 0 before we check the pending bits etc. */
-	signals_blocked = 0;
-	barrier();
-
-	if (signals_pending && signals_enabled) {
-		/* this is a bit inefficient, but that's not really important */
-		block_signals();
-		unblock_signals();
-	} else if (signals_pending & SIGIO_MASK) {
-		/* we need to run time-travel handlers even if not enabled */
-		sigio_run_timetravel_handlers();
-	}
-}
-#endif
 
 int os_is_signal_stack(void)
 {

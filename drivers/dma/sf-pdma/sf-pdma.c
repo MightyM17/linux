@@ -94,7 +94,6 @@ sf_pdma_prep_dma_memcpy(struct dma_chan *dchan,	dma_addr_t dest, dma_addr_t src,
 {
 	struct sf_pdma_chan *chan = to_sf_pdma_chan(dchan);
 	struct sf_pdma_desc *desc;
-	unsigned long iflags;
 
 	if (chan && (!len || !dest || !src)) {
 		dev_err(chan->pdma->dma_dev.dev,
@@ -110,10 +109,10 @@ sf_pdma_prep_dma_memcpy(struct dma_chan *dchan,	dma_addr_t dest, dma_addr_t src,
 	desc->dirn = DMA_MEM_TO_MEM;
 	desc->async_tx = vchan_tx_prep(&chan->vchan, &desc->vdesc, flags);
 
-	spin_lock_irqsave(&chan->vchan.lock, iflags);
+	spin_lock_irqsave(&chan->vchan.lock, flags);
 	chan->desc = desc;
 	sf_pdma_fill_desc(desc, dest, src, len);
-	spin_unlock_irqrestore(&chan->vchan.lock, iflags);
+	spin_unlock_irqrestore(&chan->vchan.lock, flags);
 
 	return desc->async_tx;
 }

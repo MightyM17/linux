@@ -639,6 +639,12 @@ static const struct tpm_class_ops cr50_i2c = {
 	.req_canceled = &tpm_cr50_i2c_req_canceled,
 };
 
+static const struct i2c_device_id cr50_i2c_table[] = {
+	{"cr50_i2c", 0},
+	{}
+};
+MODULE_DEVICE_TABLE(i2c, cr50_i2c_table);
+
 #ifdef CONFIG_ACPI
 static const struct acpi_device_id cr50_i2c_acpi_id[] = {
 	{ "GOOG0005", 0 },
@@ -664,7 +670,8 @@ MODULE_DEVICE_TABLE(of, of_cr50_i2c_match);
  * - 0:		Success.
  * - -errno:	A POSIX error code.
  */
-static int tpm_cr50_i2c_probe(struct i2c_client *client)
+static int tpm_cr50_i2c_probe(struct i2c_client *client,
+			      const struct i2c_device_id *id)
 {
 	struct tpm_i2c_cr50_priv_data *priv;
 	struct device *dev = &client->dev;
@@ -699,14 +706,14 @@ static int tpm_cr50_i2c_probe(struct i2c_client *client)
 
 	if (client->irq > 0) {
 		rc = devm_request_irq(dev, client->irq, tpm_cr50_i2c_int_handler,
-				      IRQF_TRIGGER_FALLING | IRQF_ONESHOT |
-				      IRQF_NO_AUTOEN,
+				      IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
 				      dev->driver->name, chip);
 		if (rc < 0) {
 			dev_err(dev, "Failed to probe IRQ %d\n", client->irq);
 			return rc;
 		}
 
+		disable_irq(client->irq);
 		priv->irq = client->irq;
 	} else {
 		dev_warn(dev, "No IRQ, will use %ums delay for TPM ready\n",
@@ -767,7 +774,8 @@ static int tpm_cr50_i2c_remove(struct i2c_client *client)
 static SIMPLE_DEV_PM_OPS(cr50_i2c_pm, tpm_pm_suspend, tpm_pm_resume);
 
 static struct i2c_driver cr50_i2c_driver = {
-	.probe_new = tpm_cr50_i2c_probe,
+	.id_table = cr50_i2c_table,
+	.probe = tpm_cr50_i2c_probe,
 	.remove = tpm_cr50_i2c_remove,
 	.driver = {
 		.name = "cr50_i2c",

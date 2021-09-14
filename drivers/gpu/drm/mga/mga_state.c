@@ -1005,7 +1005,6 @@ int mga_getparam(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
 	drm_mga_private_t *dev_priv = dev->dev_private;
 	drm_mga_getparam_t *param = data;
-	struct pci_dev *pdev = to_pci_dev(dev->dev);
 	int value;
 
 	if (!dev_priv) {
@@ -1017,7 +1016,7 @@ int mga_getparam(struct drm_device *dev, void *data, struct drm_file *file_priv)
 
 	switch (param->param) {
 	case MGA_PARAM_IRQ_NR:
-		value = pdev->irq;
+		value = dev->pdev->irq;
 		break;
 	case MGA_PARAM_CARD_TYPE:
 		value = dev_priv->chipset;

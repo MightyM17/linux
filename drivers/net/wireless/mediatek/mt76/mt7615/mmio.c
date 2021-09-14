@@ -229,7 +229,7 @@ int mt7615_mmio_probe(struct device *pdev, void __iomem *mem_base,
 			       GFP_KERNEL);
 	if (!bus_ops) {
 		ret = -ENOMEM;
-		goto err_free_dev;
+		goto error;
 	}
 
 	bus_ops->rr = mt7615_rr;
@@ -242,20 +242,17 @@ int mt7615_mmio_probe(struct device *pdev, void __iomem *mem_base,
 	ret = devm_request_irq(mdev->dev, irq, mt7615_irq_handler,
 			       IRQF_SHARED, KBUILD_MODNAME, dev);
 	if (ret)
-		goto err_free_dev;
+		goto error;
 
 	if (is_mt7663(mdev))
 		mt76_wr(dev, MT_PCIE_IRQ_ENABLE, 1);
 
 	ret = mt7615_register_device(dev);
 	if (ret)
-		goto err_free_irq;
+		goto error;
 
 	return 0;
-
-err_free_irq:
-	devm_free_irq(pdev, irq, dev);
-err_free_dev:
+error:
 	mt76_free_device(&dev->mt76);
 
 	return ret;

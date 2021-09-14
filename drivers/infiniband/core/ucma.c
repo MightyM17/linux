@@ -468,8 +468,8 @@ static ssize_t ucma_create_id(struct ucma_file *file, const char __user *inbuf,
 	resp.id = ctx->id;
 	if (copy_to_user(u64_to_user_ptr(cmd.response),
 			 &resp, sizeof(resp))) {
-		ret = -EFAULT;
-		goto err1;
+		ucma_destroy_private_ctx(ctx);
+		return -EFAULT;
 	}
 
 	mutex_lock(&file->mut);
@@ -1830,12 +1830,13 @@ static struct ib_client rdma_cma_client = {
 };
 MODULE_ALIAS_RDMA_CLIENT("rdma_cm");
 
-static ssize_t abi_version_show(struct device *dev,
-				struct device_attribute *attr, char *buf)
+static ssize_t show_abi_version(struct device *dev,
+				struct device_attribute *attr,
+				char *buf)
 {
 	return sysfs_emit(buf, "%d\n", RDMA_USER_CM_ABI_VERSION);
 }
-static DEVICE_ATTR_RO(abi_version);
+static DEVICE_ATTR(abi_version, S_IRUGO, show_abi_version, NULL);
 
 static int __init ucma_init(void)
 {

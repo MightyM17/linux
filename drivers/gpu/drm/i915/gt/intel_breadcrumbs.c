@@ -15,14 +15,28 @@
 #include "intel_gt_pm.h"
 #include "intel_gt_requests.h"
 
-static bool irq_enable(struct intel_breadcrumbs *b)
+static bool irq_enable(struct intel_engine_cs *engine)
 {
-	return intel_engine_irq_enable(b->irq_engine);
+	if (!engine->irq_enable)
+		return false;
+
+	/* Caller disables interrupts */
+	spin_lock(&engine->gt->irq_lock);
+	engine->irq_enable(engine);
+	spin_unlock(&engine->gt->irq_lock);
+
+	return true;
 }
 
-static void irq_disable(struct intel_breadcrumbs *b)
+static void irq_disable(struct intel_engine_cs *engine)
 {
-	intel_engine_irq_disable(b->irq_engine);
+	if (!engine->irq_disable)
+		return;
+
+	/* Caller disables interrupts */
+	spin_lock(&engine->gt->irq_lock);
+	engine->irq_disable(engine);
+	spin_unlock(&engine->gt->irq_lock);
 }
 
 static void __intel_breadcrumbs_arm_irq(struct intel_breadcrumbs *b)
@@ -43,7 +57,7 @@ static void __intel_breadcrumbs_arm_irq(struct intel_breadcrumbs *b)
 	WRITE_ONCE(b->irq_armed, true);
 
 	/* Requests may have completed before we could enable the interrupt. */
-	if (!b->irq_enabled++ && b->irq_enable(b))
+	if (!b->irq_enabled++ && irq_enable(b->irq_engine))
 		irq_work_queue(&b->irq_work);
 }
 
@@ -62,7 +76,7 @@ static void __intel_breadcrumbs_disarm_irq(struct intel_breadcrumbs *b)
 {
 	GEM_BUG_ON(!b->irq_enabled);
 	if (!--b->irq_enabled)
-		b->irq_disable(b);
+		irq_disable(b->irq_engine);
 
 	WRITE_ONCE(b->irq_armed, false);
 	intel_gt_pm_put_async(b->irq_engine->gt);
@@ -245,9 +259,6 @@ static void signal_irq_work(struct irq_work *work)
 			llist_entry(signal, typeof(*rq), signal_node);
 		struct list_head cb_list;
 
-		if (rq->engine->sched_engine->retire_inflight_request_prio)
-			rq->engine->sched_engine->retire_inflight_request_prio(rq);
-
 		spin_lock(&rq->lock);
 		list_replace(&rq->fence.cb_list, &cb_list);
 		__dma_fence_signal__timestamp(&rq->fence, timestamp);
@@ -270,7 +281,7 @@ intel_breadcrumbs_create(struct intel_engine_cs *irq_engine)
 	if (!b)
 		return NULL;
 
-	kref_init(&b->ref);
+	b->irq_engine = irq_engine;
 
 	spin_lock_init(&b->signalers_lock);
 	INIT_LIST_HEAD(&b->signalers);
@@ -278,10 +289,6 @@ intel_breadcrumbs_create(struct intel_engine_cs *irq_engine)
 
 	spin_lock_init(&b->irq_lock);
 	init_irq_work(&b->irq_work, signal_irq_work);
-
-	b->irq_engine = irq_engine;
-	b->irq_enable = irq_enable;
-	b->irq_disable = irq_disable;
 
 	return b;
 }
@@ -296,9 +303,9 @@ void intel_breadcrumbs_reset(struct intel_breadcrumbs *b)
 	spin_lock_irqsave(&b->irq_lock, flags);
 
 	if (b->irq_enabled)
-		b->irq_enable(b);
+		irq_enable(b->irq_engine);
 	else
-		b->irq_disable(b);
+		irq_disable(b->irq_engine);
 
 	spin_unlock_irqrestore(&b->irq_lock, flags);
 }
@@ -318,14 +325,11 @@ void __intel_breadcrumbs_park(struct intel_breadcrumbs *b)
 	}
 }
 
-void intel_breadcrumbs_free(struct kref *kref)
+void intel_breadcrumbs_free(struct intel_breadcrumbs *b)
 {
-	struct intel_breadcrumbs *b = container_of(kref, typeof(*b), ref);
-
 	irq_work_sync(&b->irq_work);
 	GEM_BUG_ON(!list_empty(&b->signalers));
 	GEM_BUG_ON(b->irq_armed);
-
 	kfree(b);
 }
 

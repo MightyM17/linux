@@ -165,25 +165,25 @@ static int fsl_rpmsg_probe(struct platform_device *pdev)
 	}
 
 	/* Get the optional clocks */
-	rpmsg->ipg = devm_clk_get_optional(&pdev->dev, "ipg");
+	rpmsg->ipg = devm_clk_get(&pdev->dev, "ipg");
 	if (IS_ERR(rpmsg->ipg))
-		return PTR_ERR(rpmsg->ipg);
+		rpmsg->ipg = NULL;
 
-	rpmsg->mclk = devm_clk_get_optional(&pdev->dev, "mclk");
+	rpmsg->mclk = devm_clk_get(&pdev->dev, "mclk");
 	if (IS_ERR(rpmsg->mclk))
-		return PTR_ERR(rpmsg->mclk);
+		rpmsg->mclk = NULL;
 
-	rpmsg->dma = devm_clk_get_optional(&pdev->dev, "dma");
+	rpmsg->dma = devm_clk_get(&pdev->dev, "dma");
 	if (IS_ERR(rpmsg->dma))
-		return PTR_ERR(rpmsg->dma);
+		rpmsg->dma = NULL;
 
-	rpmsg->pll8k = devm_clk_get_optional(&pdev->dev, "pll8k");
+	rpmsg->pll8k = devm_clk_get(&pdev->dev, "pll8k");
 	if (IS_ERR(rpmsg->pll8k))
-		return PTR_ERR(rpmsg->pll8k);
+		rpmsg->pll8k = NULL;
 
-	rpmsg->pll11k = devm_clk_get_optional(&pdev->dev, "pll11k");
+	rpmsg->pll11k = devm_clk_get(&pdev->dev, "pll11k");
 	if (IS_ERR(rpmsg->pll11k))
-		return PTR_ERR(rpmsg->pll11k);
+		rpmsg->pll11k = NULL;
 
 	platform_set_drvdata(pdev, rpmsg);
 	pm_runtime_enable(&pdev->dev);

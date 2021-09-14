@@ -1007,113 +1007,50 @@ static ssize_t nvmet_subsys_attr_version_show(struct config_item *item,
 			NVME_MINOR(subsys->ver));
 }
 
-static ssize_t
-nvmet_subsys_attr_version_store_locked(struct nvmet_subsys *subsys,
-		const char *page, size_t count)
+static ssize_t nvmet_subsys_attr_version_store(struct config_item *item,
+					       const char *page, size_t count)
 {
+	struct nvmet_subsys *subsys = to_subsys(item);
 	int major, minor, tertiary = 0;
 	int ret;
 
-	if (subsys->subsys_discovered) {
-		if (NVME_TERTIARY(subsys->ver))
-			pr_err("Can't set version number. %llu.%llu.%llu is already assigned\n",
-			       NVME_MAJOR(subsys->ver),
-			       NVME_MINOR(subsys->ver),
-			       NVME_TERTIARY(subsys->ver));
-		else
-			pr_err("Can't set version number. %llu.%llu is already assigned\n",
-			       NVME_MAJOR(subsys->ver),
-			       NVME_MINOR(subsys->ver));
-		return -EINVAL;
-	}
-
 	/* passthru subsystems use the underlying controller's version */
-	if (nvmet_is_passthru_subsys(subsys))
+	if (nvmet_passthru_ctrl(subsys))
 		return -EINVAL;
 
 	ret = sscanf(page, "%d.%d.%d\n", &major, &minor, &tertiary);
 	if (ret != 2 && ret != 3)
 		return -EINVAL;
 
+	down_write(&nvmet_config_sem);
 	subsys->ver = NVME_VS(major, minor, tertiary);
+	up_write(&nvmet_config_sem);
 
 	return count;
 }
-
-static ssize_t nvmet_subsys_attr_version_store(struct config_item *item,
-					       const char *page, size_t count)
-{
-	struct nvmet_subsys *subsys = to_subsys(item);
-	ssize_t ret;
-
-	down_write(&nvmet_config_sem);
-	mutex_lock(&subsys->lock);
-	ret = nvmet_subsys_attr_version_store_locked(subsys, page, count);
-	mutex_unlock(&subsys->lock);
-	up_write(&nvmet_config_sem);
-
-	return ret;
-}
 CONFIGFS_ATTR(nvmet_subsys_, attr_version);
-
-/* See Section 1.5 of NVMe 1.4 */
-static bool nvmet_is_ascii(const char c)
-{
-	return c >= 0x20 && c <= 0x7e;
-}
 
 static ssize_t nvmet_subsys_attr_serial_show(struct config_item *item,
 					     char *page)
 {
 	struct nvmet_subsys *subsys = to_subsys(item);
 
-	return snprintf(page, PAGE_SIZE, "%*s\n",
-			NVMET_SN_MAX_SIZE, subsys->serial);
-}
-
-static ssize_t
-nvmet_subsys_attr_serial_store_locked(struct nvmet_subsys *subsys,
-		const char *page, size_t count)
-{
-	int pos, len = strcspn(page, "\n");
-
-	if (subsys->subsys_discovered) {
-		pr_err("Can't set serial number. %s is already assigned\n",
-		       subsys->serial);
-		return -EINVAL;
-	}
-
-	if (!len || len > NVMET_SN_MAX_SIZE) {
-		pr_err("Serial Number can not be empty or exceed %d Bytes\n",
-		       NVMET_SN_MAX_SIZE);
-		return -EINVAL;
-	}
-
-	for (pos = 0; pos < len; pos++) {
-		if (!nvmet_is_ascii(page[pos])) {
-			pr_err("Serial Number must contain only ASCII strings\n");
-			return -EINVAL;
-		}
-	}
-
-	memcpy_and_pad(subsys->serial, NVMET_SN_MAX_SIZE, page, len, ' ');
-
-	return count;
+	return snprintf(page, PAGE_SIZE, "%llx\n", subsys->serial);
 }
 
 static ssize_t nvmet_subsys_attr_serial_store(struct config_item *item,
 					      const char *page, size_t count)
 {
-	struct nvmet_subsys *subsys = to_subsys(item);
-	ssize_t ret;
+	u64 serial;
+
+	if (sscanf(page, "%llx\n", &serial) != 1)
+		return -EINVAL;
 
 	down_write(&nvmet_config_sem);
-	mutex_lock(&subsys->lock);
-	ret = nvmet_subsys_attr_serial_store_locked(subsys, page, count);
-	mutex_unlock(&subsys->lock);
+	to_subsys(item)->serial = serial;
 	up_write(&nvmet_config_sem);
 
-	return ret;
+	return count;
 }
 CONFIGFS_ATTR(nvmet_subsys_, attr_serial);
 
@@ -1181,8 +1118,20 @@ static ssize_t nvmet_subsys_attr_model_show(struct config_item *item,
 					    char *page)
 {
 	struct nvmet_subsys *subsys = to_subsys(item);
+	int ret;
 
-	return snprintf(page, PAGE_SIZE, "%s\n", subsys->model_number);
+	mutex_lock(&subsys->lock);
+	ret = snprintf(page, PAGE_SIZE, "%s\n", subsys->model_number ?
+			subsys->model_number : NVMET_DEFAULT_CTRL_MODEL);
+	mutex_unlock(&subsys->lock);
+
+	return ret;
+}
+
+/* See Section 1.5 of NVMe 1.4 */
+static bool nvmet_is_ascii(const char c)
+{
+	return c >= 0x20 && c <= 0x7e;
 }
 
 static ssize_t nvmet_subsys_attr_model_store_locked(struct nvmet_subsys *subsys,
@@ -1190,7 +1139,7 @@ static ssize_t nvmet_subsys_attr_model_store_locked(struct nvmet_subsys *subsys,
 {
 	int pos = 0, len;
 
-	if (subsys->subsys_discovered) {
+	if (subsys->model_number) {
 		pr_err("Can't set model number. %s is already assigned\n",
 		       subsys->model_number);
 		return -EINVAL;

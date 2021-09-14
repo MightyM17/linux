@@ -41,11 +41,6 @@
 #include <linux/mempool.h>
 
 /*
- * These are the default for number of transports to different server IPs
- */
-#define NFS_MAX_TRANSPORTS 16
-
-/*
  * These are the default flags for swap requests
  */
 #define NFS_RPC_SWAPFLAGS		(RPC_TASK_SWAPPER|RPC_TASK_ROOTCREDS)
@@ -89,7 +84,6 @@ struct nfs_open_context {
 #define NFS_CONTEXT_RESEND_WRITES	(1)
 #define NFS_CONTEXT_BAD			(2)
 #define NFS_CONTEXT_UNLOCK	(3)
-#define NFS_CONTEXT_FILE_OPEN		(4)
 	int error;
 
 	struct list_head list;

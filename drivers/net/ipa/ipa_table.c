@@ -120,6 +120,8 @@
  */
 #define IPA_ZERO_RULE_SIZE		(2 * sizeof(__le32))
 
+#ifdef IPA_VALIDATE
+
 /* Check things that can be validated at build time. */
 static void ipa_table_validate_build(void)
 {
@@ -148,18 +150,31 @@ static void ipa_table_validate_build(void)
 }
 
 static bool
-ipa_table_valid_one(struct ipa *ipa, enum ipa_mem_id mem_id, bool route)
+ipa_table_valid_one(struct ipa *ipa, bool route, bool ipv6, bool hashed)
 {
-	const struct ipa_mem *mem = ipa_mem_find(ipa, mem_id);
 	struct device *dev = &ipa->pdev->dev;
+	const struct ipa_mem *mem;
 	u32 size;
 
-	if (route)
+	if (route) {
+		if (ipv6)
+			mem = hashed ? &ipa->mem[IPA_MEM_V6_ROUTE_HASHED]
+				     : &ipa->mem[IPA_MEM_V6_ROUTE];
+		else
+			mem = hashed ? &ipa->mem[IPA_MEM_V4_ROUTE_HASHED]
+				     : &ipa->mem[IPA_MEM_V4_ROUTE];
 		size = IPA_ROUTE_COUNT_MAX * sizeof(__le64);
-	else
+	} else {
+		if (ipv6)
+			mem = hashed ? &ipa->mem[IPA_MEM_V6_FILTER_HASHED]
+				     : &ipa->mem[IPA_MEM_V6_FILTER];
+		else
+			mem = hashed ? &ipa->mem[IPA_MEM_V4_FILTER_HASHED]
+				     : &ipa->mem[IPA_MEM_V4_FILTER];
 		size = (1 + IPA_FILTER_COUNT_MAX) * sizeof(__le64);
+	}
 
-	if (!ipa_cmd_table_valid(ipa, mem, route))
+	if (!ipa_cmd_table_valid(ipa, mem, route, ipv6, hashed))
 		return false;
 
 	/* mem->size >= size is sufficient, but we'll demand more */
@@ -167,11 +182,12 @@ ipa_table_valid_one(struct ipa *ipa, enum ipa_mem_id mem_id, bool route)
 		return true;
 
 	/* Hashed table regions can be zero size if hashing is not supported */
-	if (ipa_table_hash_support(ipa) && !mem->size)
+	if (hashed && !mem->size)
 		return true;
 
-	dev_err(dev, "%s table region %u size 0x%02x, expected 0x%02x\n",
-		route ? "route" : "filter", mem_id, mem->size, size);
+	dev_err(dev, "IPv%c %s%s table region size 0x%02x, expected 0x%02x\n",
+		ipv6 ? '6' : '4', hashed ? "hashed " : "",
+		route ? "route" : "filter", mem->size, size);
 
 	return false;
 }
@@ -179,24 +195,16 @@ ipa_table_valid_one(struct ipa *ipa, enum ipa_mem_id mem_id, bool route)
 /* Verify the filter and route table memory regions are the expected size */
 bool ipa_table_valid(struct ipa *ipa)
 {
-	bool valid;
+	bool valid = true;
 
-	valid = ipa_table_valid_one(ipa, IPA_MEM_V4_FILTER, false);
-	valid = valid && ipa_table_valid_one(ipa, IPA_MEM_V6_FILTER, false);
-	valid = valid && ipa_table_valid_one(ipa, IPA_MEM_V4_ROUTE, true);
-	valid = valid && ipa_table_valid_one(ipa, IPA_MEM_V6_ROUTE, true);
-
-	if (!ipa_table_hash_support(ipa))
-		return valid;
-
-	valid = valid && ipa_table_valid_one(ipa, IPA_MEM_V4_FILTER_HASHED,
-					     false);
-	valid = valid && ipa_table_valid_one(ipa, IPA_MEM_V6_FILTER_HASHED,
-					     false);
-	valid = valid && ipa_table_valid_one(ipa, IPA_MEM_V4_ROUTE_HASHED,
-					     true);
-	valid = valid && ipa_table_valid_one(ipa, IPA_MEM_V6_ROUTE_HASHED,
-					     true);
+	valid = valid && ipa_table_valid_one(ipa, false, false, false);
+	valid = valid && ipa_table_valid_one(ipa, false, false, true);
+	valid = valid && ipa_table_valid_one(ipa, false, true, false);
+	valid = valid && ipa_table_valid_one(ipa, false, true, true);
+	valid = valid && ipa_table_valid_one(ipa, true, false, false);
+	valid = valid && ipa_table_valid_one(ipa, true, false, true);
+	valid = valid && ipa_table_valid_one(ipa, true, true, false);
+	valid = valid && ipa_table_valid_one(ipa, true, true, true);
 
 	return valid;
 }
@@ -223,6 +231,14 @@ bool ipa_filter_map_valid(struct ipa *ipa, u32 filter_map)
 	return true;
 }
 
+#else /* !IPA_VALIDATE */
+static void ipa_table_validate_build(void)
+
+{
+}
+
+#endif /* !IPA_VALIDATE */
+
 /* Zero entry count means no table, so just return a 0 address */
 static dma_addr_t ipa_table_addr(struct ipa *ipa, bool filter_mask, u16 count)
 {
@@ -231,7 +247,7 @@ static dma_addr_t ipa_table_addr(struct ipa *ipa, bool filter_mask, u16 count)
 	if (!count)
 		return 0;
 
-	WARN_ON(count > max_t(u32, IPA_FILTER_COUNT_MAX, IPA_ROUTE_COUNT_MAX));
+/* assert(count <= max_t(u32, IPA_FILTER_COUNT_MAX, IPA_ROUTE_COUNT_MAX)); */
 
 	/* Skip over the zero rule and possibly the filter mask */
 	skip = filter_mask ? 1 : 2;
@@ -240,15 +256,14 @@ static dma_addr_t ipa_table_addr(struct ipa *ipa, bool filter_mask, u16 count)
 }
 
 static void ipa_table_reset_add(struct gsi_trans *trans, bool filter,
-				u16 first, u16 count, enum ipa_mem_id mem_id)
+				u16 first, u16 count, const struct ipa_mem *mem)
 {
 	struct ipa *ipa = container_of(trans->gsi, struct ipa, gsi);
-	const struct ipa_mem *mem = ipa_mem_find(ipa, mem_id);
 	dma_addr_t addr;
 	u32 offset;
 	u16 size;
 
-	/* Nothing to do if the table memory region is empty */
+	/* Nothing to do if the table memory regions is empty */
 	if (!mem->size)
 		return;
 
@@ -267,12 +282,15 @@ static void ipa_table_reset_add(struct gsi_trans *trans, bool filter,
  * for the IPv4 and IPv6 non-hashed and hashed filter tables.
  */
 static int
-ipa_filter_reset_table(struct ipa *ipa, enum ipa_mem_id mem_id, bool modem)
+ipa_filter_reset_table(struct ipa *ipa, const struct ipa_mem *mem, bool modem)
 {
 	u32 ep_mask = ipa->filter_map;
 	u32 count = hweight32(ep_mask);
 	struct gsi_trans *trans;
 	enum gsi_ee_id ee_id;
+
+	if (!mem->size)
+		return 0;
 
 	trans = ipa_cmd_trans_alloc(ipa, count);
 	if (!trans) {
@@ -293,7 +311,7 @@ ipa_filter_reset_table(struct ipa *ipa, enum ipa_mem_id mem_id, bool modem)
 		if (endpoint->ee_id != ee_id)
 			continue;
 
-		ipa_table_reset_add(trans, true, endpoint_id, 1, mem_id);
+		ipa_table_reset_add(trans, true, endpoint_id, 1, mem);
 	}
 
 	gsi_trans_commit_wait(trans);
@@ -309,18 +327,20 @@ static int ipa_filter_reset(struct ipa *ipa, bool modem)
 {
 	int ret;
 
-	ret = ipa_filter_reset_table(ipa, IPA_MEM_V4_FILTER, modem);
+	ret = ipa_filter_reset_table(ipa, &ipa->mem[IPA_MEM_V4_FILTER], modem);
 	if (ret)
 		return ret;
 
-	ret = ipa_filter_reset_table(ipa, IPA_MEM_V4_FILTER_HASHED, modem);
+	ret = ipa_filter_reset_table(ipa, &ipa->mem[IPA_MEM_V4_FILTER_HASHED],
+				     modem);
 	if (ret)
 		return ret;
 
-	ret = ipa_filter_reset_table(ipa, IPA_MEM_V6_FILTER, modem);
+	ret = ipa_filter_reset_table(ipa, &ipa->mem[IPA_MEM_V6_FILTER], modem);
 	if (ret)
 		return ret;
-	ret = ipa_filter_reset_table(ipa, IPA_MEM_V6_FILTER_HASHED, modem);
+	ret = ipa_filter_reset_table(ipa, &ipa->mem[IPA_MEM_V6_FILTER_HASHED],
+				     modem);
 
 	return ret;
 }
@@ -351,13 +371,15 @@ static int ipa_route_reset(struct ipa *ipa, bool modem)
 		count = IPA_ROUTE_AP_COUNT;
 	}
 
-	ipa_table_reset_add(trans, false, first, count, IPA_MEM_V4_ROUTE);
 	ipa_table_reset_add(trans, false, first, count,
-			    IPA_MEM_V4_ROUTE_HASHED);
+			    &ipa->mem[IPA_MEM_V4_ROUTE]);
+	ipa_table_reset_add(trans, false, first, count,
+			    &ipa->mem[IPA_MEM_V4_ROUTE_HASHED]);
 
-	ipa_table_reset_add(trans, false, first, count, IPA_MEM_V6_ROUTE);
 	ipa_table_reset_add(trans, false, first, count,
-			    IPA_MEM_V6_ROUTE_HASHED);
+			    &ipa->mem[IPA_MEM_V6_ROUTE]);
+	ipa_table_reset_add(trans, false, first, count,
+			    &ipa->mem[IPA_MEM_V6_ROUTE_HASHED]);
 
 	gsi_trans_commit_wait(trans);
 
@@ -411,12 +433,10 @@ int ipa_table_hash_flush(struct ipa *ipa)
 
 static void ipa_table_init_add(struct gsi_trans *trans, bool filter,
 			       enum ipa_cmd_opcode opcode,
-			       enum ipa_mem_id mem_id,
-			       enum ipa_mem_id hash_mem_id)
+			       const struct ipa_mem *mem,
+			       const struct ipa_mem *hash_mem)
 {
 	struct ipa *ipa = container_of(trans->gsi, struct ipa, gsi);
-	const struct ipa_mem *hash_mem = ipa_mem_find(ipa, hash_mem_id);
-	const struct ipa_mem *mem = ipa_mem_find(ipa, mem_id);
 	dma_addr_t hash_addr;
 	dma_addr_t addr;
 	u16 hash_count;
@@ -457,16 +477,20 @@ int ipa_table_setup(struct ipa *ipa)
 	}
 
 	ipa_table_init_add(trans, false, IPA_CMD_IP_V4_ROUTING_INIT,
-			   IPA_MEM_V4_ROUTE, IPA_MEM_V4_ROUTE_HASHED);
+			   &ipa->mem[IPA_MEM_V4_ROUTE],
+			   &ipa->mem[IPA_MEM_V4_ROUTE_HASHED]);
 
 	ipa_table_init_add(trans, false, IPA_CMD_IP_V6_ROUTING_INIT,
-			   IPA_MEM_V6_ROUTE, IPA_MEM_V6_ROUTE_HASHED);
+			   &ipa->mem[IPA_MEM_V6_ROUTE],
+			   &ipa->mem[IPA_MEM_V6_ROUTE_HASHED]);
 
 	ipa_table_init_add(trans, true, IPA_CMD_IP_V4_FILTER_INIT,
-			   IPA_MEM_V4_FILTER, IPA_MEM_V4_FILTER_HASHED);
+			   &ipa->mem[IPA_MEM_V4_FILTER],
+			   &ipa->mem[IPA_MEM_V4_FILTER_HASHED]);
 
 	ipa_table_init_add(trans, true, IPA_CMD_IP_V6_FILTER_INIT,
-			   IPA_MEM_V6_FILTER, IPA_MEM_V6_FILTER_HASHED);
+			   &ipa->mem[IPA_MEM_V6_FILTER],
+			   &ipa->mem[IPA_MEM_V6_FILTER_HASHED]);
 
 	gsi_trans_commit_wait(trans);
 

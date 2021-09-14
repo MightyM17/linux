@@ -21,7 +21,6 @@
 #include <asm/pte-walk.h>
 #include <asm/ultravisor.h>
 #include <asm/kvm_book3s_uvmem.h>
-#include <asm/plpar_wrappers.h>
 
 /*
  * Supported radix tree geometry.
@@ -44,9 +43,6 @@ unsigned long __kvmhv_copy_tofrom_guest_radix(int lpid, int pid,
 					  (to != NULL) ? __pa(to): 0,
 					  (from != NULL) ? __pa(from): 0, n);
 
-	if (eaddr & (0xFFFUL << 52))
-		return ret;
-
 	quadrant = 1;
 	if (!pid)
 		quadrant = 2;
@@ -68,12 +64,10 @@ unsigned long __kvmhv_copy_tofrom_guest_radix(int lpid, int pid,
 	}
 	isync();
 
-	pagefault_disable();
 	if (is_load)
-		ret = __copy_from_user_inatomic(to, (const void __user *)from, n);
+		ret = copy_from_user_nofault(to, (const void __user *)from, n);
 	else
-		ret = __copy_to_user_inatomic((void __user *)to, from, n);
-	pagefault_enable();
+		ret = copy_to_user_nofault((void __user *)to, from, n);
 
 	/* switch the pid first to avoid running host with unallocated pid */
 	if (quadrant == 1 && pid != old_pid)
@@ -86,6 +80,7 @@ unsigned long __kvmhv_copy_tofrom_guest_radix(int lpid, int pid,
 
 	return ret;
 }
+EXPORT_SYMBOL_GPL(__kvmhv_copy_tofrom_guest_radix);
 
 static long kvmhv_copy_tofrom_guest_radix(struct kvm_vcpu *vcpu, gva_t eaddr,
 					  void *to, void *from, unsigned long n)
@@ -121,12 +116,14 @@ long kvmhv_copy_from_guest_radix(struct kvm_vcpu *vcpu, gva_t eaddr, void *to,
 
 	return ret;
 }
+EXPORT_SYMBOL_GPL(kvmhv_copy_from_guest_radix);
 
 long kvmhv_copy_to_guest_radix(struct kvm_vcpu *vcpu, gva_t eaddr, void *from,
 			       unsigned long n)
 {
 	return kvmhv_copy_tofrom_guest_radix(vcpu, eaddr, NULL, from, n);
 }
+EXPORT_SYMBOL_GPL(kvmhv_copy_to_guest_radix);
 
 int kvmppc_mmu_walk_radix_tree(struct kvm_vcpu *vcpu, gva_t eaddr,
 			       struct kvmppc_pte *gpte, u64 root,
@@ -321,19 +318,9 @@ void kvmppc_radix_tlbie_page(struct kvm *kvm, unsigned long addr,
 	}
 
 	psi = shift_to_mmu_psize(pshift);
-
-	if (!firmware_has_feature(FW_FEATURE_RPT_INVALIDATE)) {
-		rb = addr | (mmu_get_ap(psi) << PPC_BITLSHIFT(58));
-		rc = plpar_hcall_norets(H_TLB_INVALIDATE, H_TLBIE_P1_ENC(0, 0, 1),
-					lpid, rb);
-	} else {
-		rc = pseries_rpt_invalidate(lpid, H_RPTI_TARGET_CMMU,
-					    H_RPTI_TYPE_NESTED |
-					    H_RPTI_TYPE_TLB,
-					    psize_to_rpti_pgsize(psi),
-					    addr, addr + psize);
-	}
-
+	rb = addr | (mmu_get_ap(psi) << PPC_BITLSHIFT(58));
+	rc = plpar_hcall_norets(H_TLB_INVALIDATE, H_TLBIE_P1_ENC(0, 0, 1),
+				lpid, rb);
 	if (rc)
 		pr_err("KVM: TLB page invalidation hcall failed, rc=%ld\n", rc);
 }
@@ -347,14 +334,8 @@ static void kvmppc_radix_flush_pwc(struct kvm *kvm, unsigned int lpid)
 		return;
 	}
 
-	if (!firmware_has_feature(FW_FEATURE_RPT_INVALIDATE))
-		rc = plpar_hcall_norets(H_TLB_INVALIDATE, H_TLBIE_P1_ENC(1, 0, 1),
-					lpid, TLBIEL_INVAL_SET_LPID);
-	else
-		rc = pseries_rpt_invalidate(lpid, H_RPTI_TARGET_CMMU,
-					    H_RPTI_TYPE_NESTED |
-					    H_RPTI_TYPE_PWC, H_RPTI_PAGE_ALL,
-					    0, -1UL);
+	rc = plpar_hcall_norets(H_TLB_INVALIDATE, H_TLBIE_P1_ENC(1, 0, 1),
+				lpid, TLBIEL_INVAL_SET_LPID);
 	if (rc)
 		pr_err("KVM: TLB PWC invalidation hcall failed, rc=%ld\n", rc);
 }

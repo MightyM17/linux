@@ -129,7 +129,6 @@
  *
  */
 
-#include <linux/refcount.h>
 #include <linux/rmap.h>
 #include <linux/interrupt.h>
 #include <linux/mutex.h>
@@ -359,7 +358,7 @@ struct gru_thread_state {
 						     enabled */
 	int			ts_ctxnum;	/* context number where the
 						   context is loaded */
-	refcount_t		ts_refcnt;	/* reference count GTS */
+	atomic_t		ts_refcnt;	/* reference count GTS */
 	unsigned char		ts_dsr_au_count;/* Number of DSR resources
 						   required for contest */
 	unsigned char		ts_cbr_au_count;/* Number of CBR resources

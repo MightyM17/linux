@@ -975,9 +975,8 @@ static int snd_amd7930_create(struct snd_card *card,
 
 	spin_unlock_irqrestore(&amd->lock, flags);
 
-	err = snd_device_new(card, SNDRV_DEV_LOWLEVEL,
-			     amd, &snd_amd7930_dev_ops);
-	if (err < 0) {
+	if ((err = snd_device_new(card, SNDRV_DEV_LOWLEVEL,
+				  amd, &snd_amd7930_dev_ops)) < 0) {
 		snd_amd7930_free(amd);
 		return err;
 	}
@@ -1020,16 +1019,13 @@ static int amd7930_sbus_probe(struct platform_device *op)
 				      irq, dev_num, &amd)) < 0)
 		goto out_err;
 
-	err = snd_amd7930_pcm(amd);
-	if (err < 0)
+	if ((err = snd_amd7930_pcm(amd)) < 0)
 		goto out_err;
 
-	err = snd_amd7930_mixer(amd);
-	if (err < 0)
+	if ((err = snd_amd7930_mixer(amd)) < 0)
 		goto out_err;
 
-	err = snd_card_register(card);
-	if (err < 0)
+	if ((err = snd_card_register(card)) < 0)
 		goto out_err;
 
 	amd->next = amd7930_list;

@@ -4,6 +4,8 @@
  * Copyright(c) 2007 - 2011 Realtek Corporation. All rights reserved.
  *
  ******************************************************************************/
+#define _RTW_STA_MGT_C_
+
 #include <drv_types.h>
 #include <rtw_debug.h>
 
@@ -117,6 +119,7 @@ void kfree_all_stainfo(struct sta_priv *pstapriv);
 void kfree_all_stainfo(struct sta_priv *pstapriv)
 {
 	struct list_head	*plist, *phead;
+	struct sta_info *psta = NULL;
 
 	spin_lock_bh(&pstapriv->sta_hash_lock);
 
@@ -124,6 +127,7 @@ void kfree_all_stainfo(struct sta_priv *pstapriv)
 	plist = get_next(phead);
 
 	while (phead != plist) {
+		psta = container_of(plist, struct sta_info, list);
 		plist = get_next(plist);
 	}
 
@@ -148,11 +152,13 @@ u32 _rtw_free_sta_priv(struct	sta_priv *pstapriv)
 		spin_lock_bh(&pstapriv->sta_hash_lock);
 		for (index = 0; index < NUM_STA; index++) {
 			phead = &(pstapriv->sta_hash[index]);
-			list_for_each(plist, phead) {
+			plist = get_next(phead);
+
+			while (phead != plist) {
 				int i;
 
-				psta = list_entry(plist, struct sta_info,
-						  hash_list);
+				psta = container_of(plist, struct sta_info, hash_list);
+				plist = get_next(plist);
 
 				for (i = 0; i < 16 ; i++) {
 					preorder_ctrl = &psta->recvreorder_ctrl[i];
@@ -423,7 +429,7 @@ exit:
 /*  free all stainfo which in sta_hash[all] */
 void rtw_free_all_stainfo(struct adapter *padapter)
 {
-	struct list_head *plist, *phead, *tmp;
+	struct list_head	*plist, *phead;
 	s32	index;
 	struct sta_info *psta = NULL;
 	struct	sta_priv *pstapriv = &padapter->stapriv;
@@ -436,8 +442,12 @@ void rtw_free_all_stainfo(struct adapter *padapter)
 
 	for (index = 0; index < NUM_STA; index++) {
 		phead = &(pstapriv->sta_hash[index]);
-		list_for_each_safe(plist, tmp, phead) {
-			psta = list_entry(plist, struct sta_info, hash_list);
+		plist = get_next(phead);
+
+		while (phead != plist) {
+			psta = container_of(plist, struct sta_info, hash_list);
+
+			plist = get_next(plist);
 
 			if (pbcmc_stainfo != psta)
 				rtw_free_stainfo(padapter, psta);
@@ -469,14 +479,17 @@ struct sta_info *rtw_get_stainfo(struct sta_priv *pstapriv, u8 *hwaddr)
 	spin_lock_bh(&pstapriv->sta_hash_lock);
 
 	phead = &(pstapriv->sta_hash[index]);
-	list_for_each(plist, phead) {
-		psta = list_entry(plist, struct sta_info, hash_list);
+	plist = get_next(phead);
+
+	while (phead != plist) {
+		psta = container_of(plist, struct sta_info, hash_list);
 
 		if ((!memcmp(psta->hwaddr, addr, ETH_ALEN)))
 		 /*  if found the matched address */
 			break;
 
 		psta = NULL;
+		plist = get_next(plist);
 	}
 
 	spin_unlock_bh(&pstapriv->sta_hash_lock);
@@ -486,6 +499,7 @@ struct sta_info *rtw_get_stainfo(struct sta_priv *pstapriv, u8 *hwaddr)
 u32 rtw_init_bcmc_stainfo(struct adapter *padapter)
 {
 	struct sta_info *psta;
+	u32 res = _SUCCESS;
 	NDIS_802_11_MAC_ADDRESS	bcast_addr = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
 	struct	sta_priv *pstapriv = &padapter->stapriv;
@@ -493,12 +507,15 @@ u32 rtw_init_bcmc_stainfo(struct adapter *padapter)
 
 	psta = rtw_alloc_stainfo(pstapriv, bcast_addr);
 
-	if (!psta)
-		return _FAIL;
+	if (!psta) {
+		res = _FAIL;
+		goto exit;
+	}
 
 	/*  default broadcast & multicast use macid 1 */
 	psta->mac_id = 1;
 
+exit:
 	return _SUCCESS;
 }
 
@@ -522,8 +539,10 @@ u8 rtw_access_ctrl(struct adapter *padapter, u8 *mac_addr)
 
 	spin_lock_bh(&(pacl_node_q->lock));
 	phead = get_list_head(pacl_node_q);
-	list_for_each(plist, phead) {
-		paclnode = list_entry(plist, struct rtw_wlan_acl_node, list);
+	plist = get_next(phead);
+	while (phead != plist) {
+		paclnode = container_of(plist, struct rtw_wlan_acl_node, list);
+		plist = get_next(plist);
 
 		if (!memcmp(paclnode->addr, mac_addr, ETH_ALEN))
 			if (paclnode->valid == true) {

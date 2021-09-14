@@ -234,8 +234,10 @@ static int ps3rom_queuecommand_lck(struct scsi_cmnd *cmd,
 	}
 
 	if (res) {
-		scsi_build_sense(cmd, 0, ILLEGAL_REQUEST, 0, 0);
+		memset(cmd->sense_buffer, 0, SCSI_SENSE_BUFFERSIZE);
 		cmd->result = res;
+		cmd->sense_buffer[0] = 0x70;
+		cmd->sense_buffer[2] = ILLEGAL_REQUEST;
 		priv->curr_cmd = NULL;
 		cmd->scsi_done(cmd);
 	}
@@ -317,7 +319,8 @@ static irqreturn_t ps3rom_interrupt(int irq, void *data)
 		goto done;
 	}
 
-	scsi_build_sense(cmd, 0, sense_key, asc, ascq);
+	scsi_build_sense_buffer(0, cmd->sense_buffer, sense_key, asc, ascq);
+	cmd->result = SAM_STAT_CHECK_CONDITION;
 
 done:
 	priv->curr_cmd = NULL;

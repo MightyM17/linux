@@ -282,7 +282,6 @@ static int csi2rx_get_resources(struct csi2rx_priv *csi2rx,
 	struct resource *res;
 	unsigned char i;
 	u32 dev_cfg;
-	int ret;
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	csi2rx->base = devm_ioremap_resource(&pdev->dev, res);
@@ -316,12 +315,7 @@ static int csi2rx_get_resources(struct csi2rx_priv *csi2rx,
 		return -EINVAL;
 	}
 
-	ret = clk_prepare_enable(csi2rx->p_clk);
-	if (ret) {
-		dev_err(&pdev->dev, "Couldn't prepare and enable P clock\n");
-		return ret;
-	}
-
+	clk_prepare_enable(csi2rx->p_clk);
 	dev_cfg = readl(csi2rx->base + CSI2RX_DEVICE_CFG_REG);
 	clk_disable_unprepare(csi2rx->p_clk);
 

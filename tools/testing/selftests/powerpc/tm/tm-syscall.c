@@ -25,6 +25,7 @@ extern int getppid_tm_suspended(void);
 unsigned retries = 0;
 
 #define TEST_DURATION 10 /* seconds */
+#define TM_RETRIES 100
 
 pid_t getppid_tm(bool suspend)
 {
@@ -66,7 +67,6 @@ int tm_syscall(void)
 	struct timeval end, now;
 
 	SKIP_IF(!have_htm_nosc());
-	SKIP_IF(htm_is_synthetic());
 
 	setbuf(stdout, NULL);
 

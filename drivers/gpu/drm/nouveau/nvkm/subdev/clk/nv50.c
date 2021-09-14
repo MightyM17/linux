@@ -313,7 +313,6 @@ nv50_clk_read(struct nvkm_clk *base, enum nv_clk_src src)
 		default:
 			break;
 		}
-		break;
 	default:
 		break;
 	}

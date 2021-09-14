@@ -130,7 +130,10 @@ static inline void flush_anon_page(struct vm_area_struct *vma, struct page *page
 }
 #endif
 
-#ifndef ARCH_IMPLEMENTS_FLUSH_KERNEL_VMAP_RANGE
+#ifndef ARCH_HAS_FLUSH_KERNEL_DCACHE_PAGE
+static inline void flush_kernel_dcache_page(struct page *page)
+{
+}
 static inline void flush_kernel_vmap_range(void *vaddr, int size)
 {
 }
@@ -149,24 +152,28 @@ static inline void clear_user_highpage(struct page *page, unsigned long vaddr)
 }
 #endif
 
-#ifndef __HAVE_ARCH_ALLOC_ZEROED_USER_HIGHPAGE_MOVABLE
+#ifndef __HAVE_ARCH_ALLOC_ZEROED_USER_HIGHPAGE
 /**
- * alloc_zeroed_user_highpage_movable - Allocate a zeroed HIGHMEM page for a VMA that the caller knows can move
+ * __alloc_zeroed_user_highpage - Allocate a zeroed HIGHMEM page for a VMA with caller-specified movable GFP flags
+ * @movableflags: The GFP flags related to the pages future ability to move like __GFP_MOVABLE
  * @vma: The VMA the page is to be allocated for
  * @vaddr: The virtual address the page will be inserted into
  *
- * This function will allocate a page for a VMA that the caller knows will
- * be able to migrate in the future using move_pages() or reclaimed
+ * This function will allocate a page for a VMA but the caller is expected
+ * to specify via movableflags whether the page will be movable in the
+ * future or not
  *
  * An architecture may override this function by defining
- * __HAVE_ARCH_ALLOC_ZEROED_USER_HIGHPAGE_MOVABLE and providing their own
+ * __HAVE_ARCH_ALLOC_ZEROED_USER_HIGHPAGE and providing their own
  * implementation.
  */
 static inline struct page *
-alloc_zeroed_user_highpage_movable(struct vm_area_struct *vma,
-				   unsigned long vaddr)
+__alloc_zeroed_user_highpage(gfp_t movableflags,
+			struct vm_area_struct *vma,
+			unsigned long vaddr)
 {
-	struct page *page = alloc_page_vma(GFP_HIGHUSER_MOVABLE, vma, vaddr);
+	struct page *page = alloc_page_vma(GFP_HIGHUSER | movableflags,
+			vma, vaddr);
 
 	if (page)
 		clear_user_highpage(page, vaddr);
@@ -175,20 +182,27 @@ alloc_zeroed_user_highpage_movable(struct vm_area_struct *vma,
 }
 #endif
 
+/**
+ * alloc_zeroed_user_highpage_movable - Allocate a zeroed HIGHMEM page for a VMA that the caller knows can move
+ * @vma: The VMA the page is to be allocated for
+ * @vaddr: The virtual address the page will be inserted into
+ *
+ * This function will allocate a page for a VMA that the caller knows will
+ * be able to migrate in the future using move_pages() or reclaimed
+ */
+static inline struct page *
+alloc_zeroed_user_highpage_movable(struct vm_area_struct *vma,
+					unsigned long vaddr)
+{
+	return __alloc_zeroed_user_highpage(__GFP_MOVABLE, vma, vaddr);
+}
+
 static inline void clear_highpage(struct page *page)
 {
 	void *kaddr = kmap_atomic(page);
 	clear_page(kaddr);
 	kunmap_atomic(kaddr);
 }
-
-#ifndef __HAVE_ARCH_TAG_CLEAR_HIGHPAGE
-
-static inline void tag_clear_highpage(struct page *page)
-{
-}
-
-#endif
 
 /*
  * If we pass in a base or tail page, we can zero up to PAGE_SIZE.
@@ -315,16 +329,14 @@ static inline void memcpy_to_page(struct page *page, size_t offset,
 
 	VM_BUG_ON(offset + len > PAGE_SIZE);
 	memcpy(to + offset, from, len);
-	flush_dcache_page(page);
 	kunmap_local(to);
 }
 
 static inline void memzero_page(struct page *page, size_t offset, size_t len)
 {
-	char *addr = kmap_local_page(page);
+	char *addr = kmap_atomic(page);
 	memset(addr + offset, 0, len);
-	flush_dcache_page(page);
-	kunmap_local(addr);
+	kunmap_atomic(addr);
 }
 
 #endif /* _LINUX_HIGHMEM_H */

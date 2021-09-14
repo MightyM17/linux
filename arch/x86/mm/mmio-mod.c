@@ -376,12 +376,12 @@ static void enter_uniprocessor(void)
 		goto out;
 	}
 
-	cpus_read_lock();
+	get_online_cpus();
 	cpumask_copy(downed_cpus, cpu_online_mask);
 	cpumask_clear_cpu(cpumask_first(cpu_online_mask), downed_cpus);
 	if (num_online_cpus() > 1)
 		pr_notice("Disabling non-boot CPUs...\n");
-	cpus_read_unlock();
+	put_online_cpus();
 
 	for_each_cpu(cpu, downed_cpus) {
 		err = remove_cpu(cpu);

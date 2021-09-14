@@ -28,7 +28,6 @@
 #include <linux/iopoll.h>
 #include <linux/can/dev.h>
 #include <linux/pinctrl/consumer.h>
-#include <linux/phy/phy.h>
 
 /* m_can lec values */
 enum m_can_lec_type {
@@ -65,9 +64,9 @@ struct m_can_ops {
 	int (*clear_interrupts)(struct m_can_classdev *cdev);
 	u32 (*read_reg)(struct m_can_classdev *cdev, int reg);
 	int (*write_reg)(struct m_can_classdev *cdev, int reg, int val);
-	int (*read_fifo)(struct m_can_classdev *cdev, int addr_offset, void *val, size_t val_count);
+	u32 (*read_fifo)(struct m_can_classdev *cdev, int addr_offset);
 	int (*write_fifo)(struct m_can_classdev *cdev, int addr_offset,
-			  const void *val, size_t val_count);
+			  int val);
 	int (*init)(struct m_can_classdev *cdev);
 };
 
@@ -83,7 +82,9 @@ struct m_can_classdev {
 	struct workqueue_struct *tx_wq;
 	struct work_struct tx_work;
 	struct sk_buff *tx_skb;
-	struct phy *transceiver;
+
+	struct can_bittiming_const *bit_timing;
+	struct can_bittiming_const *data_timing;
 
 	struct m_can_ops *ops;
 
@@ -101,7 +102,7 @@ void m_can_class_free_dev(struct net_device *net);
 int m_can_class_register(struct m_can_classdev *cdev);
 void m_can_class_unregister(struct m_can_classdev *cdev);
 int m_can_class_get_clocks(struct m_can_classdev *cdev);
-int m_can_init_ram(struct m_can_classdev *priv);
+void m_can_init_ram(struct m_can_classdev *priv);
 
 int m_can_class_suspend(struct device *dev);
 int m_can_class_resume(struct device *dev);

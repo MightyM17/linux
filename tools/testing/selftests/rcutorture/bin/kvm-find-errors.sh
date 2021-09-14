@@ -43,7 +43,7 @@ then
 else
 	echo No build errors.
 fi
-if grep -q -e "--build-\?only" < ${rundir}/log && ! test -f "${rundir}/remote-log"
+if grep -q -e "--buildonly" < ${rundir}/log
 then
 	echo Build-only run, no console logs to check.
 	exit $editorret

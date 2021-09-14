@@ -285,17 +285,11 @@ static int bmi088_accel_read_raw(struct iio_dev *indio_dev,
 	case IIO_CHAN_INFO_RAW:
 		switch (chan->type) {
 		case IIO_TEMP:
-			ret = pm_runtime_resume_and_get(dev);
-			if (ret)
-				return ret;
-
+			pm_runtime_get_sync(dev);
 			ret = bmi088_accel_get_temp(data, val);
 			goto out_read_raw_pm_put;
 		case IIO_ACCEL:
-			ret = pm_runtime_resume_and_get(dev);
-			if (ret)
-				return ret;
-
+			pm_runtime_get_sync(dev);
 			ret = iio_device_claim_direct_mode(indio_dev);
 			if (ret)
 				goto out_read_raw_pm_put;
@@ -325,10 +319,7 @@ static int bmi088_accel_read_raw(struct iio_dev *indio_dev,
 			*val = BMI088_ACCEL_TEMP_UNIT;
 			return IIO_VAL_INT;
 		case IIO_ACCEL:
-			ret = pm_runtime_resume_and_get(dev);
-			if (ret)
-				return ret;
-
+			pm_runtime_get_sync(dev);
 			ret = regmap_read(data->regmap,
 					  BMI088_ACCEL_REG_ACC_RANGE, val);
 			if (ret)
@@ -343,10 +334,7 @@ static int bmi088_accel_read_raw(struct iio_dev *indio_dev,
 			return -EINVAL;
 		}
 	case IIO_CHAN_INFO_SAMP_FREQ:
-		ret = pm_runtime_resume_and_get(dev);
-		if (ret)
-			return ret;
-
+		pm_runtime_get_sync(dev);
 		ret = bmi088_accel_get_sample_freq(data, val, val2);
 		goto out_read_raw_pm_put;
 	default:
@@ -388,10 +376,7 @@ static int bmi088_accel_write_raw(struct iio_dev *indio_dev,
 
 	switch (mask) {
 	case IIO_CHAN_INFO_SAMP_FREQ:
-		ret = pm_runtime_resume_and_get(dev);
-		if (ret)
-			return ret;
-
+		pm_runtime_get_sync(dev);
 		ret = bmi088_accel_set_sample_freq(data, val);
 		pm_runtime_mark_last_busy(dev);
 		pm_runtime_put_autosuspend(dev);
@@ -511,6 +496,7 @@ int bmi088_accel_core_probe(struct device *dev, struct regmap *regmap,
 	if (ret)
 		return ret;
 
+	indio_dev->dev.parent = dev;
 	indio_dev->channels = data->chip_info->channels;
 	indio_dev->num_channels = data->chip_info->num_channels;
 	indio_dev->name = name ? name : data->chip_info->name;
@@ -545,6 +531,7 @@ int bmi088_accel_core_remove(struct device *dev)
 
 	pm_runtime_disable(dev);
 	pm_runtime_set_suspended(dev);
+	pm_runtime_put_noidle(dev);
 	bmi088_accel_power_down(data);
 
 	return 0;

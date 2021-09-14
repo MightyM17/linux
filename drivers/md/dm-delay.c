@@ -326,10 +326,6 @@ static void delay_status(struct dm_target *ti, status_type_t type,
 			DMEMIT_DELAY_CLASS(&dc->flush);
 		}
 		break;
-
-	case STATUSTYPE_IMA:
-		*result = '\0';
-		break;
 	}
 }
 

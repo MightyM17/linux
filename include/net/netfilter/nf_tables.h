@@ -23,46 +23,35 @@ struct module;
 
 struct nft_pktinfo {
 	struct sk_buff			*skb;
-	const struct nf_hook_state	*state;
 	bool				tprot_set;
 	u8				tprot;
-	u16				fragoff;
-	unsigned int			thoff;
+	/* for x_tables compatibility */
+	struct xt_action_param		xt;
 };
-
-static inline struct sock *nft_sk(const struct nft_pktinfo *pkt)
-{
-	return pkt->state->sk;
-}
-
-static inline unsigned int nft_thoff(const struct nft_pktinfo *pkt)
-{
-	return pkt->thoff;
-}
 
 static inline struct net *nft_net(const struct nft_pktinfo *pkt)
 {
-	return pkt->state->net;
+	return pkt->xt.state->net;
 }
 
 static inline unsigned int nft_hook(const struct nft_pktinfo *pkt)
 {
-	return pkt->state->hook;
+	return pkt->xt.state->hook;
 }
 
 static inline u8 nft_pf(const struct nft_pktinfo *pkt)
 {
-	return pkt->state->pf;
+	return pkt->xt.state->pf;
 }
 
 static inline const struct net_device *nft_in(const struct nft_pktinfo *pkt)
 {
-	return pkt->state->in;
+	return pkt->xt.state->in;
 }
 
 static inline const struct net_device *nft_out(const struct nft_pktinfo *pkt)
 {
-	return pkt->state->out;
+	return pkt->xt.state->out;
 }
 
 static inline void nft_set_pktinfo(struct nft_pktinfo *pkt,
@@ -70,15 +59,16 @@ static inline void nft_set_pktinfo(struct nft_pktinfo *pkt,
 				   const struct nf_hook_state *state)
 {
 	pkt->skb = skb;
-	pkt->state = state;
+	pkt->xt.state = state;
 }
 
-static inline void nft_set_pktinfo_unspec(struct nft_pktinfo *pkt)
+static inline void nft_set_pktinfo_unspec(struct nft_pktinfo *pkt,
+					  struct sk_buff *skb)
 {
 	pkt->tprot_set = false;
 	pkt->tprot = 0;
-	pkt->thoff = 0;
-	pkt->fragoff = 0;
+	pkt->xt.thoff = 0;
+	pkt->xt.fragoff = 0;
 }
 
 /**
@@ -1516,10 +1506,16 @@ struct nft_trans_chain {
 
 struct nft_trans_table {
 	bool				update;
+	u8				state;
+	u32				flags;
 };
 
 #define nft_trans_table_update(trans)	\
 	(((struct nft_trans_table *)trans->data)->update)
+#define nft_trans_table_state(trans)	\
+	(((struct nft_trans_table *)trans->data)->state)
+#define nft_trans_table_flags(trans)	\
+	(((struct nft_trans_table *)trans->data)->flags)
 
 struct nft_trans_elem {
 	struct nft_set			*set;

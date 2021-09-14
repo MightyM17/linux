@@ -74,7 +74,8 @@ void nfs_pageio_init_read(struct nfs_pageio_descriptor *pgio,
 }
 EXPORT_SYMBOL_GPL(nfs_pageio_init_read);
 
-static void nfs_pageio_complete_read(struct nfs_pageio_descriptor *pgio)
+static void nfs_pageio_complete_read(struct nfs_pageio_descriptor *pgio,
+				     struct inode *inode)
 {
 	struct nfs_pgio_mirror *pgm;
 	unsigned long npages;
@@ -85,9 +86,9 @@ static void nfs_pageio_complete_read(struct nfs_pageio_descriptor *pgio)
 	WARN_ON_ONCE(pgio->pg_mirror_count != 1);
 
 	pgm = &pgio->pg_mirrors[0];
-	NFS_I(pgio->pg_inode)->read_io += pgm->pg_bytes_written;
+	NFS_I(inode)->read_io += pgm->pg_bytes_written;
 	npages = (pgm->pg_bytes_written + PAGE_SIZE - 1) >> PAGE_SHIFT;
-	nfs_add_stats(pgio->pg_inode, NFSIOS_READPAGES, npages);
+	nfs_add_stats(inode, NFSIOS_READPAGES, npages);
 }
 
 
@@ -293,19 +294,15 @@ static int
 readpage_async_filler(void *data, struct page *page)
 {
 	struct nfs_readdesc *desc = data;
-	struct inode *inode = page_file_mapping(page)->host;
-	unsigned int rsize = NFS_SERVER(inode)->rsize;
 	struct nfs_page *new;
-	unsigned int len, aligned_len;
+	unsigned int len;
 	int error;
 
 	len = nfs_page_length(page);
 	if (len == 0)
 		return nfs_return_empty_page(page);
 
-	aligned_len = min_t(unsigned int, ALIGN(len, rsize), PAGE_SIZE);
-
-	new = nfs_create_request(desc->ctx, page, 0, aligned_len);
+	new = nfs_create_request(desc->ctx, page, 0, len);
 	if (IS_ERR(new))
 		goto out_error;
 
@@ -366,23 +363,22 @@ int nfs_readpage(struct file *file, struct page *page)
 	} else
 		desc.ctx = get_nfs_open_context(nfs_file_open_context(file));
 
-	xchg(&desc.ctx->error, 0);
 	if (!IS_SYNC(inode)) {
 		ret = nfs_readpage_from_fscache(desc.ctx, inode, page);
 		if (ret == 0)
-			goto out_wait;
+			goto out;
 	}
 
+	xchg(&desc.ctx->error, 0);
 	nfs_pageio_init_read(&desc.pgio, inode, false,
 			     &nfs_async_read_completion_ops);
 
 	ret = readpage_async_filler(&desc, page);
-	if (ret)
-		goto out;
 
-	nfs_pageio_complete_read(&desc.pgio);
+	if (!ret)
+		nfs_pageio_complete_read(&desc.pgio, inode);
+
 	ret = desc.pgio.pg_error < 0 ? desc.pgio.pg_error : 0;
-out_wait:
 	if (!ret) {
 		ret = wait_on_page_locked_killable(page);
 		if (!PageUptodate(page) && !ret)
@@ -434,7 +430,7 @@ int nfs_readpages(struct file *file, struct address_space *mapping,
 
 	ret = read_cache_pages(mapping, pages, readpage_async_filler, &desc);
 
-	nfs_pageio_complete_read(&desc.pgio);
+	nfs_pageio_complete_read(&desc.pgio, inode);
 
 read_complete:
 	put_nfs_open_context(desc.ctx);

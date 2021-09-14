@@ -50,6 +50,8 @@ static int mei_open(struct inode *inode, struct file *file)
 	int err;
 
 	dev = container_of(inode->i_cdev, struct mei_device, cdev);
+	if (!dev)
+		return -ENODEV;
 
 	mutex_lock(&dev->device_lock);
 
@@ -1102,7 +1104,7 @@ static ssize_t dev_state_show(struct device *device,
 static DEVICE_ATTR_RO(dev_state);
 
 /**
- * mei_set_devstate: set to new device state and notify sysfs file.
+ * dev_set_devstate: set to new device state and notify sysfs file.
  *
  * @dev: mei_device
  * @state: new device state

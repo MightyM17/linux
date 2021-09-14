@@ -77,7 +77,7 @@ static const struct counter_count_ext interrupt_cnt_ext[] = {
 	},
 };
 
-static const enum counter_synapse_action interrupt_cnt_synapse_actions[] = {
+static enum counter_synapse_action interrupt_cnt_synapse_actionss[] = {
 	COUNTER_SYNAPSE_ACTION_RISING_EDGE,
 };
 
@@ -107,16 +107,13 @@ static int interrupt_cnt_write(struct counter_device *counter,
 {
 	struct interrupt_cnt_priv *priv = counter->priv;
 
-	if (val != (typeof(priv->count.counter))val)
-		return -ERANGE;
-
 	atomic_set(&priv->count, val);
 
 	return 0;
 }
 
-static const enum counter_function interrupt_cnt_functions[] = {
-	COUNTER_FUNCTION_INCREASE,
+static enum counter_count_function interrupt_cnt_functions[] = {
+	COUNTER_COUNT_FUNCTION_INCREASE,
 };
 
 static int interrupt_cnt_function_get(struct counter_device *counter,
@@ -130,7 +127,7 @@ static int interrupt_cnt_function_get(struct counter_device *counter,
 
 static int interrupt_cnt_signal_read(struct counter_device *counter,
 				     struct counter_signal *signal,
-				     enum counter_signal_level *level)
+				     enum counter_signal_value *val)
 {
 	struct interrupt_cnt_priv *priv = counter->priv;
 	int ret;
@@ -142,7 +139,7 @@ static int interrupt_cnt_signal_read(struct counter_device *counter,
 	if (ret < 0)
 		return ret;
 
-	*level = ret ? COUNTER_SIGNAL_LEVEL_HIGH : COUNTER_SIGNAL_LEVEL_LOW;
+	*val = ret ? COUNTER_SIGNAL_HIGH : COUNTER_SIGNAL_LOW;
 
 	return 0;
 }
@@ -197,8 +194,8 @@ static int interrupt_cnt_probe(struct platform_device *pdev)
 	priv->counter.signals = &priv->signals;
 	priv->counter.num_signals = 1;
 
-	priv->synapses.actions_list = interrupt_cnt_synapse_actions;
-	priv->synapses.num_actions = ARRAY_SIZE(interrupt_cnt_synapse_actions);
+	priv->synapses.actions_list = interrupt_cnt_synapse_actionss;
+	priv->synapses.num_actions = ARRAY_SIZE(interrupt_cnt_synapse_actionss);
 	priv->synapses.signal = &priv->signals;
 
 	priv->cnts.name = "Channel 0 Count";

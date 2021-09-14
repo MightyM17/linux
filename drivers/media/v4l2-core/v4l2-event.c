@@ -18,7 +18,7 @@
 #include <linux/slab.h>
 #include <linux/export.h>
 
-static unsigned int sev_pos(const struct v4l2_subscribed_event *sev, unsigned int idx)
+static unsigned sev_pos(const struct v4l2_subscribed_event *sev, unsigned idx)
 {
 	idx += sev->first;
 	return idx >= sev->elems ? idx - sev->elems : idx;
@@ -221,12 +221,12 @@ static void __v4l2_event_unsubscribe(struct v4l2_subscribed_event *sev)
 }
 
 int v4l2_event_subscribe(struct v4l2_fh *fh,
-			 const struct v4l2_event_subscription *sub, unsigned int elems,
+			 const struct v4l2_event_subscription *sub, unsigned elems,
 			 const struct v4l2_subscribed_event_ops *ops)
 {
 	struct v4l2_subscribed_event *sev, *found_ev;
 	unsigned long flags;
-	unsigned int i;
+	unsigned i;
 	int ret = 0;
 
 	if (sub->type == V4L2_EVENT_ALL)

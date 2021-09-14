@@ -18,6 +18,7 @@
 #include <linux/iommu.h>
 #include <linux/clk.h>
 #include <linux/err.h>
+#include <linux/of_iommu.h>
 
 #include <asm/cacheflush.h>
 #include <linux/sizes.h>

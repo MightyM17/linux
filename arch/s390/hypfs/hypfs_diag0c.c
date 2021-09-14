@@ -21,7 +21,7 @@
 static void diag0c_fn(void *data)
 {
 	diag_stat_inc(DIAG_STAT_X00C);
-	diag_amode31_ops.diag0c(((void **)data)[smp_processor_id()]);
+	diag_dma_ops.diag0c(((void **) data)[smp_processor_id()]);
 }
 
 /*
@@ -33,12 +33,12 @@ static void *diag0c_store(unsigned int *count)
 	unsigned int cpu_count, cpu, i;
 	void **cpu_vec;
 
-	cpus_read_lock();
+	get_online_cpus();
 	cpu_count = num_online_cpus();
 	cpu_vec = kmalloc_array(num_possible_cpus(), sizeof(*cpu_vec),
 				GFP_KERNEL);
 	if (!cpu_vec)
-		goto fail_unlock_cpus;
+		goto fail_put_online_cpus;
 	/* Note: Diag 0c needs 8 byte alignment and real storage */
 	diag0c_data = kzalloc(struct_size(diag0c_data, entry, cpu_count),
 			      GFP_KERNEL | GFP_DMA);
@@ -54,13 +54,13 @@ static void *diag0c_store(unsigned int *count)
 	on_each_cpu(diag0c_fn, cpu_vec, 1);
 	*count = cpu_count;
 	kfree(cpu_vec);
-	cpus_read_unlock();
+	put_online_cpus();
 	return diag0c_data;
 
 fail_kfree_cpu_vec:
 	kfree(cpu_vec);
-fail_unlock_cpus:
-	cpus_read_unlock();
+fail_put_online_cpus:
+	put_online_cpus();
 	return ERR_PTR(-ENOMEM);
 }
 

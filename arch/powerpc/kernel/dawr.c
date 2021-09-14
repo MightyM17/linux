@@ -9,6 +9,7 @@
 #include <linux/export.h>
 #include <linux/fs.h>
 #include <linux/debugfs.h>
+#include <asm/debugfs.h>
 #include <asm/machdep.h>
 #include <asm/hvcall.h>
 
@@ -100,7 +101,7 @@ static int __init dawr_force_setup(void)
 	if (PVR_VER(mfspr(SPRN_PVR)) == PVR_POWER9) {
 		/* Turn DAWR off by default, but allow admin to turn it on */
 		debugfs_create_file_unsafe("dawr_enable_dangerous", 0600,
-					   arch_debugfs_dir,
+					   powerpc_debugfs_root,
 					   &dawr_force_enable,
 					   &dawr_enable_fops);
 	}

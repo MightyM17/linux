@@ -45,13 +45,10 @@ static unsigned int debugfs_allow __ro_after_init = DEFAULT_DEBUGFS_ALLOW_BITS;
 static int debugfs_setattr(struct user_namespace *mnt_userns,
 			   struct dentry *dentry, struct iattr *ia)
 {
-	int ret;
+	int ret = security_locked_down(LOCKDOWN_DEBUGFS);
 
-	if (ia->ia_valid & (ATTR_MODE | ATTR_UID | ATTR_GID)) {
-		ret = security_locked_down(LOCKDOWN_DEBUGFS);
-		if (ret)
-			return ret;
-	}
+	if (ret && (ia->ia_valid & (ATTR_MODE | ATTR_UID | ATTR_GID)))
+		return ret;
 	return simple_setattr(&init_user_ns, dentry, ia);
 }
 

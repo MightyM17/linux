@@ -29,6 +29,7 @@ properties:
       - description: DSI bus clock
       - description: Pixel clock
     minItems: 2
+    maxItems: 3
 
   clock-names:
     items:
@@ -36,6 +37,7 @@ properties:
       - const: ref
       - const: px_clk
     minItems: 2
+    maxItems: 3
 
   resets:
     maxItems: 1

@@ -121,7 +121,7 @@ struct tcmu_dev {
 #define TCMU_DEV_BIT_BROKEN 1
 #define TCMU_DEV_BIT_BLOCKED 2
 #define TCMU_DEV_BIT_TMR_NOTIFY 3
-#define TCMU_DEV_BIT_PLUGGED 4
+#define TCM_DEV_BIT_PLUGGED 4
 	unsigned long flags;
 
 	struct uio_info uio_info;
@@ -191,7 +191,6 @@ struct tcmu_cmd {
 	unsigned long deadline;
 
 #define TCMU_CMD_BIT_EXPIRED 0
-#define TCMU_CMD_BIT_KEEP_BUF 1
 	unsigned long flags;
 };
 
@@ -517,10 +516,8 @@ static inline int tcmu_get_empty_block(struct tcmu_dev *udev,
 	dpi = dbi * udev->data_pages_per_blk;
 	/* Count the number of already allocated pages */
 	xas_set(&xas, dpi);
-	rcu_read_lock();
 	for (cnt = 0; xas_next(&xas) && cnt < page_cnt;)
 		cnt++;
-	rcu_read_unlock();
 
 	for (i = cnt; i < page_cnt; i++) {
 		/* try to get new page from the mm */
@@ -702,10 +699,11 @@ static inline void tcmu_copy_data(struct tcmu_dev *udev,
 				  struct scatterlist *sg, unsigned int sg_nents,
 				  struct iovec **iov, size_t data_len)
 {
+	XA_STATE(xas, &udev->data_pages, 0);
 	/* start value of dbi + 1 must not be a valid dbi */
 	int dbi = -2;
 	size_t page_remaining, cp_len;
-	int page_cnt, page_inx, dpi;
+	int page_cnt, page_inx;
 	struct sg_mapping_iter sg_iter;
 	unsigned int sg_flags;
 	struct page *page;
@@ -728,10 +726,9 @@ static inline void tcmu_copy_data(struct tcmu_dev *udev,
 		if (page_cnt > udev->data_pages_per_blk)
 			page_cnt = udev->data_pages_per_blk;
 
-		dpi = dbi * udev->data_pages_per_blk;
-		for (page_inx = 0; page_inx < page_cnt && data_len;
-		     page_inx++, dpi++) {
-			page = xa_load(&udev->data_pages, dpi);
+		xas_set(&xas, dbi * udev->data_pages_per_blk);
+		for (page_inx = 0; page_inx < page_cnt && data_len; page_inx++) {
+			page = xas_next(&xas);
 
 			if (direction == TCMU_DATA_AREA_TO_SG)
 				flush_dcache_page(page);
@@ -983,7 +980,7 @@ static void tcmu_unplug_device(struct se_dev_plug *se_plug)
 	struct se_device *se_dev = se_plug->se_dev;
 	struct tcmu_dev *udev = TCMU_DEV(se_dev);
 
-	clear_bit(TCMU_DEV_BIT_PLUGGED, &udev->flags);
+	clear_bit(TCM_DEV_BIT_PLUGGED, &udev->flags);
 	uio_event_notify(&udev->uio_info);
 }
 
@@ -991,7 +988,7 @@ static struct se_dev_plug *tcmu_plug_device(struct se_device *se_dev)
 {
 	struct tcmu_dev *udev = TCMU_DEV(se_dev);
 
-	if (!test_and_set_bit(TCMU_DEV_BIT_PLUGGED, &udev->flags))
+	if (!test_and_set_bit(TCM_DEV_BIT_PLUGGED, &udev->flags))
 		return &udev->se_plug;
 
 	return NULL;
@@ -1125,7 +1122,7 @@ static int queue_cmd_ring(struct tcmu_cmd *tcmu_cmd, sense_reason_t *scsi_err)
 
 	list_add_tail(&tcmu_cmd->queue_entry, &udev->inflight_queue);
 
-	if (!test_bit(TCMU_DEV_BIT_PLUGGED, &udev->flags))
+	if (!test_bit(TCM_DEV_BIT_PLUGGED, &udev->flags))
 		uio_event_notify(&udev->uio_info);
 
 	return 0;
@@ -1316,13 +1313,11 @@ unlock:
 	mutex_unlock(&udev->cmdr_lock);
 }
 
-static bool tcmu_handle_completion(struct tcmu_cmd *cmd,
-				   struct tcmu_cmd_entry *entry, bool keep_buf)
+static void tcmu_handle_completion(struct tcmu_cmd *cmd, struct tcmu_cmd_entry *entry)
 {
 	struct se_cmd *se_cmd = cmd->se_cmd;
 	struct tcmu_dev *udev = cmd->tcmu_dev;
 	bool read_len_valid = false;
-	bool ret = true;
 	uint32_t read_len;
 
 	/*
@@ -1331,13 +1326,6 @@ static bool tcmu_handle_completion(struct tcmu_cmd *cmd,
 	 */
 	if (test_bit(TCMU_CMD_BIT_EXPIRED, &cmd->flags)) {
 		WARN_ON_ONCE(se_cmd);
-		goto out;
-	}
-	if (test_bit(TCMU_CMD_BIT_KEEP_BUF, &cmd->flags)) {
-		pr_err("cmd_id %u already completed with KEEP_BUF, ring is broken\n",
-		       entry->hdr.cmd_id);
-		set_bit(TCMU_DEV_BIT_BROKEN, &udev->flags);
-		ret = false;
 		goto out;
 	}
 
@@ -1389,22 +1377,8 @@ done:
 		target_complete_cmd(cmd->se_cmd, entry->rsp.scsi_status);
 
 out:
-	if (!keep_buf) {
-		tcmu_cmd_free_data(cmd, cmd->dbi_cnt);
-		tcmu_free_cmd(cmd);
-	} else {
-		/*
-		 * Keep this command after completion, since userspace still
-		 * needs the data buffer. Mark it with TCMU_CMD_BIT_KEEP_BUF
-		 * and reset potential TCMU_CMD_BIT_EXPIRED, so we don't accept
-		 * a second completion later.
-		 * Userspace can free the buffer later by writing the cmd_id
-		 * to new action attribute free_kept_buf.
-		 */
-		clear_bit(TCMU_CMD_BIT_EXPIRED, &cmd->flags);
-		set_bit(TCMU_CMD_BIT_KEEP_BUF, &cmd->flags);
-	}
-	return ret;
+	tcmu_cmd_free_data(cmd, cmd->dbi_cnt);
+	tcmu_free_cmd(cmd);
 }
 
 static int tcmu_run_tmr_queue(struct tcmu_dev *udev)
@@ -1447,7 +1421,7 @@ static bool tcmu_handle_completions(struct tcmu_dev *udev)
 
 	if (test_bit(TCMU_DEV_BIT_BROKEN, &udev->flags)) {
 		pr_err("ring broken, not handling completions\n");
-		return false;
+		return 0;
 	}
 
 	mb = udev->mb_addr;
@@ -1456,7 +1430,6 @@ static bool tcmu_handle_completions(struct tcmu_dev *udev)
 	while (udev->cmdr_last_cleaned != READ_ONCE(mb->cmd_tail)) {
 
 		struct tcmu_cmd_entry *entry = udev->cmdr + udev->cmdr_last_cleaned;
-		bool keep_buf;
 
 		/*
 		 * Flush max. up to end of cmd ring since current entry might
@@ -1478,11 +1451,7 @@ static bool tcmu_handle_completions(struct tcmu_dev *udev)
 		}
 		WARN_ON(tcmu_hdr_get_op(entry->hdr.len_op) != TCMU_OP_CMD);
 
-		keep_buf = !!(entry->hdr.uflags & TCMU_UFLAG_KEEP_BUF);
-		if (keep_buf)
-			cmd = xa_load(&udev->commands, entry->hdr.cmd_id);
-		else
-			cmd = xa_erase(&udev->commands, entry->hdr.cmd_id);
+		cmd = xa_erase(&udev->commands, entry->hdr.cmd_id);
 		if (!cmd) {
 			pr_err("cmd_id %u not found, ring is broken\n",
 			       entry->hdr.cmd_id);
@@ -1490,8 +1459,7 @@ static bool tcmu_handle_completions(struct tcmu_dev *udev)
 			return false;
 		}
 
-		if (!tcmu_handle_completion(cmd, entry, keep_buf))
-			break;
+		tcmu_handle_completion(cmd, entry);
 
 		UPDATE_HEAD(udev->cmdr_last_cleaned,
 			    tcmu_hdr_get_len(entry->hdr.len_op),
@@ -1649,8 +1617,7 @@ static void tcmu_dev_call_rcu(struct rcu_head *p)
 
 static int tcmu_check_and_free_pending_cmd(struct tcmu_cmd *cmd)
 {
-	if (test_bit(TCMU_CMD_BIT_EXPIRED, &cmd->flags) ||
-	    test_bit(TCMU_CMD_BIT_KEEP_BUF, &cmd->flags)) {
+	if (test_bit(TCMU_CMD_BIT_EXPIRED, &cmd->flags)) {
 		kmem_cache_free(tcmu_cmd_cache, cmd);
 		return 0;
 	}
@@ -1934,38 +1901,6 @@ static int tcmu_open(struct uio_info *info, struct inode *inode)
 static int tcmu_release(struct uio_info *info, struct inode *inode)
 {
 	struct tcmu_dev *udev = container_of(info, struct tcmu_dev, uio_info);
-	struct tcmu_cmd *cmd;
-	unsigned long i;
-	bool freed = false;
-
-	mutex_lock(&udev->cmdr_lock);
-
-	xa_for_each(&udev->commands, i, cmd) {
-		/* Cmds with KEEP_BUF set are no longer on the ring, but
-		 * userspace still holds the data buffer. If userspace closes
-		 * we implicitly free these cmds and buffers, since after new
-		 * open the (new ?) userspace cannot find the cmd in the ring
-		 * and thus never will release the buffer by writing cmd_id to
-		 * free_kept_buf action attribute.
-		 */
-		if (!test_bit(TCMU_CMD_BIT_KEEP_BUF, &cmd->flags))
-			continue;
-		pr_debug("removing KEEP_BUF cmd %u on dev %s from ring\n",
-			 cmd->cmd_id, udev->name);
-		freed = true;
-
-		xa_erase(&udev->commands, i);
-		tcmu_cmd_free_data(cmd, cmd->dbi_cnt);
-		tcmu_free_cmd(cmd);
-	}
-	/*
-	 * We only freed data space, not ring space. Therefore we dont call
-	 * run_tmr_queue, but call run_qfull_queue if tmr_list is empty.
-	 */
-	if (freed && list_empty(&udev->tmr_queue))
-		run_qfull_queue(udev, false);
-
-	mutex_unlock(&udev->cmdr_lock);
 
 	clear_bit(TCMU_DEV_BIT_OPEN, &udev->flags);
 
@@ -2210,8 +2145,7 @@ static int tcmu_configure_device(struct se_device *dev)
 	mb->version = TCMU_MAILBOX_VERSION;
 	mb->flags = TCMU_MAILBOX_FLAG_CAP_OOOC |
 		    TCMU_MAILBOX_FLAG_CAP_READ_LEN |
-		    TCMU_MAILBOX_FLAG_CAP_TMR |
-		    TCMU_MAILBOX_FLAG_CAP_KEEP_BUF;
+		    TCMU_MAILBOX_FLAG_CAP_TMR;
 	mb->cmdr_off = CMDR_OFF;
 	mb->cmdr_size = udev->cmdr_size;
 
@@ -2343,16 +2277,12 @@ static void tcmu_reset_ring(struct tcmu_dev *udev, u8 err_level)
 	mutex_lock(&udev->cmdr_lock);
 
 	xa_for_each(&udev->commands, i, cmd) {
-		pr_debug("removing cmd %u on dev %s from ring %s\n",
-			 cmd->cmd_id, udev->name,
-			 test_bit(TCMU_CMD_BIT_EXPIRED, &cmd->flags) ?
-			 "(is expired)" :
-			 (test_bit(TCMU_CMD_BIT_KEEP_BUF, &cmd->flags) ?
-			 "(is keep buffer)" : ""));
+		pr_debug("removing cmd %u on dev %s from ring (is expired %d)\n",
+			  cmd->cmd_id, udev->name,
+			  test_bit(TCMU_CMD_BIT_EXPIRED, &cmd->flags));
 
 		xa_erase(&udev->commands, i);
-		if (!test_bit(TCMU_CMD_BIT_EXPIRED, &cmd->flags) &&
-		    !test_bit(TCMU_CMD_BIT_KEEP_BUF, &cmd->flags)) {
+		if (!test_bit(TCMU_CMD_BIT_EXPIRED, &cmd->flags)) {
 			WARN_ON(!cmd->se_cmd);
 			list_del_init(&cmd->queue_entry);
 			cmd->se_cmd->priv = NULL;
@@ -3001,65 +2931,6 @@ static ssize_t tcmu_reset_ring_store(struct config_item *item, const char *page,
 }
 CONFIGFS_ATTR_WO(tcmu_, reset_ring);
 
-static ssize_t tcmu_free_kept_buf_store(struct config_item *item, const char *page,
-					size_t count)
-{
-	struct se_device *se_dev = container_of(to_config_group(item),
-						struct se_device,
-						dev_action_group);
-	struct tcmu_dev *udev = TCMU_DEV(se_dev);
-	struct tcmu_cmd *cmd;
-	u16 cmd_id;
-	int ret;
-
-	if (!target_dev_configured(&udev->se_dev)) {
-		pr_err("Device is not configured.\n");
-		return -EINVAL;
-	}
-
-	ret = kstrtou16(page, 0, &cmd_id);
-	if (ret < 0)
-		return ret;
-
-	mutex_lock(&udev->cmdr_lock);
-
-	{
-		XA_STATE(xas, &udev->commands, cmd_id);
-
-		xas_lock(&xas);
-		cmd = xas_load(&xas);
-		if (!cmd) {
-			pr_err("free_kept_buf: cmd_id %d not found\n", cmd_id);
-			count = -EINVAL;
-			xas_unlock(&xas);
-			goto out_unlock;
-		}
-		if (!test_bit(TCMU_CMD_BIT_KEEP_BUF, &cmd->flags)) {
-			pr_err("free_kept_buf: cmd_id %d was not completed with KEEP_BUF\n",
-			       cmd_id);
-			count = -EINVAL;
-			xas_unlock(&xas);
-			goto out_unlock;
-		}
-		xas_store(&xas, NULL);
-		xas_unlock(&xas);
-	}
-
-	tcmu_cmd_free_data(cmd, cmd->dbi_cnt);
-	tcmu_free_cmd(cmd);
-	/*
-	 * We only freed data space, not ring space. Therefore we dont call
-	 * run_tmr_queue, but call run_qfull_queue if tmr_list is empty.
-	 */
-	if (list_empty(&udev->tmr_queue))
-		run_qfull_queue(udev, false);
-
-out_unlock:
-	mutex_unlock(&udev->cmdr_lock);
-	return count;
-}
-CONFIGFS_ATTR_WO(tcmu_, free_kept_buf);
-
 static struct configfs_attribute *tcmu_attrib_attrs[] = {
 	&tcmu_attr_cmd_time_out,
 	&tcmu_attr_qfull_time_out,
@@ -3078,7 +2949,6 @@ static struct configfs_attribute **tcmu_attrs;
 static struct configfs_attribute *tcmu_action_attrs[] = {
 	&tcmu_attr_block_dev,
 	&tcmu_attr_reset_ring,
-	&tcmu_attr_free_kept_buf,
 	NULL,
 };
 

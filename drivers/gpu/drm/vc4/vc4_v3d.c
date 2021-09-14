@@ -10,6 +10,8 @@
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 
+#include <drm/drm_irq.h>
+
 #include "vc4_drv.h"
 #include "vc4_regs.h"
 
@@ -359,7 +361,7 @@ static int vc4_v3d_runtime_suspend(struct device *dev)
 	struct vc4_v3d *v3d = dev_get_drvdata(dev);
 	struct vc4_dev *vc4 = v3d->vc4;
 
-	vc4_irq_disable(&vc4->base);
+	vc4_irq_uninstall(&vc4->base);
 
 	clk_disable_unprepare(v3d->clk);
 
@@ -379,8 +381,8 @@ static int vc4_v3d_runtime_resume(struct device *dev)
 	vc4_v3d_init_hw(&vc4->base);
 
 	/* We disabled the IRQ as part of vc4_irq_uninstall in suspend. */
-	enable_irq(vc4->irq);
-	vc4_irq_enable(&vc4->base);
+	enable_irq(vc4->base.irq);
+	vc4_irq_postinstall(&vc4->base);
 
 	return 0;
 }
@@ -446,12 +448,7 @@ static int vc4_v3d_bind(struct device *dev, struct device *master, void *data)
 
 	vc4_v3d_init_hw(drm);
 
-	ret = platform_get_irq(pdev, 0);
-	if (ret < 0)
-		return ret;
-	vc4->irq = ret;
-
-	ret = vc4_irq_install(drm, vc4->irq);
+	ret = drm_irq_install(drm, platform_get_irq(pdev, 0));
 	if (ret) {
 		DRM_ERROR("Failed to install IRQ handler\n");
 		return ret;
@@ -476,7 +473,7 @@ static void vc4_v3d_unbind(struct device *dev, struct device *master,
 
 	pm_runtime_disable(dev);
 
-	vc4_irq_uninstall(drm);
+	drm_irq_uninstall(drm);
 
 	/* Disable the binner's overflow memory address, so the next
 	 * driver probe (if any) doesn't try to reuse our old

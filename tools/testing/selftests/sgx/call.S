@@ -5,8 +5,8 @@
 
 	.text
 
-	.global sgx_enter_enclave
-sgx_enter_enclave:
+	.global sgx_call_vdso
+sgx_call_vdso:
 	.cfi_startproc
 	push	%r15
 	.cfi_adjust_cfa_offset	8
@@ -27,7 +27,7 @@ sgx_enter_enclave:
 	.cfi_adjust_cfa_offset	8
 	push	0x38(%rsp)
 	.cfi_adjust_cfa_offset	8
-	call	*vdso_sgx_enter_enclave(%rip)
+	call	*eenter(%rip)
 	add	$0x10, %rsp
 	.cfi_adjust_cfa_offset	-0x10
 	pop	%rbx

@@ -96,11 +96,7 @@ static int xgpu_nv_poll_ack(struct amdgpu_device *adev)
 
 static int xgpu_nv_poll_msg(struct amdgpu_device *adev, enum idh_event event)
 {
-	int r;
-	uint64_t timeout, now;
-
-	now = (uint64_t)ktime_to_ms(ktime_get());
-	timeout = now + NV_MAILBOX_POLL_MSG_TIMEDOUT;
+	int r, timeout = NV_MAILBOX_POLL_MSG_TIMEDOUT;
 
 	do {
 		r = xgpu_nv_mailbox_rcv_msg(adev, event);
@@ -108,8 +104,8 @@ static int xgpu_nv_poll_msg(struct amdgpu_device *adev, enum idh_event event)
 			return 0;
 
 		msleep(10);
-		now = (uint64_t)ktime_to_ms(ktime_get());
-	} while (timeout > now);
+		timeout -= 10;
+	} while (timeout > 1);
 
 
 	return -ETIME;
@@ -153,10 +149,9 @@ static void xgpu_nv_mailbox_trans_msg (struct amdgpu_device *adev,
 static int xgpu_nv_send_access_requests(struct amdgpu_device *adev,
 					enum idh_request req)
 {
-	int r, retry = 1;
+	int r;
 	enum idh_event event = -1;
 
-send_request:
 	xgpu_nv_mailbox_trans_msg(adev, req, 0, 0, 0);
 
 	switch (req) {
@@ -175,9 +170,6 @@ send_request:
 	if (event != -1) {
 		r = xgpu_nv_poll_msg(adev, event);
 		if (r) {
-			if (retry++ < 2)
-				goto send_request;
-
 			if (req != IDH_REQ_GPU_INIT_DATA) {
 				pr_err("Doesn't get msg:%d from pf, error=%d\n", event, r);
 				return r;
@@ -281,13 +273,11 @@ static void xgpu_nv_mailbox_flr_work(struct work_struct *work)
 	 * otherwise the mailbox msg will be ruined/reseted by
 	 * the VF FLR.
 	 */
-	if (!down_write_trylock(&adev->reset_sem))
+	if (!down_read_trylock(&adev->reset_sem))
 		return;
 
 	amdgpu_virt_fini_data_exchange(adev);
 	atomic_set(&adev->in_gpu_reset, 1);
-
-	xgpu_nv_mailbox_trans_msg(adev, IDH_READY_TO_RESET, 0, 0, 0);
 
 	do {
 		if (xgpu_nv_mailbox_peek_msg(adev) == IDH_FLR_NOTIFICATION_CMPL)
@@ -299,7 +289,7 @@ static void xgpu_nv_mailbox_flr_work(struct work_struct *work)
 
 flr_done:
 	atomic_set(&adev->in_gpu_reset, 0);
-	up_write(&adev->reset_sem);
+	up_read(&adev->reset_sem);
 
 	/* Trigger recovery for world switch failure if no TDR */
 	if (amdgpu_device_should_recover_gpu(adev)

@@ -125,13 +125,12 @@ static const struct regmap_range axp288_writeable_ranges[] = {
 
 static const struct regmap_range axp288_volatile_ranges[] = {
 	regmap_reg_range(AXP20X_PWR_INPUT_STATUS, AXP288_POWER_REASON),
-	regmap_reg_range(AXP22X_PWR_OUT_CTRL1, AXP22X_ALDO3_V_OUT),
 	regmap_reg_range(AXP288_BC_GLOBAL, AXP288_BC_GLOBAL),
 	regmap_reg_range(AXP288_BC_DET_STAT, AXP20X_VBUS_IPSOUT_MGMT),
 	regmap_reg_range(AXP20X_CHRG_BAK_CTRL, AXP20X_CHRG_BAK_CTRL),
 	regmap_reg_range(AXP20X_IRQ1_EN, AXP20X_IPSOUT_V_HIGH_L),
 	regmap_reg_range(AXP20X_TIMER_CTRL, AXP20X_TIMER_CTRL),
-	regmap_reg_range(AXP20X_GPIO1_CTRL, AXP22X_GPIO_STATE),
+	regmap_reg_range(AXP22X_GPIO_STATE, AXP22X_GPIO_STATE),
 	regmap_reg_range(AXP288_RT_BATT_V_H, AXP288_RT_BATT_V_L),
 	regmap_reg_range(AXP20X_FG_RES, AXP288_FG_CC_CAP_REG),
 };
@@ -700,18 +699,6 @@ static const struct resource axp288_charger_resources[] = {
 	DEFINE_RES_IRQ(AXP288_IRQ_CBTO),
 };
 
-static const char * const axp288_fuel_gauge_suppliers[] = { "axp288_charger" };
-
-static const struct property_entry axp288_fuel_gauge_properties[] = {
-	PROPERTY_ENTRY_STRING_ARRAY("supplied-from", axp288_fuel_gauge_suppliers),
-	{ }
-};
-
-static const struct software_node axp288_fuel_gauge_sw_node = {
-	.name = "axp288_fuel_gauge",
-	.properties = axp288_fuel_gauge_properties,
-};
-
 static const struct mfd_cell axp288_cells[] = {
 	{
 		.name		= "axp288_adc",
@@ -729,7 +716,6 @@ static const struct mfd_cell axp288_cells[] = {
 		.name		= "axp288_fuel_gauge",
 		.num_resources	= ARRAY_SIZE(axp288_fuel_gauge_resources),
 		.resources	= axp288_fuel_gauge_resources,
-		.swnode		= &axp288_fuel_gauge_sw_node,
 	}, {
 		.name		= "axp221-pek",
 		.num_resources	= ARRAY_SIZE(axp288_power_button_resources),
@@ -898,13 +884,8 @@ int axp20x_match_device(struct axp20x_dev *axp20x)
 		axp20x->regmap_irq_chip = &axp803_regmap_irq_chip;
 		break;
 	case AXP806_ID:
-		/*
-		 * Don't register the power key part if in slave mode or
-		 * if there is no interrupt line.
-		 */
 		if (of_property_read_bool(axp20x->dev->of_node,
-					  "x-powers,self-working-mode") &&
-		    axp20x->irq > 0) {
+					  "x-powers,self-working-mode")) {
 			axp20x->nr_cells = ARRAY_SIZE(axp806_self_working_cells);
 			axp20x->cells = axp806_self_working_cells;
 		} else {
@@ -978,17 +959,12 @@ int axp20x_device_probe(struct axp20x_dev *axp20x)
 				     AXP806_REG_ADDR_EXT_ADDR_SLAVE_MODE);
 	}
 
-	/* Only if there is an interrupt line connected towards the CPU. */
-	if (axp20x->irq > 0) {
-		ret = regmap_add_irq_chip(axp20x->regmap, axp20x->irq,
-				IRQF_ONESHOT | IRQF_SHARED | axp20x->irq_flags,
-				-1, axp20x->regmap_irq_chip,
-				&axp20x->regmap_irqc);
-		if (ret) {
-			dev_err(axp20x->dev, "failed to add irq chip: %d\n",
-				ret);
-			return ret;
-		}
+	ret = regmap_add_irq_chip(axp20x->regmap, axp20x->irq,
+			  IRQF_ONESHOT | IRQF_SHARED | axp20x->irq_flags,
+			   -1, axp20x->regmap_irq_chip, &axp20x->regmap_irqc);
+	if (ret) {
+		dev_err(axp20x->dev, "failed to add irq chip: %d\n", ret);
+		return ret;
 	}
 
 	ret = mfd_add_devices(axp20x->dev, -1, axp20x->cells,

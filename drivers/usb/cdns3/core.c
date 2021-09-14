@@ -332,7 +332,7 @@ exit:
 }
 
 /**
- * cdns_role_get - get current role of controller.
+ * cdsn3_role_get - get current role of controller.
  *
  * @sw: pointer to USB role switch structure
  *
@@ -419,7 +419,7 @@ static irqreturn_t cdns_wakeup_irq(int irq, void *data)
 }
 
 /**
- * cdns_init - probe for cdns3/cdnsp core device
+ * cdns_probe - probe for cdns3/cdnsp core device
  * @cdns: Pointer to cdns structure.
  *
  * Returns 0 on success otherwise negative errno

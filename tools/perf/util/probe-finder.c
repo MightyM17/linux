@@ -118,16 +118,11 @@ struct debuginfo *debuginfo__new(const char *path)
 	char buf[PATH_MAX], nil = '\0';
 	struct dso *dso;
 	struct debuginfo *dinfo = NULL;
-	struct build_id bid;
 
 	/* Try to open distro debuginfo files */
 	dso = dso__new(path);
 	if (!dso)
 		goto out;
-
-	/* Set the build id for DSO_BINARY_TYPE__BUILDID_DEBUGINFO */
-	if (is_regular_file(path) && filename__read_build_id(path, &bid) > 0)
-		dso__set_build_id(dso, &bid);
 
 	for (type = distro_dwarf_types;
 	     !dinfo && *type != DSO_BINARY_TYPE__NOT_FOUND;
@@ -194,9 +189,6 @@ static int convert_variable_location(Dwarf_Die *vr_die, Dwarf_Addr addr,
 	if (dwarf_attr(vr_die, DW_AT_const_value, &attr) &&
 	    immediate_value_is_supported()) {
 		Dwarf_Sword snum;
-
-		if (!tvar)
-			return 0;
 
 		dwarf_formsdata(&attr, &snum);
 		ret = asprintf(&tvar->value, "\\%ld", (long)snum);
@@ -668,7 +660,7 @@ static int convert_to_trace_point(Dwarf_Die *sp_die, Dwfl_Module *mod,
 	}
 
 	tp->offset = (unsigned long)(paddr - eaddr);
-	tp->address = paddr;
+	tp->address = (unsigned long)paddr;
 	tp->symbol = strdup(symbol);
 	if (!tp->symbol)
 		return -ENOMEM;
@@ -1707,7 +1699,7 @@ int debuginfo__get_text_offset(struct debuginfo *dbg, Dwarf_Addr *offs,
 }
 
 /* Reverse search */
-int debuginfo__find_probe_point(struct debuginfo *dbg, u64 addr,
+int debuginfo__find_probe_point(struct debuginfo *dbg, unsigned long addr,
 				struct perf_probe_point *ppt)
 {
 	Dwarf_Die cudie, spdie, indie;
@@ -1720,14 +1712,14 @@ int debuginfo__find_probe_point(struct debuginfo *dbg, u64 addr,
 		addr += baseaddr;
 	/* Find cu die */
 	if (!dwarf_addrdie(dbg->dbg, (Dwarf_Addr)addr, &cudie)) {
-		pr_warning("Failed to find debug information for address %" PRIx64 "\n",
+		pr_warning("Failed to find debug information for address %lx\n",
 			   addr);
 		ret = -EINVAL;
 		goto end;
 	}
 
 	/* Find a corresponding line (filename and lineno) */
-	cu_find_lineinfo(&cudie, (Dwarf_Addr)addr, &fname, &lineno);
+	cu_find_lineinfo(&cudie, addr, &fname, &lineno);
 	/* Don't care whether it failed or not */
 
 	/* Find a corresponding function (name, baseline and baseaddr) */
@@ -1742,7 +1734,7 @@ int debuginfo__find_probe_point(struct debuginfo *dbg, u64 addr,
 		}
 
 		fname = dwarf_decl_file(&spdie);
-		if (addr == baseaddr) {
+		if (addr == (unsigned long)baseaddr) {
 			/* Function entry - Relative line number is 0 */
 			lineno = baseline;
 			goto post;
@@ -1788,7 +1780,7 @@ post:
 	if (lineno)
 		ppt->line = lineno - baseline;
 	else if (basefunc) {
-		ppt->offset = addr - baseaddr;
+		ppt->offset = addr - (unsigned long)baseaddr;
 		func = basefunc;
 	}
 
@@ -1828,7 +1820,8 @@ static int line_range_add_line(const char *src, unsigned int lineno,
 }
 
 static int line_range_walk_cb(const char *fname, int lineno,
-			      Dwarf_Addr addr, void *data)
+			      Dwarf_Addr addr __maybe_unused,
+			      void *data)
 {
 	struct line_finder *lf = data;
 	const char *__fname;

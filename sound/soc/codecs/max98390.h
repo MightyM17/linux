@@ -662,6 +662,5 @@ struct max98390_priv {
 	unsigned int i_l_slot;
 	unsigned int ref_rdc_value;
 	unsigned int ambient_temp_value;
-	const char *dsm_param_name;
 };
 #endif

@@ -985,7 +985,7 @@ static void tx_done(MGSLPC_INFO *info, struct tty_struct *tty)
 	else
 #endif
 	{
-		if (tty && (tty->flow.stopped || tty->hw_stopped)) {
+		if (tty && (tty->stopped || tty->hw_stopped)) {
 			tx_stop(info);
 			return;
 		}
@@ -1005,7 +1005,7 @@ static void tx_ready(MGSLPC_INFO *info, struct tty_struct *tty)
 		if (!info->tx_active)
 			return;
 	} else {
-		if (tty && (tty->flow.stopped || tty->hw_stopped)) {
+		if (tty && (tty->stopped || tty->hw_stopped)) {
 			tx_stop(info);
 			return;
 		}
@@ -1419,7 +1419,13 @@ static void mgslpc_change_params(MGSLPC_INFO *info, struct tty_struct *tty)
 
 	/* byte size and parity */
 
-	info->params.data_bits = tty_get_char_size(cflag);
+	switch (cflag & CSIZE) {
+	case CS5: info->params.data_bits = 5; break;
+	case CS6: info->params.data_bits = 6; break;
+	case CS7: info->params.data_bits = 7; break;
+	case CS8: info->params.data_bits = 8; break;
+	default:  info->params.data_bits = 7; break;
+	}
 
 	if (cflag & CSTOPB)
 		info->params.stop_bits = 2;
@@ -1519,7 +1525,7 @@ static void mgslpc_flush_chars(struct tty_struct *tty)
 	if (mgslpc_paranoia_check(info, tty->name, "mgslpc_flush_chars"))
 		return;
 
-	if (info->tx_count <= 0 || tty->flow.stopped ||
+	if (info->tx_count <= 0 || tty->stopped ||
 	    tty->hw_stopped || !info->tx_buf)
 		return;
 
@@ -1588,7 +1594,7 @@ static int mgslpc_write(struct tty_struct * tty,
 		ret += c;
 	}
 start:
-	if (info->tx_count && !tty->flow.stopped && !tty->hw_stopped) {
+	if (info->tx_count && !tty->stopped && !tty->hw_stopped) {
 		spin_lock_irqsave(&info->lock, flags);
 		if (!info->tx_active)
 			tx_start(info, tty);
@@ -1603,7 +1609,7 @@ cleanup:
 
 /* Return the count of free bytes in transmit buffer
  */
-static unsigned int mgslpc_write_room(struct tty_struct *tty)
+static int mgslpc_write_room(struct tty_struct *tty)
 {
 	MGSLPC_INFO *info = (MGSLPC_INFO *)tty->driver_data;
 	int ret;
@@ -1631,10 +1637,10 @@ static unsigned int mgslpc_write_room(struct tty_struct *tty)
 
 /* Return the count of bytes in transmit buffer
  */
-static unsigned int mgslpc_chars_in_buffer(struct tty_struct *tty)
+static int mgslpc_chars_in_buffer(struct tty_struct *tty)
 {
 	MGSLPC_INFO *info = (MGSLPC_INFO *)tty->driver_data;
-	unsigned int rc;
+	int rc;
 
 	if (debug_level >= DEBUG_LEVEL_INFO)
 		printk("%s(%d):mgslpc_chars_in_buffer(%s)\n",
@@ -1649,7 +1655,7 @@ static unsigned int mgslpc_chars_in_buffer(struct tty_struct *tty)
 		rc = info->tx_count;
 
 	if (debug_level >= DEBUG_LEVEL_INFO)
-		printk("%s(%d):mgslpc_chars_in_buffer(%s)=%u\n",
+		printk("%s(%d):mgslpc_chars_in_buffer(%s)=%d\n",
 			 __FILE__, __LINE__, info->device_name, rc);
 
 	return rc;
@@ -2841,7 +2847,7 @@ static int __init synclink_cs_init(void)
 err_unreg_tty:
 	tty_unregister_driver(serial_driver);
 err_put_tty:
-	tty_driver_kref_put(serial_driver);
+	put_tty_driver(serial_driver);
 err:
 	return rc;
 }
@@ -2850,7 +2856,7 @@ static void __exit synclink_cs_exit(void)
 {
 	pcmcia_unregister_driver(&mgslpc_driver);
 	tty_unregister_driver(serial_driver);
-	tty_driver_kref_put(serial_driver);
+	put_tty_driver(serial_driver);
 }
 
 module_init(synclink_cs_init);
@@ -4050,15 +4056,16 @@ static int hdlcdev_close(struct net_device *dev)
  * called by network layer to process IOCTL call to network device
  *
  * dev  pointer to network device structure
- * ifs  pointer to network interface settings structure
+ * ifr  pointer to network interface request structure
+ * cmd  IOCTL command code
  *
  * returns 0 if success, otherwise error code
  */
-static int hdlcdev_wan_ioctl(struct net_device *dev, struct if_settings *ifs)
+static int hdlcdev_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
 	const size_t size = sizeof(sync_serial_settings);
 	sync_serial_settings new_line;
-	sync_serial_settings __user *line = ifs->ifs_ifsu.sync;
+	sync_serial_settings __user *line = ifr->ifr_settings.ifs_ifsu.sync;
 	MGSLPC_INFO *info = dev_to_port(dev);
 	unsigned int flags;
 
@@ -4069,14 +4076,17 @@ static int hdlcdev_wan_ioctl(struct net_device *dev, struct if_settings *ifs)
 	if (info->port.count)
 		return -EBUSY;
 
+	if (cmd != SIOCWANDEV)
+		return hdlc_ioctl(dev, ifr, cmd);
+
 	memset(&new_line, 0, size);
 
-	switch (ifs->type) {
+	switch(ifr->ifr_settings.type) {
 	case IF_GET_IFACE: /* return current sync_serial_settings */
 
-		ifs->type = IF_IFACE_SYNC_SERIAL;
-		if (ifs->size < size) {
-			ifs->size = size; /* data size wanted */
+		ifr->ifr_settings.type = IF_IFACE_SYNC_SERIAL;
+		if (ifr->ifr_settings.size < size) {
+			ifr->ifr_settings.size = size; /* data size wanted */
 			return -ENOBUFS;
 		}
 
@@ -4144,8 +4154,9 @@ static int hdlcdev_wan_ioctl(struct net_device *dev, struct if_settings *ifs)
 			tty_kref_put(tty);
 		}
 		return 0;
+
 	default:
-		return hdlc_ioctl(dev, ifs);
+		return hdlc_ioctl(dev, ifr, cmd);
 	}
 }
 
@@ -4220,7 +4231,7 @@ static const struct net_device_ops hdlcdev_ops = {
 	.ndo_open       = hdlcdev_open,
 	.ndo_stop       = hdlcdev_close,
 	.ndo_start_xmit = hdlc_start_xmit,
-	.ndo_siocwandev = hdlcdev_wan_ioctl,
+	.ndo_do_ioctl   = hdlcdev_ioctl,
 	.ndo_tx_timeout = hdlcdev_tx_timeout,
 };
 

@@ -647,7 +647,7 @@ config I2C_HIGHLANDER
 
 config I2C_HISI
 	tristate "HiSilicon I2C controller"
-	depends on (ARM64 && ACPI) || COMPILE_TEST
+	depends on ARM64 || COMPILE_TEST
 	help
 	  Say Y here if you want to have Hisilicon I2C controller support
 	  available on the Kunpeng Server.
@@ -865,6 +865,15 @@ config I2C_PCA_PLATFORM
 
 	  This driver can also be built as a module.  If so, the module
 	  will be called i2c-pca-platform.
+
+config I2C_PMCMSP
+	tristate "PMC MSP I2C TWI Controller"
+	depends on PMC_MSP || COMPILE_TEST
+	help
+	  This driver supports the PMC TWI controller on MSP devices.
+
+	  This driver can also be built as module. If so, the module
+	  will be called i2c-pmcmsp.
 
 config I2C_PNX
 	tristate "I2C bus support for Philips PNX and NXP LPC targets"
@@ -1392,16 +1401,5 @@ config I2C_FSI
 
 	  This driver can also be built as a module. If so, the module will be
 	  called as i2c-fsi.
-
-config I2C_VIRTIO
-        tristate "Virtio I2C Adapter"
-        select VIRTIO
-        help
-          If you say yes to this option, support will be included for the virtio
-          I2C adapter driver. The hardware can be emulated by any device model
-          software according to the virtio protocol.
-
-          This driver can also be built as a module. If so, the module
-          will be called i2c-virtio.
 
 endmenu

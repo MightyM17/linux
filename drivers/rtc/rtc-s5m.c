@@ -204,9 +204,15 @@ static int s5m8767_tm_to_data(struct rtc_time *tm, u8 *data)
 	data[RTC_WEEKDAY] = 1 << tm->tm_wday;
 	data[RTC_DATE] = tm->tm_mday;
 	data[RTC_MONTH] = tm->tm_mon + 1;
-	data[RTC_YEAR1] = tm->tm_year - 100;
+	data[RTC_YEAR1] = tm->tm_year > 100 ? (tm->tm_year - 100) : 0;
 
-	return 0;
+	if (tm->tm_year < 100) {
+		pr_err("RTC cannot handle the year %d\n",
+		       1900 + tm->tm_year);
+		return -EINVAL;
+	} else {
+		return 0;
+	}
 }
 
 /*
@@ -482,7 +488,9 @@ static int s5m_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 
 	dev_dbg(dev, "%s: %ptR(%d)\n", __func__, &alrm->time, alrm->time.tm_wday);
 
-	return s5m_check_peding_alarm_interrupt(info, alrm);
+	ret = s5m_check_peding_alarm_interrupt(info, alrm);
+
+	return 0;
 }
 
 static int s5m_rtc_stop_alarm(struct s5m_rtc_info *info)
@@ -780,35 +788,29 @@ static int s5m_rtc_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	info->rtc_dev = devm_rtc_allocate_device(&pdev->dev);
+	device_init_wakeup(&pdev->dev, 1);
+
+	info->rtc_dev = devm_rtc_device_register(&pdev->dev, "s5m-rtc",
+						 &s5m_rtc_ops, THIS_MODULE);
+
 	if (IS_ERR(info->rtc_dev))
 		return PTR_ERR(info->rtc_dev);
 
-	info->rtc_dev->ops = &s5m_rtc_ops;
-
-	if (info->device_type == S5M8763X) {
-		info->rtc_dev->range_min = RTC_TIMESTAMP_BEGIN_0000;
-		info->rtc_dev->range_max = RTC_TIMESTAMP_END_9999;
-	} else {
-		info->rtc_dev->range_min = RTC_TIMESTAMP_BEGIN_2000;
-		info->rtc_dev->range_max = RTC_TIMESTAMP_END_2099;
-	}
-
 	if (!info->irq) {
-		clear_bit(RTC_FEATURE_ALARM, info->rtc_dev->features);
-	} else {
-		ret = devm_request_threaded_irq(&pdev->dev, info->irq, NULL,
-						s5m_rtc_alarm_irq, 0, "rtc-alarm0",
-						info);
-		if (ret < 0) {
-			dev_err(&pdev->dev, "Failed to request alarm IRQ: %d: %d\n",
-				info->irq, ret);
-			return ret;
-		}
-		device_init_wakeup(&pdev->dev, 1);
+		dev_info(&pdev->dev, "Alarm IRQ not available\n");
+		return 0;
 	}
 
-	return devm_rtc_register_device(info->rtc_dev);
+	ret = devm_request_threaded_irq(&pdev->dev, info->irq, NULL,
+					s5m_rtc_alarm_irq, 0, "rtc-alarm0",
+					info);
+	if (ret < 0) {
+		dev_err(&pdev->dev, "Failed to request alarm IRQ: %d: %d\n",
+			info->irq, ret);
+		return ret;
+	}
+
+	return 0;
 }
 
 #ifdef CONFIG_PM_SLEEP

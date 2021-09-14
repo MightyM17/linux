@@ -191,7 +191,6 @@ mt76_dma_add_buf(struct mt76_dev *dev, struct mt76_queue *q,
 
 	q->entry[idx].txwi = txwi;
 	q->entry[idx].skb = skb;
-	q->entry[idx].wcid = 0xffff;
 
 	return idx;
 }
@@ -350,9 +349,6 @@ mt76_dma_tx_queue_skb(struct mt76_dev *dev, struct mt76_queue *q,
 		      struct sk_buff *skb, struct mt76_wcid *wcid,
 		      struct ieee80211_sta *sta)
 {
-	struct ieee80211_tx_status status = {
-		.sta = sta,
-	};
 	struct mt76_tx_info tx_info = {
 		.skb = skb,
 	};
@@ -364,9 +360,11 @@ mt76_dma_tx_queue_skb(struct mt76_dev *dev, struct mt76_queue *q,
 	u8 *txwi;
 
 	t = mt76_get_txwi(dev);
-	if (!t)
-		goto free_skb;
-
+	if (!t) {
+		hw = mt76_tx_status_get_hw(dev, skb);
+		ieee80211_free_txskb(hw, skb);
+		return -ENOMEM;
+	}
 	txwi = mt76_get_txwi_ptr(dev, t);
 
 	skb->prev = skb->next = NULL;
@@ -429,13 +427,8 @@ free:
 	}
 #endif
 
+	dev_kfree_skb(tx_info.skb);
 	mt76_put_txwi(dev, t);
-
-free_skb:
-	status.skb = tx_info.skb;
-	hw = mt76_tx_status_get_hw(dev, tx_info.skb);
-	ieee80211_tx_status_ext(hw, &status);
-
 	return ret;
 }
 

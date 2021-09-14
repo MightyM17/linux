@@ -1652,35 +1652,32 @@ static int cam_cc_sc7180_probe(struct platform_device *pdev)
 	struct regmap *regmap;
 	int ret;
 
-	ret = devm_pm_runtime_enable(&pdev->dev);
-	if (ret < 0)
-		return ret;
-
-	ret = devm_pm_clk_create(&pdev->dev);
+	pm_runtime_enable(&pdev->dev);
+	ret = pm_clk_create(&pdev->dev);
 	if (ret < 0)
 		return ret;
 
 	ret = pm_clk_add(&pdev->dev, "xo");
 	if (ret < 0) {
 		dev_err(&pdev->dev, "Failed to acquire XO clock\n");
-		return ret;
+		goto disable_pm_runtime;
 	}
 
 	ret = pm_clk_add(&pdev->dev, "iface");
 	if (ret < 0) {
 		dev_err(&pdev->dev, "Failed to acquire iface clock\n");
-		return ret;
+		goto disable_pm_runtime;
 	}
 
 	ret = pm_runtime_get(&pdev->dev);
 	if (ret)
-		return ret;
+		goto destroy_pm_clk;
 
 	regmap = qcom_cc_map(pdev, &cam_cc_sc7180_desc);
 	if (IS_ERR(regmap)) {
 		ret = PTR_ERR(regmap);
 		pm_runtime_put(&pdev->dev);
-		return ret;
+		goto destroy_pm_clk;
 	}
 
 	clk_fabia_pll_configure(&cam_cc_pll0, regmap, &cam_cc_pll0_config);
@@ -1692,10 +1689,18 @@ static int cam_cc_sc7180_probe(struct platform_device *pdev)
 	pm_runtime_put(&pdev->dev);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "Failed to register CAM CC clocks\n");
-		return ret;
+		goto destroy_pm_clk;
 	}
 
 	return 0;
+
+destroy_pm_clk:
+	pm_clk_destroy(&pdev->dev);
+
+disable_pm_runtime:
+	pm_runtime_disable(&pdev->dev);
+
+	return ret;
 }
 
 static const struct dev_pm_ops cam_cc_pm_ops = {

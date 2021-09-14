@@ -1578,19 +1578,24 @@ static int _mlx4_ib_create_qp(struct ib_pd *pd, struct mlx4_ib_qp *qp,
 	return 0;
 }
 
-int mlx4_ib_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *init_attr,
-		      struct ib_udata *udata)
-{
-	struct ib_device *device = ibqp->device;
+struct ib_qp *mlx4_ib_create_qp(struct ib_pd *pd,
+				struct ib_qp_init_attr *init_attr,
+				struct ib_udata *udata) {
+	struct ib_device *device = pd ? pd->device : init_attr->xrcd->device;
 	struct mlx4_ib_dev *dev = to_mdev(device);
-	struct mlx4_ib_qp *qp = to_mqp(ibqp);
-	struct ib_pd *pd = ibqp->pd;
+	struct mlx4_ib_qp *qp;
 	int ret;
+
+	qp = kzalloc(sizeof(*qp), GFP_KERNEL);
+	if (!qp)
+		return ERR_PTR(-ENOMEM);
 
 	mutex_init(&qp->mutex);
 	ret = _mlx4_ib_create_qp(pd, qp, init_attr, udata);
-	if (ret)
-		return ret;
+	if (ret) {
+		kfree(qp);
+		return ERR_PTR(ret);
+	}
 
 	if (init_attr->qp_type == IB_QPT_GSI &&
 	    !(init_attr->create_flags & MLX4_IB_QP_CREATE_ROCE_V2_GSI)) {
@@ -1613,7 +1618,7 @@ int mlx4_ib_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *init_attr,
 			init_attr->create_flags &= ~MLX4_IB_QP_CREATE_ROCE_V2_GSI;
 		}
 	}
-	return 0;
+	return &qp->ibqp;
 }
 
 static int _mlx4_ib_destroy_qp(struct ib_qp *qp, struct ib_udata *udata)
@@ -1641,6 +1646,8 @@ static int _mlx4_ib_destroy_qp(struct ib_qp *qp, struct ib_udata *udata)
 	}
 
 	kfree(mqp->sqp);
+	kfree(mqp);
+
 	return 0;
 }
 
@@ -3137,7 +3144,7 @@ static int build_mlx_header(struct mlx4_ib_qp *qp, const struct ib_ud_wr *wr,
 		mlx->sched_prio = cpu_to_be16(pcp);
 
 		ether_addr_copy(sqp->ud_header.eth.smac_h, ah->av.eth.s_mac);
-		ether_addr_copy(sqp->ud_header.eth.dmac_h, ah->av.eth.mac);
+		memcpy(sqp->ud_header.eth.dmac_h, ah->av.eth.mac, 6);
 		memcpy(&ctrl->srcrb_flags16[0], ah->av.eth.mac, 2);
 		memcpy(&ctrl->imm, ah->av.eth.mac + 2, 4);
 
@@ -4244,8 +4251,13 @@ int mlx4_ib_modify_wq(struct ib_wq *ibwq, struct ib_wq_attr *wq_attr,
 	if (wq_attr_mask & IB_WQ_FLAGS)
 		return -EOPNOTSUPP;
 
-	cur_state = wq_attr->curr_wq_state;
-	new_state = wq_attr->wq_state;
+	cur_state = wq_attr_mask & IB_WQ_CUR_STATE ? wq_attr->curr_wq_state :
+						     ibwq->state;
+	new_state = wq_attr_mask & IB_WQ_STATE ? wq_attr->wq_state : cur_state;
+
+	if (cur_state  < IB_WQS_RESET || cur_state  > IB_WQS_ERR ||
+	    new_state < IB_WQS_RESET || new_state > IB_WQS_ERR)
+		return -EINVAL;
 
 	if ((new_state == IB_WQS_RDY) && (cur_state == IB_WQS_ERR))
 		return -EINVAL;

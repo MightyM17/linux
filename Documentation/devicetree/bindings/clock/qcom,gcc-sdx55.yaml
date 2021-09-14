@@ -27,6 +27,7 @@ properties:
       - description: Sleep clock source
       - description: PLL test clock source (Optional clock)
     minItems: 2
+    maxItems: 3
 
   clock-names:
     items:
@@ -34,6 +35,7 @@ properties:
       - const: sleep_clk
       - const: core_bi_pll_test_se # Optional clock
     minItems: 2
+    maxItems: 3
 
   '#clock-cells':
     const: 1

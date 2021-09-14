@@ -2,7 +2,6 @@
  * Copyright (C) 2014 Red Hat
  * Copyright (C) 2014 Intel Corp.
  * Copyright (C) 2018 Intel Corp.
- * Copyright (c) 2020, The Linux Foundation. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -48,7 +47,7 @@
  * in all its forms: The monster ATOMIC IOCTL itself, code for GET_PROPERTY and
  * SET_PROPERTY IOCTLs. Plus interface functions for compatibility helpers and
  * drivers which have special needs to construct their own atomic updates, e.g.
- * for load detect or similar.
+ * for load detect or similiar.
  */
 
 /**
@@ -79,8 +78,8 @@ int drm_atomic_set_mode_for_crtc(struct drm_crtc_state *state,
 		drm_mode_convert_to_umode(&umode, mode);
 		state->mode_blob =
 			drm_property_create_blob(state->crtc->dev,
-						 sizeof(umode),
-						 &umode);
+		                                 sizeof(umode),
+		                                 &umode);
 		if (IS_ERR(state->mode_blob))
 			return PTR_ERR(state->mode_blob);
 
@@ -115,7 +114,7 @@ EXPORT_SYMBOL(drm_atomic_set_mode_for_crtc);
  * Zero on success, error code on failure. Cannot return -EDEADLK.
  */
 int drm_atomic_set_mode_prop_for_crtc(struct drm_crtc_state *state,
-				      struct drm_property_blob *blob)
+                                      struct drm_property_blob *blob)
 {
 	struct drm_crtc *crtc = state->crtc;
 
@@ -753,7 +752,7 @@ static int drm_atomic_connector_set_property(struct drm_connector *connector,
 		 * restore the state it wants on VT switch. So if the userspace
 		 * tries to change the link_status from GOOD to BAD, driver
 		 * silently rejects it and returns a 0. This prevents userspace
-		 * from accidentally breaking  the display when it restores the
+		 * from accidently breaking  the display when it restores the
 		 * state.
 		 */
 		if (state->link_status != DRM_LINK_STATUS_GOOD)
@@ -1064,7 +1063,7 @@ int drm_atomic_set_property(struct drm_atomic_state *state,
  * DOC: explicit fencing properties
  *
  * Explicit fencing allows userspace to control the buffer synchronization
- * between devices. A Fence or a group of fences are transferred to/from
+ * between devices. A Fence or a group of fences are transfered to/from
  * userspace using Sync File fds and there are two DRM properties for that.
  * IN_FENCE_FD on each DRM Plane to send fences to the kernel and
  * OUT_FENCE_PTR on each DRM CRTC to receive fences from the kernel.
@@ -1322,7 +1321,6 @@ int drm_mode_atomic_ioctl(struct drm_device *dev,
 	struct drm_out_fence_state *fence_state;
 	int ret = 0;
 	unsigned int i, j, num_fences;
-	struct drm_printer p = drm_info_printer(dev->dev);
 
 	/* disallow for drivers not supporting atomic: */
 	if (!drm_core_check_feature(dev, DRIVER_ATOMIC))
@@ -1455,7 +1453,7 @@ retry:
 		ret = drm_atomic_nonblocking_commit(state);
 	} else {
 		if (drm_debug_enabled(DRM_UT_STATE))
-			drm_atomic_print_new_state(state, &p);
+			drm_atomic_print_state(state);
 
 		ret = drm_atomic_commit(state);
 	}

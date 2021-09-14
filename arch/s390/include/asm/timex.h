@@ -75,12 +75,9 @@ static inline void set_clock_comparator(__u64 time)
 
 static inline void set_tod_programmable_field(u16 val)
 {
-	asm volatile(
-		"	lgr	0,%[val]\n"
-		"	sckpf\n"
-		:
-		: [val] "d" ((unsigned long)val)
-		: "0");
+	register unsigned long reg0 asm("0") = val;
+
+	asm volatile("sckpf" : : "d" (reg0));
 }
 
 void clock_comparator_work(void);
@@ -141,19 +138,16 @@ struct ptff_qui {
 #define ptff(ptff_block, len, func)					\
 ({									\
 	struct addrtype { char _[len]; };				\
-	unsigned int reg0 = func;					\
-	unsigned long reg1 = (unsigned long)(ptff_block);		\
+	register unsigned int reg0 asm("0") = func;			\
+	register unsigned long reg1 asm("1") = (unsigned long) (ptff_block);\
 	int rc;								\
 									\
 	asm volatile(							\
-		"	lgr	0,%[reg0]\n"				\
-		"	lgr	1,%[reg1]\n"				\
-		"	.insn	e,0x0104\n"				\
-		"	ipm	%[rc]\n"				\
-		"	srl	%[rc],28\n"				\
-		: [rc] "=&d" (rc), "+m" (*(struct addrtype *)reg1)	\
-		: [reg0] "d" (reg0), [reg1] "d" (reg1)			\
-		: "cc", "0", "1");					\
+		"	.word	0x0104\n"				\
+		"	ipm	%0\n"					\
+		"	srl	%0,28\n"				\
+		: "=d" (rc), "+m" (*(struct addrtype *) reg1)		\
+		: "d" (reg0), "d" (reg1) : "cc");			\
 	rc;								\
 })
 

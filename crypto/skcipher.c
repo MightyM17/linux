@@ -431,7 +431,7 @@ static int skcipher_copy_iv(struct skcipher_walk *walk)
 
 static int skcipher_walk_first(struct skcipher_walk *walk)
 {
-	if (WARN_ON_ONCE(in_hardirq()))
+	if (WARN_ON_ONCE(in_irq()))
 		return -EDEADLK;
 
 	walk->buffer = NULL;

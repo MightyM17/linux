@@ -408,11 +408,9 @@ static int vx2_load_dsp(struct vx_core *vx, int index, const struct firmware *ds
 	switch (index) {
 	case 1:
 		/* xilinx image */
-		err = vx2_load_xilinx_binary(vx, dsp);
-		if (err < 0)
+		if ((err = vx2_load_xilinx_binary(vx, dsp)) < 0)
 			return err;
-		err = vx2_test_xilinx(vx);
-		if (err < 0)
+		if ((err = vx2_test_xilinx(vx)) < 0)
 			return err;
 		return 0;
 	case 2:
@@ -974,11 +972,9 @@ static int vx2_add_mic_controls(struct vx_core *_chip)
 	vx2_set_input_level(chip);
 
 	/* controls */
-	err = snd_ctl_add(_chip->card, snd_ctl_new1(&vx_control_input_level, chip));
-	if (err < 0)
+	if ((err = snd_ctl_add(_chip->card, snd_ctl_new1(&vx_control_input_level, chip))) < 0)
 		return err;
-	err = snd_ctl_add(_chip->card, snd_ctl_new1(&vx_control_mic_level, chip));
-	if (err < 0)
+	if ((err = snd_ctl_add(_chip->card, snd_ctl_new1(&vx_control_mic_level, chip))) < 0)
 		return err;
 
 	return 0;

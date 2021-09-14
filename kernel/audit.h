@@ -1,13 +1,10 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
-/* audit -- definition of audit_context structure and supporting types
+/* audit -- definition of audit_context structure and supporting types 
  *
  * Copyright 2003-2004 Red Hat, Inc.
  * Copyright 2005 Hewlett-Packard Development Company, L.P.
  * Copyright 2005 IBM Corporation
  */
-
-#ifndef _KERNEL_AUDIT_H_
-#define _KERNEL_AUDIT_H_
 
 #include <linux/fs.h>
 #include <linux/audit.h>
@@ -24,16 +21,16 @@
    a per-task filter.  At syscall entry, the audit_state is augmented by
    the syscall filter. */
 enum audit_state {
-	AUDIT_STATE_DISABLED,	/* Do not create per-task audit_context.
+	AUDIT_DISABLED,		/* Do not create per-task audit_context.
 				 * No syscall-specific audit records can
 				 * be generated. */
-	AUDIT_STATE_BUILD,	/* Create the per-task audit_context,
+	AUDIT_BUILD_CONTEXT,	/* Create the per-task audit_context,
 				 * and fill it in at syscall
 				 * entry time.  This makes a full
 				 * syscall record available if some
 				 * other part of the kernel decides it
 				 * should be recorded. */
-	AUDIT_STATE_RECORD	/* Create the per-task audit_context,
+	AUDIT_RECORD_CONTEXT	/* Create the per-task audit_context,
 				 * always fill it in at syscall entry
 				 * time, and always write out the audit
 				 * record at syscall exit time.  */
@@ -325,7 +322,7 @@ static inline int audit_signal_info_syscall(struct task_struct *t)
 	return 0;
 }
 
-#define audit_filter_inodes(t, c) AUDIT_STATE_DISABLED
+#define audit_filter_inodes(t, c) AUDIT_DISABLED
 #endif /* CONFIG_AUDITSYSCALL */
 
 extern char *audit_unpack_string(void **bufp, size_t *remain, size_t len);
@@ -334,5 +331,3 @@ extern int audit_filter(int msgtype, unsigned int listtype);
 
 extern void audit_ctl_lock(void);
 extern void audit_ctl_unlock(void);
-
-#endif

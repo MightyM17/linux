@@ -66,8 +66,9 @@ struct mtk_disp_ovl_data {
 	bool smi_id_en;
 };
 
-/*
+/**
  * struct mtk_disp_ovl - DISP_OVL driver structure
+ * @ddp_comp: structure containing type enum and hardware resources
  * @crtc: associated crtc to report vblank events to
  * @data: platform data
  */
@@ -423,8 +424,6 @@ static int mtk_disp_ovl_probe(struct platform_device *pdev)
 
 static int mtk_disp_ovl_remove(struct platform_device *pdev)
 {
-	component_del(&pdev->dev, &mtk_disp_ovl_component_ops);
-
 	return 0;
 }
 

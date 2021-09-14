@@ -207,6 +207,8 @@ static int vt8500_pwm_probe(struct platform_device *pdev)
 
 	chip->chip.dev = &pdev->dev;
 	chip->chip.ops = &vt8500_pwm_ops;
+	chip->chip.of_xlate = of_pwm_xlate_with_flags;
+	chip->chip.of_pwm_n_cells = 3;
 	chip->chip.npwm = VT8500_NR_PWMS;
 
 	chip->clk = devm_clk_get(&pdev->dev, NULL);
@@ -238,13 +240,15 @@ static int vt8500_pwm_probe(struct platform_device *pdev)
 
 static int vt8500_pwm_remove(struct platform_device *pdev)
 {
-	struct vt8500_chip *chip = platform_get_drvdata(pdev);
+	struct vt8500_chip *chip;
 
-	pwmchip_remove(&chip->chip);
+	chip = platform_get_drvdata(pdev);
+	if (chip == NULL)
+		return -ENODEV;
 
 	clk_unprepare(chip->clk);
 
-	return 0;
+	return pwmchip_remove(&chip->chip);
 }
 
 static struct platform_driver vt8500_pwm_driver = {

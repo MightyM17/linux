@@ -19,8 +19,7 @@ int iommu_get_msi_cookie(struct iommu_domain *domain, dma_addr_t base);
 void iommu_put_dma_cookie(struct iommu_domain *domain);
 
 /* Setup call for arch DMA mapping code */
-void iommu_setup_dma_ops(struct device *dev, u64 dma_base, u64 dma_limit);
-int iommu_dma_init_fq(struct iommu_domain *domain);
+void iommu_setup_dma_ops(struct device *dev, u64 dma_base, u64 size);
 
 /* The DMA API isn't _quite_ the whole story, though... */
 /*
@@ -51,13 +50,8 @@ struct msi_msg;
 struct device;
 
 static inline void iommu_setup_dma_ops(struct device *dev, u64 dma_base,
-				       u64 dma_limit)
+		u64 size)
 {
-}
-
-static inline int iommu_dma_init_fq(struct iommu_domain *domain)
-{
-	return -EINVAL;
 }
 
 static inline int iommu_get_dma_cookie(struct iommu_domain *domain)

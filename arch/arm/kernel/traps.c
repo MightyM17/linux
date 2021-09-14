@@ -122,7 +122,16 @@ static void dump_mem(const char *lvl, const char *str, unsigned long bottom,
 		     unsigned long top)
 {
 	unsigned long first;
+	mm_segment_t fs;
 	int i;
+
+	/*
+	 * We need to switch to kernel mode so that we can use __get_user
+	 * to safely read from kernel space.  Note that we now dump the
+	 * code first, just in case the backtrace kills us.
+	 */
+	fs = get_fs();
+	set_fs(KERNEL_DS);
 
 	printk("%s%s(0x%08lx to 0x%08lx)\n", lvl, str, bottom, top);
 
@@ -136,7 +145,7 @@ static void dump_mem(const char *lvl, const char *str, unsigned long bottom,
 		for (p = first, i = 0; i < 8 && p < top; i++, p += 4) {
 			if (p >= bottom && p < top) {
 				unsigned long val;
-				if (get_kernel_nofault(val, (unsigned long *)p))
+				if (__get_user(val, (unsigned long *)p) == 0)
 					sprintf(str + i * 9, " %08lx", val);
 				else
 					sprintf(str + i * 9, " ????????");
@@ -144,9 +153,11 @@ static void dump_mem(const char *lvl, const char *str, unsigned long bottom,
 		}
 		printk("%s%04lx:%s\n", lvl, first & 0xffff, str);
 	}
+
+	set_fs(fs);
 }
 
-static void dump_instr(const char *lvl, struct pt_regs *regs)
+static void __dump_instr(const char *lvl, struct pt_regs *regs)
 {
 	unsigned long addr = instruction_pointer(regs);
 	const int thumb = thumb_mode(regs);
@@ -162,20 +173,10 @@ static void dump_instr(const char *lvl, struct pt_regs *regs)
 	for (i = -4; i < 1 + !!thumb; i++) {
 		unsigned int val, bad;
 
-		if (!user_mode(regs)) {
-			if (thumb) {
-				u16 val16;
-				bad = get_kernel_nofault(val16, &((u16 *)addr)[i]);
-				val = val16;
-			} else {
-				bad = get_kernel_nofault(val, &((u32 *)addr)[i]);
-			}
-		} else {
-			if (thumb)
-				bad = get_user(val, &((u16 *)addr)[i]);
-			else
-				bad = get_user(val, &((u32 *)addr)[i]);
-		}
+		if (thumb)
+			bad = get_user(val, &((u16 *)addr)[i]);
+		else
+			bad = get_user(val, &((u32 *)addr)[i]);
 
 		if (!bad)
 			p += sprintf(p, i == 0 ? "(%0*x) " : "%0*x ",
@@ -186,6 +187,20 @@ static void dump_instr(const char *lvl, struct pt_regs *regs)
 		}
 	}
 	printk("%sCode: %s\n", lvl, str);
+}
+
+static void dump_instr(const char *lvl, struct pt_regs *regs)
+{
+	mm_segment_t fs;
+
+	if (!user_mode(regs)) {
+		fs = get_fs();
+		set_fs(KERNEL_DS);
+		__dump_instr(lvl, regs);
+		set_fs(fs);
+	} else {
+		__dump_instr(lvl, regs);
+	}
 }
 
 #ifdef CONFIG_ARM_UNWIND
@@ -764,6 +779,11 @@ void abort(void)
 
 	/* if that doesn't kill us, halt */
 	panic("Oops failed to kill thread");
+}
+
+void __init trap_init(void)
+{
+	return;
 }
 
 #ifdef CONFIG_KUSER_HELPERS

@@ -7,7 +7,7 @@
 
 / {
 	aliases {
-		serial0 = &blsp2_uart2;
+		serial0 = &blsp2_uart1;
 	};
 
 	chosen {
@@ -19,12 +19,4 @@
 			status = "okay";
 		};
 	};
-};
-
-&hdmi {
-	status = "okay";
-};
-
-&hdmi_phy {
-	status = "okay";
 };

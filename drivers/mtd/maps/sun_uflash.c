@@ -62,8 +62,10 @@ int uflash_devinit(struct platform_device *op, struct device_node *dp)
 	}
 
 	up = kzalloc(sizeof(struct uflash_dev), GFP_KERNEL);
-	if (!up)
+	if (!up) {
+		printk(KERN_ERR PFX "Cannot allocate struct uflash_dev\n");
 		return -ENOMEM;
+	}
 
 	/* copy defaults and tweak parameters */
 	memcpy(&up->map, &uflash_map_templ, sizeof(uflash_map_templ));

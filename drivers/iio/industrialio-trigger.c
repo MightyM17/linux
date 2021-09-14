@@ -13,7 +13,6 @@
 #include <linux/slab.h>
 
 #include <linux/iio/iio.h>
-#include <linux/iio/iio-opaque.h>
 #include <linux/iio/trigger.h>
 #include "iio_core.h"
 #include "iio_core_trigger.h"
@@ -117,17 +116,14 @@ EXPORT_SYMBOL(iio_trigger_unregister);
 
 int iio_trigger_set_immutable(struct iio_dev *indio_dev, struct iio_trigger *trig)
 {
-	struct iio_dev_opaque *iio_dev_opaque;
-
 	if (!indio_dev || !trig)
 		return -EINVAL;
 
-	iio_dev_opaque = to_iio_dev_opaque(indio_dev);
 	mutex_lock(&indio_dev->mlock);
-	WARN_ON(iio_dev_opaque->trig_readonly);
+	WARN_ON(indio_dev->trig_readonly);
 
 	indio_dev->trig = iio_trigger_get(trig);
-	iio_dev_opaque->trig_readonly = true;
+	indio_dev->trig_readonly = true;
 	mutex_unlock(&indio_dev->mlock);
 
 	return 0;
@@ -244,13 +240,12 @@ static void iio_trigger_put_irq(struct iio_trigger *trig, int irq)
 int iio_trigger_attach_poll_func(struct iio_trigger *trig,
 				 struct iio_poll_func *pf)
 {
-	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(pf->indio_dev);
 	bool notinuse =
 		bitmap_empty(trig->pool, CONFIG_IIO_CONSUMERS_PER_TRIGGER);
 	int ret = 0;
 
 	/* Prevent the module from being removed whilst attached to a trigger */
-	__module_get(iio_dev_opaque->driver_module);
+	__module_get(pf->indio_dev->driver_module);
 
 	/* Get irq number */
 	pf->irq = iio_trigger_get_irq(trig);
@@ -289,14 +284,13 @@ out_free_irq:
 out_put_irq:
 	iio_trigger_put_irq(trig, pf->irq);
 out_put_module:
-	module_put(iio_dev_opaque->driver_module);
+	module_put(pf->indio_dev->driver_module);
 	return ret;
 }
 
 int iio_trigger_detach_poll_func(struct iio_trigger *trig,
 				 struct iio_poll_func *pf)
 {
-	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(pf->indio_dev);
 	bool no_other_users =
 		bitmap_weight(trig->pool, CONFIG_IIO_CONSUMERS_PER_TRIGGER) == 1;
 	int ret = 0;
@@ -310,7 +304,7 @@ int iio_trigger_detach_poll_func(struct iio_trigger *trig,
 		trig->attached_own_device = false;
 	iio_trigger_put_irq(trig, pf->irq);
 	free_irq(pf->irq, pf);
-	module_put(iio_dev_opaque->driver_module);
+	module_put(pf->indio_dev->driver_module);
 
 	return ret;
 }
@@ -405,7 +399,6 @@ static ssize_t iio_trigger_write_current(struct device *dev,
 					 size_t len)
 {
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
-	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(indio_dev);
 	struct iio_trigger *oldtrig = indio_dev->trig;
 	struct iio_trigger *trig;
 	int ret;
@@ -415,7 +408,7 @@ static ssize_t iio_trigger_write_current(struct device *dev,
 		mutex_unlock(&indio_dev->mlock);
 		return -EBUSY;
 	}
-	if (iio_dev_opaque->trig_readonly) {
+	if (indio_dev->trig_readonly) {
 		mutex_unlock(&indio_dev->mlock);
 		return -EPERM;
 	}
@@ -641,9 +634,9 @@ struct iio_trigger *devm_iio_trigger_alloc(struct device *parent, const char *fm
 }
 EXPORT_SYMBOL_GPL(devm_iio_trigger_alloc);
 
-static void devm_iio_trigger_unreg(void *trigger_info)
+static void devm_iio_trigger_unreg(struct device *dev, void *res)
 {
-	iio_trigger_unregister(trigger_info);
+	iio_trigger_unregister(*(struct iio_trigger **)res);
 }
 
 /**
@@ -664,13 +657,21 @@ int __devm_iio_trigger_register(struct device *dev,
 				struct iio_trigger *trig_info,
 				struct module *this_mod)
 {
+	struct iio_trigger **ptr;
 	int ret;
 
-	ret = __iio_trigger_register(trig_info, this_mod);
-	if (ret)
-		return ret;
+	ptr = devres_alloc(devm_iio_trigger_unreg, sizeof(*ptr), GFP_KERNEL);
+	if (!ptr)
+		return -ENOMEM;
 
-	return devm_add_action_or_reset(dev, devm_iio_trigger_unreg, trig_info);
+	*ptr = trig_info;
+	ret = __iio_trigger_register(trig_info, this_mod);
+	if (!ret)
+		devres_add(dev, ptr);
+	else
+		devres_free(ptr);
+
+	return ret;
 }
 EXPORT_SYMBOL_GPL(__devm_iio_trigger_register);
 

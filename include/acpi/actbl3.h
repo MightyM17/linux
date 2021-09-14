@@ -723,10 +723,6 @@ struct acpi_table_wpbt {
 	u16 arguments_length;
 };
 
-struct acpi_wpbt_unicode {
-	u16 *unicode_string;
-};
-
 /*******************************************************************************
  *
  * WSMT - Windows SMM Security Mitigations Table

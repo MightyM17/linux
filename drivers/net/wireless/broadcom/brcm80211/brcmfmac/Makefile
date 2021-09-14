@@ -23,8 +23,7 @@ brcmfmac-objs += \
 		feature.o \
 		btcoex.o \
 		vendor.o \
-		pno.o \
-		xtlv.o
+		pno.o
 brcmfmac-$(CONFIG_BRCMFMAC_PROTO_BCDC) += \
 		bcdc.o \
 		fwsignal.o

@@ -15,20 +15,10 @@ description:
 
 properties:
   compatible:
-    oneOf:
-      - enum:
-          - rockchip,rk3036-vpu
-          - rockchip,rk3066-vpu
-          - rockchip,rk3288-vpu
-          - rockchip,rk3328-vpu
-          - rockchip,rk3399-vpu
-          - rockchip,px30-vpu
-      - items:
-          - const: rockchip,rk3188-vpu
-          - const: rockchip,rk3066-vpu
-      - items:
-          - const: rockchip,rk3228-vpu
-          - const: rockchip,rk3399-vpu
+    enum:
+      - rockchip,rk3288-vpu
+      - rockchip,rk3328-vpu
+      - rockchip,rk3399-vpu
 
   reg:
     maxItems: 1
@@ -45,20 +35,12 @@ properties:
           - const: vdpu
 
   clocks:
-    oneOf:
-      - maxItems: 2
-      - maxItems: 4
+    maxItems: 2
 
   clock-names:
-    oneOf:
-      - items:
-          - const: aclk
-          - const: hclk
-      - items:
-          - const: aclk_vdpu
-          - const: hclk_vdpu
-          - const: aclk_vepu
-          - const: hclk_vepu
+    items:
+      - const: aclk
+      - const: hclk
 
   power-domains:
     maxItems: 1

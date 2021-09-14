@@ -2375,7 +2375,9 @@ int cayman_init(struct radeon_device *rdev)
 	/* Initialize clocks */
 	radeon_get_clock_info(rdev->ddev);
 	/* Fence driver */
-	radeon_fence_driver_init(rdev);
+	r = radeon_fence_driver_init(rdev);
+	if (r)
+		return r;
 	/* initialize memory controller */
 	r = evergreen_mc_init(rdev);
 	if (r)

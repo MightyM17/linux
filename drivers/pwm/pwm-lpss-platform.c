@@ -85,8 +85,10 @@ static int pwm_lpss_probe_platform(struct platform_device *pdev)
 
 static int pwm_lpss_remove_platform(struct platform_device *pdev)
 {
+	struct pwm_lpss_chip *lpwm = platform_get_drvdata(pdev);
+
 	pm_runtime_disable(&pdev->dev);
-	return 0;
+	return pwm_lpss_remove(lpwm);
 }
 
 static const struct acpi_device_id pwm_lpss_acpi_match[] = {

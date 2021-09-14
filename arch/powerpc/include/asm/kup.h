@@ -5,6 +5,14 @@
 #define KUAP_READ	1
 #define KUAP_WRITE	2
 #define KUAP_READ_WRITE	(KUAP_READ | KUAP_WRITE)
+/*
+ * For prevent_user_access() only.
+ * Use the current saved situation instead of the to/from/size params.
+ * Used on book3s/32
+ */
+#define KUAP_CURRENT_READ	4
+#define KUAP_CURRENT_WRITE	8
+#define KUAP_CURRENT		(KUAP_CURRENT_READ | KUAP_CURRENT_WRITE)
 
 #ifdef CONFIG_PPC_BOOK3S_64
 #include <asm/book3s/64/kup.h>
@@ -38,7 +46,10 @@ void setup_kuep(bool disabled);
 static inline void setup_kuep(bool disabled) { }
 #endif /* CONFIG_PPC_KUEP */
 
-#ifndef CONFIG_PPC_BOOK3S_32
+#if defined(CONFIG_PPC_KUEP) && defined(CONFIG_PPC_BOOK3S_32)
+void kuep_lock(void);
+void kuep_unlock(void);
+#else
 static inline void kuep_lock(void) { }
 static inline void kuep_unlock(void) { }
 #endif
@@ -72,7 +83,8 @@ static inline unsigned long kuap_get_and_assert_locked(void)
 #ifndef CONFIG_PPC_BOOK3S_64
 static inline void allow_user_access(void __user *to, const void __user *from,
 				     unsigned long size, unsigned long dir) { }
-static inline void prevent_user_access(unsigned long dir) { }
+static inline void prevent_user_access(void __user *to, const void __user *from,
+				       unsigned long size, unsigned long dir) { }
 static inline unsigned long prevent_user_access_return(void) { return 0UL; }
 static inline void restore_user_access(unsigned long flags) { }
 #endif /* CONFIG_PPC_BOOK3S_64 */
@@ -84,53 +96,53 @@ static __always_inline void setup_kup(void)
 	setup_kuap(disable_kuap);
 }
 
-static __always_inline void allow_read_from_user(const void __user *from, unsigned long size)
+static inline void allow_read_from_user(const void __user *from, unsigned long size)
 {
 	barrier_nospec();
 	allow_user_access(NULL, from, size, KUAP_READ);
 }
 
-static __always_inline void allow_write_to_user(void __user *to, unsigned long size)
+static inline void allow_write_to_user(void __user *to, unsigned long size)
 {
 	allow_user_access(to, NULL, size, KUAP_WRITE);
 }
 
-static __always_inline void allow_read_write_user(void __user *to, const void __user *from,
-						  unsigned long size)
+static inline void allow_read_write_user(void __user *to, const void __user *from,
+					 unsigned long size)
 {
 	barrier_nospec();
 	allow_user_access(to, from, size, KUAP_READ_WRITE);
 }
 
-static __always_inline void prevent_read_from_user(const void __user *from, unsigned long size)
+static inline void prevent_read_from_user(const void __user *from, unsigned long size)
 {
-	prevent_user_access(KUAP_READ);
+	prevent_user_access(NULL, from, size, KUAP_READ);
 }
 
-static __always_inline void prevent_write_to_user(void __user *to, unsigned long size)
+static inline void prevent_write_to_user(void __user *to, unsigned long size)
 {
-	prevent_user_access(KUAP_WRITE);
+	prevent_user_access(to, NULL, size, KUAP_WRITE);
 }
 
-static __always_inline void prevent_read_write_user(void __user *to, const void __user *from,
-						    unsigned long size)
+static inline void prevent_read_write_user(void __user *to, const void __user *from,
+					   unsigned long size)
 {
-	prevent_user_access(KUAP_READ_WRITE);
+	prevent_user_access(to, from, size, KUAP_READ_WRITE);
 }
 
-static __always_inline void prevent_current_access_user(void)
+static inline void prevent_current_access_user(void)
 {
-	prevent_user_access(KUAP_READ_WRITE);
+	prevent_user_access(NULL, NULL, ~0UL, KUAP_CURRENT);
 }
 
-static __always_inline void prevent_current_read_from_user(void)
+static inline void prevent_current_read_from_user(void)
 {
-	prevent_user_access(KUAP_READ);
+	prevent_user_access(NULL, NULL, ~0UL, KUAP_CURRENT_READ);
 }
 
-static __always_inline void prevent_current_write_to_user(void)
+static inline void prevent_current_write_to_user(void)
 {
-	prevent_user_access(KUAP_WRITE);
+	prevent_user_access(NULL, NULL, ~0UL, KUAP_CURRENT_WRITE);
 }
 
 #endif /* !__ASSEMBLY__ */

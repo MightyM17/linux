@@ -19,10 +19,8 @@
 #ifndef _ASM_POWERPC_PTRACE_H
 #define _ASM_POWERPC_PTRACE_H
 
-#include <linux/err.h>
 #include <uapi/asm/ptrace.h>
 #include <asm/asm-const.h>
-#include <asm/reg.h>
 
 #ifndef __ASSEMBLY__
 struct pt_regs
@@ -44,23 +42,16 @@ struct pt_regs
 			unsigned long mq;
 #endif
 			unsigned long trap;
-			union {
-				unsigned long dar;
-				unsigned long dear;
-			};
-			union {
-				unsigned long dsisr;
-				unsigned long esr;
-			};
+			unsigned long dar;
+			unsigned long dsisr;
 			unsigned long result;
 		};
 	};
-#if defined(CONFIG_PPC64) || defined(CONFIG_PPC_KUAP)
+
 	union {
 		struct {
 #ifdef CONFIG_PPC64
 			unsigned long ppr;
-			unsigned long exit_result;
 #endif
 			union {
 #ifdef CONFIG_PPC_KUAP
@@ -76,23 +67,6 @@ struct pt_regs
 		};
 		unsigned long __pad[4];	/* Maintain 16 byte interrupt stack alignment */
 	};
-#endif
-#if defined(CONFIG_PPC32) && defined(CONFIG_BOOKE)
-	struct { /* Must be a multiple of 16 bytes */
-		unsigned long mas0;
-		unsigned long mas1;
-		unsigned long mas2;
-		unsigned long mas3;
-		unsigned long mas6;
-		unsigned long mas7;
-		unsigned long srr0;
-		unsigned long srr1;
-		unsigned long csrr0;
-		unsigned long csrr1;
-		unsigned long dsrr0;
-		unsigned long dsrr1;
-	};
-#endif
 };
 #endif
 
@@ -147,41 +121,6 @@ struct pt_regs
 #endif /* __powerpc64__ */
 
 #ifndef __ASSEMBLY__
-#include <asm/paca.h>
-
-#ifdef CONFIG_SMP
-extern unsigned long profile_pc(struct pt_regs *regs);
-#else
-#define profile_pc(regs) instruction_pointer(regs)
-#endif
-
-long do_syscall_trace_enter(struct pt_regs *regs);
-void do_syscall_trace_leave(struct pt_regs *regs);
-
-static inline void set_return_regs_changed(void)
-{
-#ifdef CONFIG_PPC_BOOK3S_64
-	local_paca->hsrr_valid = 0;
-	local_paca->srr_valid = 0;
-#endif
-}
-
-static inline void regs_set_return_ip(struct pt_regs *regs, unsigned long ip)
-{
-	regs->nip = ip;
-	set_return_regs_changed();
-}
-
-static inline void regs_set_return_msr(struct pt_regs *regs, unsigned long msr)
-{
-	regs->msr = msr;
-	set_return_regs_changed();
-}
-
-static inline void regs_add_return_ip(struct pt_regs *regs, long offset)
-{
-	regs_set_return_ip(regs, regs->nip + offset);
-}
 
 static inline unsigned long instruction_pointer(struct pt_regs *regs)
 {
@@ -191,7 +130,7 @@ static inline unsigned long instruction_pointer(struct pt_regs *regs)
 static inline void instruction_pointer_set(struct pt_regs *regs,
 		unsigned long val)
 {
-	regs_set_return_ip(regs, val);
+	regs->nip = val;
 }
 
 static inline unsigned long user_stack_pointer(struct pt_regs *regs)
@@ -204,7 +143,39 @@ static inline unsigned long frame_pointer(struct pt_regs *regs)
 	return 0;
 }
 
+#ifdef CONFIG_SMP
+extern unsigned long profile_pc(struct pt_regs *regs);
+#else
+#define profile_pc(regs) instruction_pointer(regs)
+#endif
+
+long do_syscall_trace_enter(struct pt_regs *regs);
+void do_syscall_trace_leave(struct pt_regs *regs);
+
+#define kernel_stack_pointer(regs) ((regs)->gpr[1])
+static inline int is_syscall_success(struct pt_regs *regs)
+{
+	return !(regs->ccr & 0x10000000);
+}
+
+static inline long regs_return_value(struct pt_regs *regs)
+{
+	if (is_syscall_success(regs))
+		return regs->gpr[3];
+	else
+		return -regs->gpr[3];
+}
+
+static inline void regs_set_return_value(struct pt_regs *regs, unsigned long rc)
+{
+	regs->gpr[3] = rc;
+}
+
+#ifdef __powerpc64__
+#define user_mode(regs) ((((regs)->msr) >> MSR_PR_LG) & 0x1)
+#else
 #define user_mode(regs) (((regs)->msr & MSR_PR) != 0)
+#endif
 
 #define force_successful_syscall_return()   \
 	do { \
@@ -262,53 +233,6 @@ static inline bool trap_norestart(struct pt_regs *regs)
 static __always_inline void set_trap_norestart(struct pt_regs *regs)
 {
 	regs->trap |= 0x1;
-}
-
-#define kernel_stack_pointer(regs) ((regs)->gpr[1])
-static inline int is_syscall_success(struct pt_regs *regs)
-{
-	if (trap_is_scv(regs))
-		return !IS_ERR_VALUE((unsigned long)regs->gpr[3]);
-	else
-		return !(regs->ccr & 0x10000000);
-}
-
-static inline long regs_return_value(struct pt_regs *regs)
-{
-	if (trap_is_scv(regs))
-		return regs->gpr[3];
-
-	if (is_syscall_success(regs))
-		return regs->gpr[3];
-	else
-		return -regs->gpr[3];
-}
-
-static inline void regs_set_return_value(struct pt_regs *regs, unsigned long rc)
-{
-	regs->gpr[3] = rc;
-}
-
-static inline bool cpu_has_msr_ri(void)
-{
-	return !IS_ENABLED(CONFIG_BOOKE) && !IS_ENABLED(CONFIG_40x);
-}
-
-static inline bool regs_is_unrecoverable(struct pt_regs *regs)
-{
-	return unlikely(cpu_has_msr_ri() && !(regs->msr & MSR_RI));
-}
-
-static inline void regs_set_recoverable(struct pt_regs *regs)
-{
-	if (cpu_has_msr_ri())
-		regs_set_return_msr(regs, regs->msr | MSR_RI);
-}
-
-static inline void regs_set_unrecoverable(struct pt_regs *regs)
-{
-	if (cpu_has_msr_ri())
-		regs_set_return_msr(regs, regs->msr & ~MSR_RI);
 }
 
 #define arch_has_single_step()	(1)

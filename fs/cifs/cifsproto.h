@@ -1,10 +1,22 @@
-/* SPDX-License-Identifier: LGPL-2.1 */
 /*
  *   fs/cifs/cifsproto.h
  *
  *   Copyright (c) International Business Machines  Corp., 2002,2008
  *   Author(s): Steve French (sfrench@us.ibm.com)
  *
+ *   This library is free software; you can redistribute it and/or modify
+ *   it under the terms of the GNU Lesser General Public License as published
+ *   by the Free Software Foundation; either version 2.1 of the License, or
+ *   (at your option) any later version.
+ *
+ *   This library is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
+ *   the GNU Lesser General Public License for more details.
+ *
+ *   You should have received a copy of the GNU Lesser General Public License
+ *   along with this library; if not, write to the Free Software
+ *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 #ifndef _CIFSPROTO_H
 #define _CIFSPROTO_H
@@ -498,12 +510,19 @@ extern int cifs_sign_smb(struct smb_hdr *, struct TCP_Server_Info *, __u32 *);
 extern int cifs_verify_signature(struct smb_rqst *rqst,
 				 struct TCP_Server_Info *server,
 				__u32 expected_sequence_number);
+extern int SMBNTencrypt(unsigned char *, unsigned char *, unsigned char *,
+			const struct nls_table *);
+extern int setup_ntlm_response(struct cifs_ses *, const struct nls_table *);
 extern int setup_ntlmv2_rsp(struct cifs_ses *, const struct nls_table *);
 extern void cifs_crypto_secmech_release(struct TCP_Server_Info *server);
 extern int calc_seckey(struct cifs_ses *);
 extern int generate_smb30signingkey(struct cifs_ses *);
 extern int generate_smb311signingkey(struct cifs_ses *);
 
+#ifdef CONFIG_CIFS_WEAK_PW_HASH
+extern int calc_lanman_hash(const char *password, const char *cryptkey,
+				bool encrypt, char *lnm_session_key);
+#endif /* CIFS_WEAK_PW_HASH */
 extern int CIFSSMBCopy(unsigned int xid,
 			struct cifs_tcon *source_tcon,
 			const char *fromName,
@@ -540,8 +559,11 @@ extern int check_mf_symlink(unsigned int xid, struct cifs_tcon *tcon,
 			      struct cifs_sb_info *cifs_sb,
 			      struct cifs_fattr *fattr,
 			      const unsigned char *path);
+extern int mdfour(unsigned char *, unsigned char *, int);
 extern int E_md4hash(const unsigned char *passwd, unsigned char *p16,
 			const struct nls_table *codepage);
+extern int SMBencrypt(unsigned char *passwd, const unsigned char *c8,
+			unsigned char *p24);
 
 extern int
 cifs_setup_volume_info(struct smb3_fs_context *ctx, const char *mntopts, const char *devname);

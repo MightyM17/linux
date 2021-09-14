@@ -104,7 +104,6 @@ struct edt_ft5x06_ts_data {
 	u16 num_x;
 	u16 num_y;
 	struct regulator *vcc;
-	struct regulator *iovcc;
 
 	struct gpio_desc *reset_gpio;
 	struct gpio_desc *wake_gpio;
@@ -899,7 +898,6 @@ static int edt_ft5x06_ts_identify(struct i2c_client *client,
 		 * the identification registers.
 		 */
 		switch (rdbuf[0]) {
-		case 0x11:   /* EDT EP0110M09 */
 		case 0x35:   /* EDT EP0350M09 */
 		case 0x43:   /* EDT EP0430M09 */
 		case 0x50:   /* EDT EP0500M09 */
@@ -1064,12 +1062,11 @@ static void edt_ft5x06_ts_set_regs(struct edt_ft5x06_ts_data *tsdata)
 	}
 }
 
-static void edt_ft5x06_disable_regulators(void *arg)
+static void edt_ft5x06_disable_regulator(void *arg)
 {
 	struct edt_ft5x06_ts_data *data = arg;
 
 	regulator_disable(data->vcc);
-	regulator_disable(data->iovcc);
 }
 
 static int edt_ft5x06_ts_probe(struct i2c_client *client,
@@ -1110,33 +1107,14 @@ static int edt_ft5x06_ts_probe(struct i2c_client *client,
 		return error;
 	}
 
-	tsdata->iovcc = devm_regulator_get(&client->dev, "iovcc");
-	if (IS_ERR(tsdata->iovcc)) {
-		error = PTR_ERR(tsdata->iovcc);
-		if (error != -EPROBE_DEFER)
-			dev_err(&client->dev,
-				"failed to request iovcc regulator: %d\n", error);
-		return error;
-	}
-
-	error = regulator_enable(tsdata->iovcc);
-	if (error < 0) {
-		dev_err(&client->dev, "failed to enable iovcc: %d\n", error);
-		return error;
-	}
-
-	/* Delay enabling VCC for > 10us (T_ivd) after IOVCC */
-	usleep_range(10, 100);
-
 	error = regulator_enable(tsdata->vcc);
 	if (error < 0) {
 		dev_err(&client->dev, "failed to enable vcc: %d\n", error);
-		regulator_disable(tsdata->iovcc);
 		return error;
 	}
 
 	error = devm_add_action_or_reset(&client->dev,
-					 edt_ft5x06_disable_regulators,
+					 edt_ft5x06_disable_regulator,
 					 tsdata);
 	if (error)
 		return error;
@@ -1311,9 +1289,6 @@ static int __maybe_unused edt_ft5x06_ts_suspend(struct device *dev)
 	ret = regulator_disable(tsdata->vcc);
 	if (ret)
 		dev_warn(dev, "Failed to disable vcc\n");
-	ret = regulator_disable(tsdata->iovcc);
-	if (ret)
-		dev_warn(dev, "Failed to disable iovcc\n");
 
 	return 0;
 }
@@ -1344,19 +1319,9 @@ static int __maybe_unused edt_ft5x06_ts_resume(struct device *dev)
 		gpiod_set_value_cansleep(reset_gpio, 1);
 		usleep_range(5000, 6000);
 
-		ret = regulator_enable(tsdata->iovcc);
-		if (ret) {
-			dev_err(dev, "Failed to enable iovcc\n");
-			return ret;
-		}
-
-		/* Delay enabling VCC for > 10us (T_ivd) after IOVCC */
-		usleep_range(10, 100);
-
 		ret = regulator_enable(tsdata->vcc);
 		if (ret) {
 			dev_err(dev, "Failed to enable vcc\n");
-			regulator_disable(tsdata->iovcc);
 			return ret;
 		}
 

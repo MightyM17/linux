@@ -298,7 +298,7 @@ static void s3c_irq_demux(struct irq_desc *desc)
 	struct s3c_irq_data *irq_data = irq_desc_get_chip_data(desc);
 	struct s3c_irq_intc *intc = irq_data->intc;
 	struct s3c_irq_intc *sub_intc = irq_data->sub_intc;
-	unsigned int n, offset;
+	unsigned int n, offset, irq;
 	unsigned long src, msk;
 
 	/* we're using individual domains for the non-dt case
@@ -318,7 +318,8 @@ static void s3c_irq_demux(struct irq_desc *desc)
 	while (src) {
 		n = __ffs(src);
 		src &= ~(1 << n);
-		generic_handle_domain_irq(sub_intc->domain, offset + n);
+		irq = irq_find_mapping(sub_intc->domain, offset + n);
+		generic_handle_irq(irq);
 	}
 
 	chained_irq_exit(chip, desc);

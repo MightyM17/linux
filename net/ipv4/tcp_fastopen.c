@@ -55,7 +55,12 @@ void tcp_fastopen_ctx_destroy(struct net *net)
 {
 	struct tcp_fastopen_context *ctxt;
 
-	ctxt = xchg((__force struct tcp_fastopen_context **)&net->ipv4.tcp_fastopen_ctx, NULL);
+	spin_lock(&net->ipv4.tcp_fastopen_ctx_lock);
+
+	ctxt = rcu_dereference_protected(net->ipv4.tcp_fastopen_ctx,
+				lockdep_is_held(&net->ipv4.tcp_fastopen_ctx_lock));
+	rcu_assign_pointer(net->ipv4.tcp_fastopen_ctx, NULL);
+	spin_unlock(&net->ipv4.tcp_fastopen_ctx_lock);
 
 	if (ctxt)
 		call_rcu(&ctxt->rcu, tcp_fastopen_ctx_free);
@@ -84,12 +89,18 @@ int tcp_fastopen_reset_cipher(struct net *net, struct sock *sk,
 		ctx->num = 1;
 	}
 
+	spin_lock(&net->ipv4.tcp_fastopen_ctx_lock);
 	if (sk) {
 		q = &inet_csk(sk)->icsk_accept_queue.fastopenq;
-		octx = xchg((__force struct tcp_fastopen_context **)&q->ctx, ctx);
+		octx = rcu_dereference_protected(q->ctx,
+			lockdep_is_held(&net->ipv4.tcp_fastopen_ctx_lock));
+		rcu_assign_pointer(q->ctx, ctx);
 	} else {
-		octx = xchg((__force struct tcp_fastopen_context **)&net->ipv4.tcp_fastopen_ctx, ctx);
+		octx = rcu_dereference_protected(net->ipv4.tcp_fastopen_ctx,
+			lockdep_is_held(&net->ipv4.tcp_fastopen_ctx_lock));
+		rcu_assign_pointer(net->ipv4.tcp_fastopen_ctx, ctx);
 	}
+	spin_unlock(&net->ipv4.tcp_fastopen_ctx_lock);
 
 	if (octx)
 		call_rcu(&octx->rcu, tcp_fastopen_ctx_free);
@@ -368,7 +379,8 @@ struct sock *tcp_try_fastopen(struct sock *sk, struct sk_buff *skb,
 		return NULL;
 	}
 
-	if (tcp_fastopen_no_cookie(sk, dst, TFO_SERVER_COOKIE_NOT_REQD))
+	if (syn_data &&
+	    tcp_fastopen_no_cookie(sk, dst, TFO_SERVER_COOKIE_NOT_REQD))
 		goto fastopen;
 
 	if (foc->len == 0) {
@@ -495,18 +507,8 @@ void tcp_fastopen_active_disable(struct sock *sk)
 {
 	struct net *net = sock_net(sk);
 
-	if (!sock_net(sk)->ipv4.sysctl_tcp_fastopen_blackhole_timeout)
-		return;
-
-	/* Paired with READ_ONCE() in tcp_fastopen_active_should_disable() */
-	WRITE_ONCE(net->ipv4.tfo_active_disable_stamp, jiffies);
-
-	/* Paired with smp_rmb() in tcp_fastopen_active_should_disable().
-	 * We want net->ipv4.tfo_active_disable_stamp to be updated first.
-	 */
-	smp_mb__before_atomic();
 	atomic_inc(&net->ipv4.tfo_active_disable_times);
-
+	net->ipv4.tfo_active_disable_stamp = jiffies;
 	NET_INC_STATS(net, LINUX_MIB_TCPFASTOPENBLACKHOLE);
 }
 
@@ -517,27 +519,17 @@ void tcp_fastopen_active_disable(struct sock *sk)
 bool tcp_fastopen_active_should_disable(struct sock *sk)
 {
 	unsigned int tfo_bh_timeout = sock_net(sk)->ipv4.sysctl_tcp_fastopen_blackhole_timeout;
+	int tfo_da_times = atomic_read(&sock_net(sk)->ipv4.tfo_active_disable_times);
 	unsigned long timeout;
-	int tfo_da_times;
 	int multiplier;
 
-	if (!tfo_bh_timeout)
-		return false;
-
-	tfo_da_times = atomic_read(&sock_net(sk)->ipv4.tfo_active_disable_times);
 	if (!tfo_da_times)
 		return false;
 
-	/* Paired with smp_mb__before_atomic() in tcp_fastopen_active_disable() */
-	smp_rmb();
-
-	/* Limit timeout to max: 2^6 * initial timeout */
+	/* Limit timout to max: 2^6 * initial timeout */
 	multiplier = 1 << min(tfo_da_times - 1, 6);
-
-	/* Paired with the WRITE_ONCE() in tcp_fastopen_active_disable(). */
-	timeout = READ_ONCE(sock_net(sk)->ipv4.tfo_active_disable_stamp) +
-		  multiplier * tfo_bh_timeout * HZ;
-	if (time_before(jiffies, timeout))
+	timeout = multiplier * tfo_bh_timeout * HZ;
+	if (time_before(jiffies, sock_net(sk)->ipv4.tfo_active_disable_stamp + timeout))
 		return true;
 
 	/* Mark check bit so we can check for successful active TFO

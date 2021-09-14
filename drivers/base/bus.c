@@ -195,7 +195,7 @@ static ssize_t unbind_store(struct device_driver *drv, const char *buf,
 	bus_put(bus);
 	return err;
 }
-static DRIVER_ATTR_IGNORE_LOCKDEP(unbind, 0200, NULL, unbind_store);
+static DRIVER_ATTR_IGNORE_LOCKDEP(unbind, S_IWUSR, NULL, unbind_store);
 
 /*
  * Manually attach a device to a driver.
@@ -210,18 +210,22 @@ static ssize_t bind_store(struct device_driver *drv, const char *buf,
 	int err = -ENODEV;
 
 	dev = bus_find_device_by_name(bus, NULL, buf);
-	if (dev && driver_match_device(drv, dev)) {
+	if (dev && dev->driver == NULL && driver_match_device(drv, dev)) {
 		err = device_driver_attach(drv, dev);
-		if (!err) {
+
+		if (err > 0) {
 			/* success */
 			err = count;
+		} else if (err == 0) {
+			/* driver didn't accept device */
+			err = -ENODEV;
 		}
 	}
 	put_device(dev);
 	bus_put(bus);
 	return err;
 }
-static DRIVER_ATTR_IGNORE_LOCKDEP(bind, 0200, NULL, bind_store);
+static DRIVER_ATTR_IGNORE_LOCKDEP(bind, S_IWUSR, NULL, bind_store);
 
 static ssize_t drivers_autoprobe_show(struct bus_type *bus, char *buf)
 {
@@ -767,7 +771,7 @@ static ssize_t bus_uevent_store(struct bus_type *bus,
  * DEVICE_ATTR_WO(uevent), which would cause a clash with the with the store
  * function name.
  */
-static struct bus_attribute bus_attr_uevent = __ATTR(uevent, 0200, NULL,
+static struct bus_attribute bus_attr_uevent = __ATTR(uevent, S_IWUSR, NULL,
 						     bus_uevent_store);
 
 /**

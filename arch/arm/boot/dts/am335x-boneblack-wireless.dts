@@ -7,7 +7,6 @@
 #include "am33xx.dtsi"
 #include "am335x-bone-common.dtsi"
 #include "am335x-boneblack-common.dtsi"
-#include "am335x-boneblack-hdmi.dtsi"
 #include <dt-bindings/interrupt-controller/irq.h>
 
 / {
@@ -63,7 +62,7 @@
 	};
 };
 
-&mac_sw {
+&mac {
 	status = "disabled";
 };
 
@@ -102,7 +101,7 @@
 };
 
 &gpio3 {
-	ls-buf-en-hog {
+	ls_buf_en {
 		gpio-hog;
 		gpios = <10 GPIO_ACTIVE_HIGH>;
 		output-high;

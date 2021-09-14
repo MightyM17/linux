@@ -453,7 +453,7 @@ do_mathemu(struct pt_regs *regs)
 		break;
 	}
 
-	regs_add_return_ip(regs, 4);
+	regs->nip += 4;
 	return 0;
 
 illegal:

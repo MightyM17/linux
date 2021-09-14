@@ -186,13 +186,12 @@ is_eth_port_inactive_slave_filter(struct ib_device *ib_dev, u32 port,
 	return res;
 }
 
-/**
- * is_ndev_for_default_gid_filter - Check if a given netdevice
+/** is_ndev_for_default_gid_filter - Check if a given netdevice
  * can be considered for default GIDs or not.
  * @ib_dev:		IB device to check
  * @port:		Port to consider for adding default GID
  * @rdma_ndev:		rdma netdevice pointer
- * @cookie:             Netdevice to consider to form a default GID
+ * @cookie_ndev:	Netdevice to consider to form a default GID
  *
  * is_ndev_for_default_gid_filter() returns true if a given netdevice can be
  * considered for deriving default RoCE GID, returns false otherwise.

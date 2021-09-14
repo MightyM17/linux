@@ -3,7 +3,6 @@
  * Copyright (C) 2020 Intel Corporation
  * Author: Johannes Berg <johannes@sipsolutions.net>
  */
-#include <stdbool.h>
 #include <os.h>
 #include <errno.h>
 #include <sched.h>

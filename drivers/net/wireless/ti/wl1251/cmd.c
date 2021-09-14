@@ -12,7 +12,7 @@
 #include "acx.h"
 
 /**
- * wl1251_cmd_send - Send command to firmware
+ * send command to firmware
  *
  * @wl: wl struct
  * @id: command id
@@ -59,7 +59,7 @@ out:
 }
 
 /**
- * wl1251_cmd_test - Send test command to firmware
+ * send test command to firmware
  *
  * @wl: wl struct
  * @buf: buffer containing the command, with all headers, must work with dma
@@ -100,7 +100,7 @@ int wl1251_cmd_test(struct wl1251 *wl, void *buf, size_t buf_len, u8 answer)
 }
 
 /**
- * wl1251_cmd_interrogate - Read acx from firmware
+ * read acx from firmware
  *
  * @wl: wl struct
  * @id: acx id
@@ -138,7 +138,7 @@ out:
 }
 
 /**
- * wl1251_cmd_configure - Write acx value to firmware
+ * write acx value to firmware
  *
  * @wl: wl struct
  * @id: acx id
@@ -454,12 +454,9 @@ int wl1251_cmd_scan(struct wl1251 *wl, u8 *ssid, size_t ssid_len,
 		cmd->channels[i].channel = channels[i]->hw_value;
 	}
 
-	if (ssid) {
-		int len = clamp_val(ssid_len, 0, IEEE80211_MAX_SSID_LEN);
-
-		cmd->params.ssid_len = len;
-		memcpy(cmd->params.ssid, ssid, len);
-	}
+	cmd->params.ssid_len = ssid_len;
+	if (ssid)
+		memcpy(cmd->params.ssid, ssid, ssid_len);
 
 	ret = wl1251_cmd_send(wl, CMD_SCAN, cmd, sizeof(*cmd));
 	if (ret < 0) {

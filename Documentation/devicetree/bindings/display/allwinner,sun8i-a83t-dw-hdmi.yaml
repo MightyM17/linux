@@ -46,6 +46,7 @@ properties:
 
   clocks:
     minItems: 3
+    maxItems: 6
     items:
       - description: Bus Clock
       - description: Register Clock
@@ -56,6 +57,7 @@ properties:
 
   clock-names:
     minItems: 3
+    maxItems: 6
     items:
       - const: iahb
       - const: isfr
@@ -66,12 +68,14 @@ properties:
 
   resets:
     minItems: 1
+    maxItems: 2
     items:
       - description: HDMI Controller Reset
       - description: HDCP Reset
 
   reset-names:
     minItems: 1
+    maxItems: 2
     items:
       - const: ctrl
       - const: hdcp
@@ -174,6 +178,7 @@ examples:
         phy-names = "phy";
         pinctrl-names = "default";
         pinctrl-0 = <&hdmi_pins>;
+        status = "disabled";
 
         ports {
             #address-cells = <1>;
@@ -232,6 +237,7 @@ examples:
         phy-names = "phy";
         pinctrl-names = "default";
         pinctrl-0 = <&hdmi_pins>;
+        status = "disabled";
 
         ports {
             #address-cells = <1>;

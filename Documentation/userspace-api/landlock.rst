@@ -145,8 +145,7 @@ Bind mounts and OverlayFS
 
 Landlock enables to restrict access to file hierarchies, which means that these
 access rights can be propagated with bind mounts (cf.
-Documentation/filesystems/sharedsubtree.rst) but not with
-Documentation/filesystems/overlayfs.rst.
+:doc:`/filesystems/sharedsubtree`) but not with :doc:`/filesystems/overlayfs`.
 
 A bind mount mirrors a source file hierarchy to a destination.  The destination
 hierarchy is then composed of the exact same files, on which Landlock rules can
@@ -171,8 +170,8 @@ Inheritance
 
 Every new thread resulting from a :manpage:`clone(2)` inherits Landlock domain
 restrictions from its parent.  This is similar to the seccomp inheritance (cf.
-Documentation/userspace-api/seccomp_filter.rst) or any other LSM dealing with
-task's :manpage:`credentials(7)`.  For instance, one process's thread may apply
+:doc:`/userspace-api/seccomp_filter`) or any other LSM dealing with task's
+:manpage:`credentials(7)`.  For instance, one process's thread may apply
 Landlock rules to itself, but they will not be automatically applied to other
 sibling threads (unlike POSIX thread credential changes, cf.
 :manpage:`nptl(7)`).
@@ -279,7 +278,7 @@ Memory usage
 ------------
 
 Kernel memory allocated to create rulesets is accounted and can be restricted
-by the Documentation/admin-guide/cgroup-v1/memory.rst.
+by the :doc:`/admin-guide/cgroup-v1/memory`.
 
 Questions and answers
 =====================
@@ -304,7 +303,7 @@ issues, especially when untrusted processes can manipulate them (cf.
 Additional documentation
 ========================
 
-* Documentation/security/landlock.rst
+* :doc:`/security/landlock`
 * https://landlock.io
 
 .. Links

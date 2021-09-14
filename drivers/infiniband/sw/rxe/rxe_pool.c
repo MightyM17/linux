@@ -41,7 +41,7 @@ struct rxe_type_info rxe_type_info[RXE_NUM_TYPES] = {
 		.size		= sizeof(struct rxe_qp),
 		.elem_offset	= offsetof(struct rxe_qp, pelem),
 		.cleanup	= rxe_qp_cleanup,
-		.flags		= RXE_POOL_INDEX | RXE_POOL_NO_ALLOC,
+		.flags		= RXE_POOL_INDEX,
 		.min_index	= RXE_MIN_QP_INDEX,
 		.max_index	= RXE_MAX_QP_INDEX,
 	},
@@ -65,7 +65,6 @@ struct rxe_type_info rxe_type_info[RXE_NUM_TYPES] = {
 		.name		= "rxe-mw",
 		.size		= sizeof(struct rxe_mw),
 		.elem_offset	= offsetof(struct rxe_mw, pelem),
-		.cleanup	= rxe_mw_cleanup,
 		.flags		= RXE_POOL_INDEX | RXE_POOL_NO_ALLOC,
 		.max_index	= RXE_MAX_MW_INDEX,
 		.min_index	= RXE_MIN_MW_INDEX,
@@ -184,7 +183,7 @@ static u32 alloc_index(struct rxe_pool *pool)
 	return index + pool->index.min_index;
 }
 
-static int rxe_insert_index(struct rxe_pool *pool, struct rxe_pool_entry *new)
+static void insert_index(struct rxe_pool *pool, struct rxe_pool_entry *new)
 {
 	struct rb_node **link = &pool->index.tree.rb_node;
 	struct rb_node *parent = NULL;
@@ -196,7 +195,7 @@ static int rxe_insert_index(struct rxe_pool *pool, struct rxe_pool_entry *new)
 
 		if (elem->index == new->index) {
 			pr_warn("element already exists!\n");
-			return -EINVAL;
+			goto out;
 		}
 
 		if (elem->index > new->index)
@@ -207,11 +206,11 @@ static int rxe_insert_index(struct rxe_pool *pool, struct rxe_pool_entry *new)
 
 	rb_link_node(&new->index_node, parent, link);
 	rb_insert_color(&new->index_node, &pool->index.tree);
-
-	return 0;
+out:
+	return;
 }
 
-static int rxe_insert_key(struct rxe_pool *pool, struct rxe_pool_entry *new)
+static void insert_key(struct rxe_pool *pool, struct rxe_pool_entry *new)
 {
 	struct rb_node **link = &pool->key.tree.rb_node;
 	struct rb_node *parent = NULL;
@@ -227,7 +226,7 @@ static int rxe_insert_key(struct rxe_pool *pool, struct rxe_pool_entry *new)
 
 		if (cmp == 0) {
 			pr_warn("key already exists!\n");
-			return -EINVAL;
+			goto out;
 		}
 
 		if (cmp > 0)
@@ -238,32 +237,26 @@ static int rxe_insert_key(struct rxe_pool *pool, struct rxe_pool_entry *new)
 
 	rb_link_node(&new->key_node, parent, link);
 	rb_insert_color(&new->key_node, &pool->key.tree);
-
-	return 0;
+out:
+	return;
 }
 
-int __rxe_add_key_locked(struct rxe_pool_entry *elem, void *key)
+void __rxe_add_key_locked(struct rxe_pool_entry *elem, void *key)
 {
 	struct rxe_pool *pool = elem->pool;
-	int err;
 
 	memcpy((u8 *)elem + pool->key.key_offset, key, pool->key.key_size);
-	err = rxe_insert_key(pool, elem);
-
-	return err;
+	insert_key(pool, elem);
 }
 
-int __rxe_add_key(struct rxe_pool_entry *elem, void *key)
+void __rxe_add_key(struct rxe_pool_entry *elem, void *key)
 {
 	struct rxe_pool *pool = elem->pool;
 	unsigned long flags;
-	int err;
 
 	write_lock_irqsave(&pool->pool_lock, flags);
-	err = __rxe_add_key_locked(elem, key);
+	__rxe_add_key_locked(elem, key);
 	write_unlock_irqrestore(&pool->pool_lock, flags);
-
-	return err;
 }
 
 void __rxe_drop_key_locked(struct rxe_pool_entry *elem)
@@ -283,28 +276,22 @@ void __rxe_drop_key(struct rxe_pool_entry *elem)
 	write_unlock_irqrestore(&pool->pool_lock, flags);
 }
 
-int __rxe_add_index_locked(struct rxe_pool_entry *elem)
+void __rxe_add_index_locked(struct rxe_pool_entry *elem)
 {
 	struct rxe_pool *pool = elem->pool;
-	int err;
 
 	elem->index = alloc_index(pool);
-	err = rxe_insert_index(pool, elem);
-
-	return err;
+	insert_index(pool, elem);
 }
 
-int __rxe_add_index(struct rxe_pool_entry *elem)
+void __rxe_add_index(struct rxe_pool_entry *elem)
 {
 	struct rxe_pool *pool = elem->pool;
 	unsigned long flags;
-	int err;
 
 	write_lock_irqsave(&pool->pool_lock, flags);
-	err = __rxe_add_index_locked(elem);
+	__rxe_add_index_locked(elem);
 	write_unlock_irqrestore(&pool->pool_lock, flags);
-
-	return err;
 }
 
 void __rxe_drop_index_locked(struct rxe_pool_entry *elem)

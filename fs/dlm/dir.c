@@ -85,10 +85,8 @@ int dlm_recover_directory(struct dlm_ls *ls)
 		for (;;) {
 			int left;
 			error = dlm_recovery_stopped(ls);
-			if (error) {
-				error = -EINTR;
+			if (error)
 				goto out_free;
-			}
 
 			error = dlm_rcom_names(ls, memb->nodeid,
 					       last_name, last_len);

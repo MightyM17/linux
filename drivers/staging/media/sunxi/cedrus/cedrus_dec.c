@@ -40,12 +40,10 @@ void cedrus_device_run(void *priv)
 
 	switch (ctx->src_fmt.pixelformat) {
 	case V4L2_PIX_FMT_MPEG2_SLICE:
-		run.mpeg2.sequence = cedrus_find_control_data(ctx,
-			V4L2_CID_STATELESS_MPEG2_SEQUENCE);
-		run.mpeg2.picture = cedrus_find_control_data(ctx,
-			V4L2_CID_STATELESS_MPEG2_PICTURE);
-		run.mpeg2.quantisation = cedrus_find_control_data(ctx,
-			V4L2_CID_STATELESS_MPEG2_QUANTISATION);
+		run.mpeg2.slice_params = cedrus_find_control_data(ctx,
+			V4L2_CID_MPEG_VIDEO_MPEG2_SLICE_PARAMS);
+		run.mpeg2.quantization = cedrus_find_control_data(ctx,
+			V4L2_CID_MPEG_VIDEO_MPEG2_QUANTIZATION);
 		break;
 
 	case V4L2_PIX_FMT_H264_SLICE:
@@ -70,8 +68,6 @@ void cedrus_device_run(void *priv)
 			V4L2_CID_MPEG_VIDEO_HEVC_PPS);
 		run.h265.slice_params = cedrus_find_control_data(ctx,
 			V4L2_CID_MPEG_VIDEO_HEVC_SLICE_PARAMS);
-		run.h265.decode_params = cedrus_find_control_data(ctx,
-			V4L2_CID_MPEG_VIDEO_HEVC_DECODE_PARAMS);
 		break;
 
 	case V4L2_PIX_FMT_VP8_FRAME:

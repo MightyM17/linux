@@ -2,7 +2,7 @@
 /*
  * Device driver for MFD hi655x PMIC
  *
- * Copyright (c) 2016 HiSilicon Ltd.
+ * Copyright (c) 2016 Hisilicon.
  *
  * Authors:
  * Chen Feng <puck.chen@hisilicon.com>

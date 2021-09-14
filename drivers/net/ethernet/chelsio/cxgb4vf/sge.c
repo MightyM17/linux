@@ -478,7 +478,7 @@ static void free_rx_bufs(struct adapter *adapter, struct sge_fl *fl, int n)
 		if (is_buf_mapped(sdesc))
 			dma_unmap_page(adapter->pdev_dev, get_buf_addr(sdesc),
 				       get_buf_size(adapter, sdesc),
-				       DMA_FROM_DEVICE);
+				       PCI_DMA_FROMDEVICE);
 		put_page(sdesc->page);
 		sdesc->page = NULL;
 		if (++fl->cidx == fl->size)
@@ -507,7 +507,7 @@ static void unmap_rx_buf(struct adapter *adapter, struct sge_fl *fl)
 	if (is_buf_mapped(sdesc))
 		dma_unmap_page(adapter->pdev_dev, get_buf_addr(sdesc),
 			       get_buf_size(adapter, sdesc),
-			       DMA_FROM_DEVICE);
+			       PCI_DMA_FROMDEVICE);
 	sdesc->page = NULL;
 	if (++fl->cidx == fl->size)
 		fl->cidx = 0;
@@ -644,7 +644,7 @@ static unsigned int refill_fl(struct adapter *adapter, struct sge_fl *fl,
 
 		dma_addr = dma_map_page(adapter->pdev_dev, page, 0,
 					PAGE_SIZE << s->fl_pg_order,
-					DMA_FROM_DEVICE);
+					PCI_DMA_FROMDEVICE);
 		if (unlikely(dma_mapping_error(adapter->pdev_dev, dma_addr))) {
 			/*
 			 * We've run out of DMA mapping space.  Free up the
@@ -682,7 +682,7 @@ alloc_small_pages:
 		poison_buf(page, PAGE_SIZE);
 
 		dma_addr = dma_map_page(adapter->pdev_dev, page, 0, PAGE_SIZE,
-				       DMA_FROM_DEVICE);
+				       PCI_DMA_FROMDEVICE);
 		if (unlikely(dma_mapping_error(adapter->pdev_dev, dma_addr))) {
 			put_page(page);
 			break;
@@ -954,7 +954,7 @@ static void write_sgl(const struct sk_buff *skb, struct sge_txq *tq,
 }
 
 /**
- *	ring_tx_db - check and potentially ring a TX queue's doorbell
+ *	check_ring_tx_db - check and potentially ring a TX queue's doorbell
  *	@adapter: the adapter
  *	@tq: the TX queue
  *	@n: number of new descriptors to give to HW

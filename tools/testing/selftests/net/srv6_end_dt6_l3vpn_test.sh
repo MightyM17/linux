@@ -164,9 +164,6 @@
 # +---------------------------------------------------+
 #
 
-# Kselftest framework requirement - SKIP code is 4.
-ksft_skip=4
-
 readonly LOCALSID_TABLE_ID=90
 readonly IPv6_RT_NETWORK=fd00
 readonly IPv6_HS_NETWORK=cafe
@@ -475,18 +472,18 @@ host_vpn_isolation_tests()
 
 if [ "$(id -u)" -ne 0 ];then
 	echo "SKIP: Need root privileges"
-	exit $ksft_skip
+	exit 0
 fi
 
 if [ ! -x "$(command -v ip)" ]; then
 	echo "SKIP: Could not run test without ip tool"
-	exit $ksft_skip
+	exit 0
 fi
 
 modprobe vrf &>/dev/null
 if [ ! -e /proc/sys/net/vrf/strict_mode ]; then
         echo "SKIP: vrf sysctl does not exist"
-        exit $ksft_skip
+        exit 0
 fi
 
 cleanup &>/dev/null

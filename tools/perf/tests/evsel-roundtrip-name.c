@@ -5,7 +5,6 @@
 #include "tests.h"
 #include "debug.h"
 #include "pmu.h"
-#include "pmu-hybrid.h"
 #include <errno.h>
 #include <linux/kernel.h>
 
@@ -45,7 +44,7 @@ static int perf_evsel__roundtrip_cache_name_test(void)
 
 			for (i = 0; i < PERF_COUNT_HW_CACHE_RESULT_MAX; i++) {
 				__evsel__hw_cache_type_op_res_name(type, op, i, name, sizeof(name));
-				if (evsel->core.idx != idx)
+				if (evsel->idx != idx)
 					continue;
 
 				++idx;
@@ -85,9 +84,9 @@ static int __perf_evsel__name_array_test(const char *names[], int nr_names,
 
 	err = 0;
 	evlist__for_each_entry(evlist, evsel) {
-		if (strcmp(evsel__name(evsel), names[evsel->core.idx / distance])) {
+		if (strcmp(evsel__name(evsel), names[evsel->idx / distance])) {
 			--err;
-			pr_debug("%s != %s\n", evsel__name(evsel), names[evsel->core.idx / distance]);
+			pr_debug("%s != %s\n", evsel__name(evsel), names[evsel->idx / distance]);
 		}
 	}
 
@@ -103,7 +102,7 @@ int test__perf_evsel__roundtrip_name_test(struct test *test __maybe_unused, int 
 {
 	int err = 0, ret = 0;
 
-	if (perf_pmu__has_hybrid() && perf_pmu__hybrid_mounted("cpu_atom"))
+	if (perf_pmu__has_hybrid())
 		return perf_evsel__name_array_test(evsel__hw_names, 2);
 
 	err = perf_evsel__name_array_test(evsel__hw_names, 1);

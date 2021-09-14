@@ -1,12 +1,10 @@
 .. include:: ../disclaimer-zh_CN.rst
 
-:Original: Documentation/riscv/pmu.rst
-
-:翻译:
-
- 司延腾 Yanteng Si <siyanteng@loongson.cn>
+:Original: :doc:`../../../riscv/pmu`
+:Translator: Yanteng Si <siyanteng@loongson.cn>
 
 .. _cn_riscv_pmu:
+
 
 ========================
 RISC-V平台上对PMUs的支持

@@ -89,8 +89,8 @@
 #define IPROC_PCIE_REG_INVALID		0xffff
 
 /**
- * struct iproc_pcie_ob_map - iProc PCIe outbound mapping controller-specific
- * parameters
+ * iProc PCIe outbound mapping controller specific parameters
+ *
  * @window_sizes: list of supported outbound mapping window sizes in MB
  * @nr_sizes: number of supported outbound mapping window sizes
  */
@@ -136,20 +136,22 @@ static const struct iproc_pcie_ob_map paxb_v2_ob_map[] = {
 };
 
 /**
- * enum iproc_pcie_ib_map_type - iProc PCIe inbound mapping type
- * @IPROC_PCIE_IB_MAP_MEM: DDR memory
- * @IPROC_PCIE_IB_MAP_IO: device I/O memory
- * @IPROC_PCIE_IB_MAP_INVALID: invalid or unused
+ * iProc PCIe inbound mapping type
  */
 enum iproc_pcie_ib_map_type {
+	/* for DDR memory */
 	IPROC_PCIE_IB_MAP_MEM = 0,
+
+	/* for device I/O memory */
 	IPROC_PCIE_IB_MAP_IO,
+
+	/* invalid or unused */
 	IPROC_PCIE_IB_MAP_INVALID
 };
 
 /**
- * struct iproc_pcie_ib_map - iProc PCIe inbound mapping controller-specific
- * parameters
+ * iProc PCIe inbound mapping controller specific parameters
+ *
  * @type: inbound mapping region type
  * @size_unit: inbound mapping region size unit, could be SZ_1K, SZ_1M, or
  * SZ_1G
@@ -435,7 +437,7 @@ static inline void iproc_pcie_write_reg(struct iproc_pcie *pcie,
 	writel(val, pcie->base + offset);
 }
 
-/*
+/**
  * APB error forwarding can be disabled during access of configuration
  * registers of the endpoint device, to prevent unsupported requests
  * (typically seen during enumeration with multi-function devices) from
@@ -617,7 +619,7 @@ static int iproc_pcie_config_read(struct pci_bus *bus, unsigned int devfn,
 	return PCIBIOS_SUCCESSFUL;
 }
 
-/*
+/**
  * Note access to the configuration registers are protected at the higher layer
  * by 'pci_lock' in drivers/pci/access.c
  */
@@ -895,7 +897,7 @@ static inline int iproc_pcie_ob_write(struct iproc_pcie *pcie, int window_idx,
 	return 0;
 }
 
-/*
+/**
  * Some iProc SoCs require the SW to configure the outbound address mapping
  *
  * Outbound address translation:

@@ -625,13 +625,13 @@ static void qede_get_drvinfo(struct net_device *ndev,
 		 (edev->dev_info.common.mfw_rev >> 8) & 0xFF,
 		 edev->dev_info.common.mfw_rev & 0xFF);
 
-	if ((strlen(storm) + strlen("[storm]")) <
+	if ((strlen(storm) + strlen(DRV_MODULE_VERSION) + strlen("[storm]  ")) <
 	    sizeof(info->version))
 		snprintf(info->version, sizeof(info->version),
-			 "[storm %s]", storm);
+			 "%s [storm %s]", DRV_MODULE_VERSION, storm);
 	else
 		snprintf(info->version, sizeof(info->version),
-			 "%s", storm);
+			 "%s %s", DRV_MODULE_VERSION, storm);
 
 	if (edev->dev_info.common.mbi_version) {
 		snprintf(mbi, ETHTOOL_FWVERS_LEN, "%d.%d.%d",
@@ -760,9 +760,7 @@ static int qede_flash_device(struct net_device *dev,
 }
 
 static int qede_get_coalesce(struct net_device *dev,
-			     struct ethtool_coalesce *coal,
-			     struct kernel_ethtool_coalesce *kernel_coal,
-			     struct netlink_ext_ack *extack)
+			     struct ethtool_coalesce *coal)
 {
 	void *rx_handle = NULL, *tx_handle = NULL;
 	struct qede_dev *edev = netdev_priv(dev);
@@ -821,9 +819,7 @@ out:
 	return rc;
 }
 
-int qede_set_coalesce(struct net_device *dev, struct ethtool_coalesce *coal,
-		      struct kernel_ethtool_coalesce *kernel_coal,
-		      struct netlink_ext_ack *extack)
+int qede_set_coalesce(struct net_device *dev, struct ethtool_coalesce *coal)
 {
 	struct qede_dev *edev = netdev_priv(dev);
 	struct qede_fastpath *fp;

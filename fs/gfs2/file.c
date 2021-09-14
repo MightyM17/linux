@@ -210,7 +210,7 @@ void gfs2_set_inode_flags(struct inode *inode)
 
 /**
  * do_gfs2_set_flags - set flags on an inode
- * @inode: The inode
+ * @filp: file pointer
  * @reqflags: The flags to set
  * @mask: Indicates which flags are valid
  * @fsflags: The FS_* inode flags passed in
@@ -427,25 +427,22 @@ static vm_fault_t gfs2_page_mkwrite(struct vm_fault *vmf)
 	struct gfs2_alloc_parms ap = { .aflags = 0, };
 	u64 offset = page_offset(page);
 	unsigned int data_blocks, ind_blocks, rblocks;
-	vm_fault_t ret = VM_FAULT_LOCKED;
 	struct gfs2_holder gh;
 	unsigned int length;
 	loff_t size;
-	int err;
+	int ret;
 
 	sb_start_pagefault(inode->i_sb);
 
 	gfs2_holder_init(ip->i_gl, LM_ST_EXCLUSIVE, 0, &gh);
-	err = gfs2_glock_nq(&gh);
-	if (err) {
-		ret = block_page_mkwrite_return(err);
+	ret = gfs2_glock_nq(&gh);
+	if (ret)
 		goto out_uninit;
-	}
 
 	/* Check page index against inode size */
 	size = i_size_read(inode);
 	if (offset >= size) {
-		ret = VM_FAULT_SIGBUS;
+		ret = -EINVAL;
 		goto out_unlock;
 	}
 
@@ -453,8 +450,8 @@ static vm_fault_t gfs2_page_mkwrite(struct vm_fault *vmf)
 	file_update_time(vmf->vma->vm_file);
 
 	/* page is wholly or partially inside EOF */
-	if (size - offset < PAGE_SIZE)
-		length = size - offset;
+	if (offset > size - PAGE_SIZE)
+		length = offset_in_page(size);
 	else
 		length = PAGE_SIZE;
 
@@ -472,30 +469,24 @@ static vm_fault_t gfs2_page_mkwrite(struct vm_fault *vmf)
 	    !gfs2_write_alloc_required(ip, offset, length)) {
 		lock_page(page);
 		if (!PageUptodate(page) || page->mapping != inode->i_mapping) {
-			ret = VM_FAULT_NOPAGE;
+			ret = -EAGAIN;
 			unlock_page(page);
 		}
 		goto out_unlock;
 	}
 
-	err = gfs2_rindex_update(sdp);
-	if (err) {
-		ret = block_page_mkwrite_return(err);
+	ret = gfs2_rindex_update(sdp);
+	if (ret)
 		goto out_unlock;
-	}
 
 	gfs2_write_calc_reserv(ip, length, &data_blocks, &ind_blocks);
 	ap.target = data_blocks + ind_blocks;
-	err = gfs2_quota_lock_check(ip, &ap);
-	if (err) {
-		ret = block_page_mkwrite_return(err);
+	ret = gfs2_quota_lock_check(ip, &ap);
+	if (ret)
 		goto out_unlock;
-	}
-	err = gfs2_inplace_reserve(ip, &ap);
-	if (err) {
-		ret = block_page_mkwrite_return(err);
+	ret = gfs2_inplace_reserve(ip, &ap);
+	if (ret)
 		goto out_quota_unlock;
-	}
 
 	rblocks = RES_DINODE + ind_blocks;
 	if (gfs2_is_jdata(ip))
@@ -504,38 +495,28 @@ static vm_fault_t gfs2_page_mkwrite(struct vm_fault *vmf)
 		rblocks += RES_STATFS + RES_QUOTA;
 		rblocks += gfs2_rg_blocks(ip, data_blocks + ind_blocks);
 	}
-	err = gfs2_trans_begin(sdp, rblocks, 0);
-	if (err) {
-		ret = block_page_mkwrite_return(err);
+	ret = gfs2_trans_begin(sdp, rblocks, 0);
+	if (ret)
 		goto out_trans_fail;
-	}
-
-	/* Unstuff, if required, and allocate backing blocks for page */
-	if (gfs2_is_stuffed(ip)) {
-		err = gfs2_unstuff_dinode(ip);
-		if (err) {
-			ret = block_page_mkwrite_return(err);
-			goto out_trans_end;
-		}
-	}
 
 	lock_page(page);
+	ret = -EAGAIN;
 	/* If truncated, we must retry the operation, we may have raced
 	 * with the glock demotion code.
 	 */
-	if (!PageUptodate(page) || page->mapping != inode->i_mapping) {
-		ret = VM_FAULT_NOPAGE;
-		goto out_page_locked;
-	}
+	if (!PageUptodate(page) || page->mapping != inode->i_mapping)
+		goto out_trans_end;
 
-	err = gfs2_allocate_page_backing(page, length);
-	if (err)
-		ret = block_page_mkwrite_return(err);
+	/* Unstuff, if required, and allocate backing blocks for page */
+	ret = 0;
+	if (gfs2_is_stuffed(ip))
+		ret = gfs2_unstuff_dinode(ip, page);
+	if (ret == 0)
+		ret = gfs2_allocate_page_backing(page, length);
 
-out_page_locked:
-	if (ret != VM_FAULT_LOCKED)
-		unlock_page(page);
 out_trans_end:
+	if (ret)
+		unlock_page(page);
 	gfs2_trans_end(sdp);
 out_trans_fail:
 	gfs2_inplace_release(ip);
@@ -545,12 +526,12 @@ out_unlock:
 	gfs2_glock_dq(&gh);
 out_uninit:
 	gfs2_holder_uninit(&gh);
-	if (ret == VM_FAULT_LOCKED) {
+	if (ret == 0) {
 		set_page_dirty(page);
 		wait_for_stable_page(page);
 	}
 	sb_end_pagefault(inode->i_sb);
-	return ret;
+	return block_page_mkwrite_return(ret);
 }
 
 static vm_fault_t gfs2_fault(struct vm_fault *vmf)
@@ -930,11 +911,8 @@ static ssize_t gfs2_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 		current->backing_dev_info = inode_to_bdi(inode);
 		buffered = iomap_file_buffered_write(iocb, from, &gfs2_iomap_ops);
 		current->backing_dev_info = NULL;
-		if (unlikely(buffered <= 0)) {
-			if (!ret)
-				ret = buffered;
+		if (unlikely(buffered <= 0))
 			goto out_unlock;
-		}
 
 		/*
 		 * We need to ensure that the page cache pages are written to
@@ -981,7 +959,7 @@ static int fallocate_chunk(struct inode *inode, loff_t offset, loff_t len,
 	gfs2_trans_add_meta(ip->i_gl, dibh);
 
 	if (gfs2_is_stuffed(ip)) {
-		error = gfs2_unstuff_dinode(ip);
+		error = gfs2_unstuff_dinode(ip, NULL);
 		if (unlikely(error))
 			goto out;
 	}
@@ -1237,6 +1215,9 @@ static int gfs2_lock(struct file *file, int cmd, struct file_lock *fl)
 
 	if (!(fl->fl_flags & FL_POSIX))
 		return -ENOLCK;
+	if (__mandatory_lock(&ip->i_inode) && fl->fl_type != F_UNLCK)
+		return -ENOLCK;
+
 	if (cmd == F_CANCELLK) {
 		/* Hack: */
 		cmd = F_SETLK;

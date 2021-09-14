@@ -102,8 +102,7 @@ static irqreturn_t vcnl4035_trigger_consumer_handler(int irq, void *p)
 	struct iio_poll_func *pf = p;
 	struct iio_dev *indio_dev = pf->indio_dev;
 	struct vcnl4035_data *data = iio_priv(indio_dev);
-	/* Ensure naturally aligned timestamp */
-	u8 buffer[ALIGN(sizeof(u16), sizeof(s64)) + sizeof(s64)]  __aligned(8);
+	u8 buffer[ALIGN(sizeof(u16), sizeof(s64)) + sizeof(s64)];
 	int ret;
 
 	ret = regmap_read(data->regmap, VCNL4035_ALS_DATA, (int *)buffer);
@@ -145,7 +144,9 @@ static int vcnl4035_set_pm_runtime_state(struct vcnl4035_data *data, bool on)
 	struct device *dev = &data->client->dev;
 
 	if (on) {
-		ret = pm_runtime_resume_and_get(dev);
+		ret = pm_runtime_get_sync(dev);
+		if (ret < 0)
+			pm_runtime_put_noidle(dev);
 	} else {
 		pm_runtime_mark_last_busy(dev);
 		ret = pm_runtime_put_autosuspend(dev);
@@ -506,7 +507,7 @@ static int vcnl4035_probe_trigger(struct iio_dev *indio_dev)
 
 	data->drdy_trigger0 = devm_iio_trigger_alloc(
 			indio_dev->dev.parent,
-			"%s-dev%d", indio_dev->name, iio_device_id(indio_dev));
+			"%s-dev%d", indio_dev->name, indio_dev->id);
 	if (!data->drdy_trigger0)
 		return -ENOMEM;
 

@@ -216,22 +216,16 @@
 	type ROW_TTU_MODE; \
 	type NUM_PKRS
 
-#define DCN31_HUBP_REG_FIELD_VARIABLE_LIST(type) \
-	DCN30_HUBP_REG_FIELD_VARIABLE_LIST(type);\
-	type HUBP_UNBOUNDED_REQ_MODE;\
-	type CURSOR_REQ_MODE;\
-	type HUBP_SOFT_RESET
-
 struct dcn_hubp2_registers {
 	DCN30_HUBP_REG_COMMON_VARIABLE_LIST;
 };
 
 struct dcn_hubp2_shift {
-	DCN31_HUBP_REG_FIELD_VARIABLE_LIST(uint8_t);
+	DCN30_HUBP_REG_FIELD_VARIABLE_LIST(uint8_t);
 };
 
 struct dcn_hubp2_mask {
-	DCN31_HUBP_REG_FIELD_VARIABLE_LIST(uint32_t);
+	DCN30_HUBP_REG_FIELD_VARIABLE_LIST(uint32_t);
 };
 
 struct dcn20_hubp {

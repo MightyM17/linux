@@ -26,7 +26,7 @@ struct vmem_altmap {
 };
 
 /*
- * Specialize ZONE_DEVICE memory into multiple types each has a different
+ * Specialize ZONE_DEVICE memory into multiple types each having differents
  * usage.
  *
  * MEMORY_DEVICE_PRIVATE:

@@ -160,7 +160,7 @@
 
 				trips {
 					cpu_passive: cpu-passive {
-						temperature = <57000>;
+						temperature = <47000>;
 						hysteresis = <2000>;
 						type = "passive";
 					};

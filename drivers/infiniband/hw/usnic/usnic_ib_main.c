@@ -347,7 +347,6 @@ static const struct ib_device_ops usnic_dev_ops = {
 	.dereg_mr = usnic_ib_dereg_mr,
 	.destroy_cq = usnic_ib_destroy_cq,
 	.destroy_qp = usnic_ib_destroy_qp,
-	.device_group = &usnic_attr_group,
 	.get_dev_fw_str = usnic_get_dev_fw_str,
 	.get_link_layer = usnic_ib_port_link_layer,
 	.get_port_immutable = usnic_port_immutable,
@@ -360,7 +359,6 @@ static const struct ib_device_ops usnic_dev_ops = {
 	.reg_user_mr = usnic_ib_reg_mr,
 	INIT_RDMA_OBJ_SIZE(ib_pd, usnic_ib_pd, ibpd),
 	INIT_RDMA_OBJ_SIZE(ib_cq, usnic_ib_cq, ibcq),
-	INIT_RDMA_OBJ_SIZE(ib_qp, usnic_ib_qp_grp, ibqp),
 	INIT_RDMA_OBJ_SIZE(ib_ucontext, usnic_ib_ucontext, ibucontext),
 };
 
@@ -401,6 +399,8 @@ static void *usnic_ib_device_add(struct pci_dev *dev)
 	us_ibdev->ib_dev.dev.parent = &dev->dev;
 
 	ib_set_device_ops(&us_ibdev->ib_dev, &usnic_dev_ops);
+
+	rdma_set_device_sysfs_group(&us_ibdev->ib_dev, &usnic_attr_group);
 
 	ret = ib_device_set_netdev(&us_ibdev->ib_dev, us_ibdev->netdev, 1);
 	if (ret)

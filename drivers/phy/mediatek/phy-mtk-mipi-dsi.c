@@ -130,6 +130,7 @@ static int mtk_mipi_tx_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct mtk_mipi_tx *mipi_tx;
+	struct resource *mem;
 	const char *ref_clk_name;
 	struct clk *ref_clk;
 	struct clk_init_data clk_init = {
@@ -147,9 +148,13 @@ static int mtk_mipi_tx_probe(struct platform_device *pdev)
 
 	mipi_tx->driver_data = of_device_get_match_data(dev);
 
-	mipi_tx->regs = devm_platform_ioremap_resource(pdev, 0);
-	if (IS_ERR(mipi_tx->regs))
-		return PTR_ERR(mipi_tx->regs);
+	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	mipi_tx->regs = devm_ioremap_resource(dev, mem);
+	if (IS_ERR(mipi_tx->regs)) {
+		ret = PTR_ERR(mipi_tx->regs);
+		dev_err(dev, "Failed to get memory resource: %d\n", ret);
+		return ret;
+	}
 
 	ref_clk = devm_clk_get(dev, NULL);
 	if (IS_ERR(ref_clk)) {
@@ -200,8 +205,10 @@ static int mtk_mipi_tx_probe(struct platform_device *pdev)
 	phy_set_drvdata(phy, mipi_tx);
 
 	phy_provider = devm_of_phy_provider_register(dev, of_phy_simple_xlate);
-	if (IS_ERR(phy_provider))
-		return PTR_ERR(phy_provider);
+	if (IS_ERR(phy_provider)) {
+		ret = PTR_ERR(phy_provider);
+		return ret;
+	}
 
 	mipi_tx->dev = dev;
 

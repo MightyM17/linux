@@ -19,7 +19,6 @@
 #include <linux/trace_events.h>
 #include <asm/fpu/internal.h>
 
-#include <asm/pkru.h>
 #include <asm/trapnr.h>
 
 #include "x86.h"
@@ -27,6 +26,8 @@
 #include "svm_ops.h"
 #include "cpuid.h"
 #include "trace.h"
+
+#define __ex(x) __kvm_handle_fault_on_reboot(x)
 
 #ifndef CONFIG_KVM_AMD_SEV
 /*
@@ -62,7 +63,6 @@ static DEFINE_MUTEX(sev_bitmap_lock);
 unsigned int max_sev_asid;
 static unsigned int min_sev_asid;
 static unsigned long sev_me_mask;
-static unsigned int nr_asids;
 static unsigned long *sev_asid_bitmap;
 static unsigned long *sev_reclaim_asid_bitmap;
 
@@ -77,11 +77,11 @@ struct enc_region {
 /* Called with the sev_bitmap_lock held, or on shutdown  */
 static int sev_flush_asids(int min_asid, int max_asid)
 {
-	int ret, asid, error = 0;
+	int ret, pos, error = 0;
 
 	/* Check if there are any ASIDs to reclaim before performing a flush */
-	asid = find_next_bit(sev_reclaim_asid_bitmap, nr_asids, min_asid);
-	if (asid > max_asid)
+	pos = find_next_bit(sev_reclaim_asid_bitmap, max_asid, min_asid);
+	if (pos >= max_asid)
 		return -EBUSY;
 
 	/*
@@ -114,15 +114,15 @@ static bool __sev_recycle_asids(int min_asid, int max_asid)
 
 	/* The flush process will flush all reclaimable SEV and SEV-ES ASIDs */
 	bitmap_xor(sev_asid_bitmap, sev_asid_bitmap, sev_reclaim_asid_bitmap,
-		   nr_asids);
-	bitmap_zero(sev_reclaim_asid_bitmap, nr_asids);
+		   max_sev_asid);
+	bitmap_zero(sev_reclaim_asid_bitmap, max_sev_asid);
 
 	return true;
 }
 
 static int sev_asid_new(struct kvm_sev_info *sev)
 {
-	int asid, min_asid, max_asid, ret;
+	int pos, min_asid, max_asid, ret;
 	bool retry = true;
 	enum misc_res_type type;
 
@@ -142,11 +142,11 @@ static int sev_asid_new(struct kvm_sev_info *sev)
 	 * SEV-enabled guests must use asid from min_sev_asid to max_sev_asid.
 	 * SEV-ES-enabled guest can use from 1 to min_sev_asid - 1.
 	 */
-	min_asid = sev->es_active ? 1 : min_sev_asid;
+	min_asid = sev->es_active ? 0 : min_sev_asid - 1;
 	max_asid = sev->es_active ? min_sev_asid - 1 : max_sev_asid;
 again:
-	asid = find_next_zero_bit(sev_asid_bitmap, max_asid + 1, min_asid);
-	if (asid > max_asid) {
+	pos = find_next_zero_bit(sev_asid_bitmap, max_sev_asid, min_asid);
+	if (pos >= max_asid) {
 		if (retry && __sev_recycle_asids(min_asid, max_asid)) {
 			retry = false;
 			goto again;
@@ -156,11 +156,11 @@ again:
 		goto e_uncharge;
 	}
 
-	__set_bit(asid, sev_asid_bitmap);
+	__set_bit(pos, sev_asid_bitmap);
 
 	mutex_unlock(&sev_bitmap_lock);
 
-	return asid;
+	return pos + 1;
 e_uncharge:
 	misc_cg_uncharge(type, sev->misc_cg, 1);
 	put_misc_cg(sev->misc_cg);
@@ -178,16 +178,17 @@ static int sev_get_asid(struct kvm *kvm)
 static void sev_asid_free(struct kvm_sev_info *sev)
 {
 	struct svm_cpu_data *sd;
-	int cpu;
+	int cpu, pos;
 	enum misc_res_type type;
 
 	mutex_lock(&sev_bitmap_lock);
 
-	__set_bit(sev->asid, sev_reclaim_asid_bitmap);
+	pos = sev->asid - 1;
+	__set_bit(pos, sev_reclaim_asid_bitmap);
 
 	for_each_possible_cpu(cpu) {
 		sd = per_cpu(svm_data, cpu);
-		sd->sev_vmcbs[sev->asid] = NULL;
+		sd->sev_vmcbs[pos] = NULL;
 	}
 
 	mutex_unlock(&sev_bitmap_lock);
@@ -198,19 +199,9 @@ static void sev_asid_free(struct kvm_sev_info *sev)
 	sev->misc_cg = NULL;
 }
 
-static void sev_decommission(unsigned int handle)
-{
-	struct sev_data_decommission decommission;
-
-	if (!handle)
-		return;
-
-	decommission.handle = handle;
-	sev_guest_decommission(&decommission, NULL);
-}
-
 static void sev_unbind_asid(struct kvm *kvm, unsigned int handle)
 {
+	struct sev_data_decommission decommission;
 	struct sev_data_deactivate deactivate;
 
 	if (!handle)
@@ -223,7 +214,9 @@ static void sev_unbind_asid(struct kvm *kvm, unsigned int handle)
 	sev_guest_deactivate(&deactivate, NULL);
 	up_read(&sev_deactivate_lock);
 
-	sev_decommission(handle);
+	/* decommission handle */
+	decommission.handle = handle;
+	sev_guest_decommission(&decommission, NULL);
 }
 
 static int sev_guest_init(struct kvm *kvm, struct kvm_sev_cmd *argp)
@@ -348,10 +341,8 @@ static int sev_launch_start(struct kvm *kvm, struct kvm_sev_cmd *argp)
 
 	/* Bind ASID to this guest */
 	ret = sev_bind_asid(kvm, start.handle, error);
-	if (ret) {
-		sev_decommission(start.handle);
+	if (ret)
 		goto e_free_session;
-	}
 
 	/* return handle to userspace */
 	params.handle = start.handle;
@@ -582,7 +573,6 @@ static int sev_es_sync_vmsa(struct vcpu_svm *svm)
 	save->xcr0 = svm->vcpu.arch.xcr0;
 	save->pkru = svm->vcpu.arch.pkru;
 	save->xss  = svm->vcpu.arch.ia32_xss;
-	save->dr6  = svm->vcpu.arch.dr6;
 
 	/*
 	 * SEV-ES will use a VMSA that is pointed to by the VMCB, not
@@ -1113,9 +1103,10 @@ __sev_send_start_query_session_length(struct kvm *kvm, struct kvm_sev_cmd *argp,
 	struct sev_data_send_start data;
 	int ret;
 
-	memset(&data, 0, sizeof(data));
 	data.handle = sev->handle;
 	ret = sev_issue_cmd(kvm, SEV_CMD_SEND_START, &data, &argp->error);
+	if (ret < 0)
+		return ret;
 
 	params->session_len = data.session_len;
 	if (copy_to_user((void __user *)(uintptr_t)argp->data, params,
@@ -1224,9 +1215,10 @@ __sev_send_update_data_query_lengths(struct kvm *kvm, struct kvm_sev_cmd *argp,
 	struct sev_data_send_update_data data;
 	int ret;
 
-	memset(&data, 0, sizeof(data));
 	data.handle = sev->handle;
 	ret = sev_issue_cmd(kvm, SEV_CMD_SEND_UPDATE_DATA, &data, &argp->error);
+	if (ret < 0)
+		return ret;
 
 	params->hdr_len = data.hdr_len;
 	params->trans_len = data.trans_len;
@@ -1271,8 +1263,8 @@ static int sev_send_update_data(struct kvm *kvm, struct kvm_sev_cmd *argp)
 	/* Pin guest memory */
 	guest_page = sev_pin_memory(kvm, params.guest_uaddr & PAGE_MASK,
 				    PAGE_SIZE, &n, 0);
-	if (IS_ERR(guest_page))
-		return PTR_ERR(guest_page);
+	if (!guest_page)
+		return -EFAULT;
 
 	/* allocate memory for header and transport buffer */
 	ret = -ENOMEM;
@@ -1309,9 +1301,8 @@ static int sev_send_update_data(struct kvm *kvm, struct kvm_sev_cmd *argp)
 	}
 
 	/* Copy packet header to userspace. */
-	if (copy_to_user((void __user *)(uintptr_t)params.hdr_uaddr, hdr,
-			 params.hdr_len))
-		ret = -EFAULT;
+	ret = copy_to_user((void __user *)(uintptr_t)params.hdr_uaddr, hdr,
+				params.hdr_len);
 
 e_free_trans_data:
 	kfree(trans_data);
@@ -1463,12 +1454,11 @@ static int sev_receive_update_data(struct kvm *kvm, struct kvm_sev_cmd *argp)
 	data.trans_len = params.trans_len;
 
 	/* Pin guest memory */
+	ret = -EFAULT;
 	guest_page = sev_pin_memory(kvm, params.guest_uaddr & PAGE_MASK,
 				    PAGE_SIZE, &n, 0);
-	if (IS_ERR(guest_page)) {
-		ret = PTR_ERR(guest_page);
+	if (!guest_page)
 		goto e_free_trans;
-	}
 
 	/* The RECEIVE_UPDATE_DATA command requires C-bit to be always set. */
 	data.guest_address = (page_to_pfn(guest_page[0]) << PAGE_SHIFT) + offset;
@@ -1856,17 +1846,12 @@ void __init sev_hardware_setup(void)
 	min_sev_asid = edx;
 	sev_me_mask = 1UL << (ebx & 0x3f);
 
-	/*
-	 * Initialize SEV ASID bitmaps. Allocate space for ASID 0 in the bitmap,
-	 * even though it's never used, so that the bitmap is indexed by the
-	 * actual ASID.
-	 */
-	nr_asids = max_sev_asid + 1;
-	sev_asid_bitmap = bitmap_zalloc(nr_asids, GFP_KERNEL);
+	/* Initialize SEV ASID bitmaps */
+	sev_asid_bitmap = bitmap_zalloc(max_sev_asid, GFP_KERNEL);
 	if (!sev_asid_bitmap)
 		goto out;
 
-	sev_reclaim_asid_bitmap = bitmap_zalloc(nr_asids, GFP_KERNEL);
+	sev_reclaim_asid_bitmap = bitmap_zalloc(max_sev_asid, GFP_KERNEL);
 	if (!sev_reclaim_asid_bitmap) {
 		bitmap_free(sev_asid_bitmap);
 		sev_asid_bitmap = NULL;
@@ -1911,7 +1896,7 @@ void sev_hardware_teardown(void)
 		return;
 
 	/* No need to take sev_bitmap_lock, all VMs have been destroyed. */
-	sev_flush_asids(1, max_sev_asid);
+	sev_flush_asids(0, max_sev_asid);
 
 	bitmap_free(sev_asid_bitmap);
 	bitmap_free(sev_reclaim_asid_bitmap);
@@ -1925,7 +1910,7 @@ int sev_cpu_init(struct svm_cpu_data *sd)
 	if (!sev_enabled)
 		return 0;
 
-	sd->sev_vmcbs = kcalloc(nr_asids, sizeof(void *), GFP_KERNEL);
+	sd->sev_vmcbs = kcalloc(max_sev_asid + 1, sizeof(void *), GFP_KERNEL);
 	if (!sd->sev_vmcbs)
 		return -ENOMEM;
 

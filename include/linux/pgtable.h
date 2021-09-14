@@ -29,24 +29,6 @@
 #endif
 
 /*
- * This defines the first usable user address. Platforms
- * can override its value with custom FIRST_USER_ADDRESS
- * defined in their respective <asm/pgtable.h>.
- */
-#ifndef FIRST_USER_ADDRESS
-#define FIRST_USER_ADDRESS	0UL
-#endif
-
-/*
- * This defines the generic helper for accessing PMD page
- * table page. Although platforms can still override this
- * via their respective <asm/pgtable.h>.
- */
-#ifndef pmd_pgtable
-#define pmd_pgtable(pmd) pmd_page(pmd)
-#endif
-
-/*
  * A page table page can be thought of an array like this: pXd_t[PTRS_PER_PxD]
  *
  * The pXx_index() functions return the index of the entry in the page
@@ -106,7 +88,7 @@ static inline pte_t *pte_offset_kernel(pmd_t *pmd, unsigned long address)
 #ifndef pmd_offset
 static inline pmd_t *pmd_offset(pud_t *pud, unsigned long address)
 {
-	return pud_pgtable(*pud) + pmd_index(address);
+	return (pmd_t *)pud_page_vaddr(*pud) + pmd_index(address);
 }
 #define pmd_offset pmd_offset
 #endif
@@ -114,7 +96,7 @@ static inline pmd_t *pmd_offset(pud_t *pud, unsigned long address)
 #ifndef pud_offset
 static inline pud_t *pud_offset(p4d_t *p4d, unsigned long address)
 {
-	return p4d_pgtable(*p4d) + pud_index(address);
+	return (pud_t *)p4d_page_vaddr(*p4d) + pud_index(address);
 }
 #define pud_offset pud_offset
 #endif
@@ -450,14 +432,6 @@ static inline void ptep_set_wrprotect(struct mm_struct *mm, unsigned long addres
  * To be differentiate with macro pte_mkyoung, this macro is used on platforms
  * where software maintains page access bit.
  */
-#ifndef pte_sw_mkyoung
-static inline pte_t pte_sw_mkyoung(pte_t pte)
-{
-	return pte;
-}
-#define pte_sw_mkyoung	pte_sw_mkyoung
-#endif
-
 #ifndef pte_savedwrite
 #define pte_savedwrite pte_write
 #endif
@@ -1608,28 +1582,6 @@ typedef unsigned int pgtbl_mod_mask;
 #endif
 #ifndef pte_leaf_size
 #define pte_leaf_size(x) PAGE_SIZE
-#endif
-
-/*
- * Some architectures have MMUs that are configurable or selectable at boot
- * time. These lead to variable PTRS_PER_x. For statically allocated arrays it
- * helps to have a static maximum value.
- */
-
-#ifndef MAX_PTRS_PER_PTE
-#define MAX_PTRS_PER_PTE PTRS_PER_PTE
-#endif
-
-#ifndef MAX_PTRS_PER_PMD
-#define MAX_PTRS_PER_PMD PTRS_PER_PMD
-#endif
-
-#ifndef MAX_PTRS_PER_PUD
-#define MAX_PTRS_PER_PUD PTRS_PER_PUD
-#endif
-
-#ifndef MAX_PTRS_PER_P4D
-#define MAX_PTRS_PER_P4D PTRS_PER_P4D
 #endif
 
 #endif /* _LINUX_PGTABLE_H */

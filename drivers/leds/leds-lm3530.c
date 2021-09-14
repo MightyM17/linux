@@ -99,7 +99,7 @@ static struct lm3530_mode_map mode_map[] = {
  * @pdata: LM3530 platform data
  * @mode: mode of operation - manual, ALS, PWM
  * @regulator: regulator
- * @brightness: previous brightness value
+ * @brighness: previous brightness value
  * @enable: regulator is enabled
  */
 struct lm3530_data {

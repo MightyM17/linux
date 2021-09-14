@@ -1599,7 +1599,9 @@ static bool ovl_lower_uuid_ok(struct ovl_fs *ofs, const uuid_t *uuid)
 	 * user opted-in to one of the new features that require following the
 	 * lower inode of non-dir upper.
 	 */
-	if (ovl_allow_offline_changes(ofs) && uuid_is_null(uuid))
+	if (!ofs->config.index && !ofs->config.metacopy &&
+	    ofs->config.xino != OVL_XINO_ON &&
+	    uuid_is_null(uuid))
 		return false;
 
 	for (i = 0; i < ofs->numfs; i++) {

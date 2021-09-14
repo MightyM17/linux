@@ -19,7 +19,6 @@
 #include <net/snmp.h>
 #include <net/icmp.h>
 #include <net/ip.h>
-#include <net/ip_fib.h>
 #include <net/route.h>
 #include <net/tcp.h>
 #include <net/udp.h>
@@ -30,7 +29,6 @@
 #include <net/netevent.h>
 
 static int two = 2;
-static int three __maybe_unused = 3;
 static int four = 4;
 static int thousand = 1000;
 static int tcp_retr1_max = 255;
@@ -50,8 +48,6 @@ static int ip_ping_group_range_min[] = { 0, 0 };
 static int ip_ping_group_range_max[] = { GID_T_MAX, GID_T_MAX };
 static u32 u32_max_div_HZ = UINT_MAX / HZ;
 static int one_day_secs = 24 * 3600;
-static u32 fib_multipath_hash_fields_all_mask __maybe_unused =
-	FIB_MULTIPATH_HASH_FIELD_ALL_MASK;
 
 /* obsolete */
 static int sysctl_tcp_low_latency __read_mostly;
@@ -460,22 +456,6 @@ static int proc_fib_multipath_hash_policy(struct ctl_table *table, int write,
 	int ret;
 
 	ret = proc_dou8vec_minmax(table, write, buffer, lenp, ppos);
-	if (write && ret == 0)
-		call_netevent_notifiers(NETEVENT_IPV4_MPATH_HASH_UPDATE, net);
-
-	return ret;
-}
-
-static int proc_fib_multipath_hash_fields(struct ctl_table *table, int write,
-					  void *buffer, size_t *lenp,
-					  loff_t *ppos)
-{
-	struct net *net;
-	int ret;
-
-	net = container_of(table->data, struct net,
-			   ipv4.sysctl_fib_multipath_hash_fields);
-	ret = proc_douintvec_minmax(table, write, buffer, lenp, ppos);
 	if (write && ret == 0)
 		call_netevent_notifiers(NETEVENT_IPV4_MPATH_HASH_UPDATE, net);
 
@@ -961,15 +941,6 @@ static struct ctl_table ipv4_net_table[] = {
 	},
 #endif
 	{
-		.procname	= "tcp_migrate_req",
-		.data		= &init_net.ipv4.sysctl_tcp_migrate_req,
-		.maxlen		= sizeof(u8),
-		.mode		= 0644,
-		.proc_handler	= proc_dou8vec_minmax,
-		.extra1		= SYSCTL_ZERO,
-		.extra2		= SYSCTL_ONE
-	},
-	{
 		.procname	= "tcp_reordering",
 		.data		= &init_net.ipv4.sysctl_tcp_reordering,
 		.maxlen		= sizeof(int),
@@ -1079,16 +1050,7 @@ static struct ctl_table ipv4_net_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_fib_multipath_hash_policy,
 		.extra1		= SYSCTL_ZERO,
-		.extra2		= &three,
-	},
-	{
-		.procname	= "fib_multipath_hash_fields",
-		.data		= &init_net.ipv4.sysctl_fib_multipath_hash_fields,
-		.maxlen		= sizeof(u32),
-		.mode		= 0644,
-		.proc_handler	= proc_fib_multipath_hash_fields,
-		.extra1		= SYSCTL_ONE,
-		.extra2		= &fib_multipath_hash_fields_all_mask,
+		.extra2		= &two,
 	},
 #endif
 	{

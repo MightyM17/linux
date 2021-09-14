@@ -35,27 +35,6 @@
 const struct Qdisc_ops *default_qdisc_ops = &pfifo_fast_ops;
 EXPORT_SYMBOL(default_qdisc_ops);
 
-static void qdisc_maybe_clear_missed(struct Qdisc *q,
-				     const struct netdev_queue *txq)
-{
-	clear_bit(__QDISC_STATE_MISSED, &q->state);
-
-	/* Make sure the below netif_xmit_frozen_or_stopped()
-	 * checking happens after clearing STATE_MISSED.
-	 */
-	smp_mb__after_atomic();
-
-	/* Checking netif_xmit_frozen_or_stopped() again to
-	 * make sure STATE_MISSED is set if the STATE_MISSED
-	 * set by netif_tx_wake_queue()'s rescheduling of
-	 * net_tx_action() is cleared by the above clear_bit().
-	 */
-	if (!netif_xmit_frozen_or_stopped(txq))
-		set_bit(__QDISC_STATE_MISSED, &q->state);
-	else
-		set_bit(__QDISC_STATE_DRAINING, &q->state);
-}
-
 /* Main transmission queue. */
 
 /* Modifications to data participating in scheduling must be protected with
@@ -95,7 +74,6 @@ static inline struct sk_buff *__skb_dequeue_bad_txq(struct Qdisc *q)
 			}
 		} else {
 			skb = SKB_XOFF_MAGIC;
-			qdisc_maybe_clear_missed(q, txq);
 		}
 	}
 
@@ -166,13 +144,9 @@ static inline void dev_requeue_skb(struct sk_buff *skb, struct Qdisc *q)
 
 		skb = next;
 	}
-
-	if (lock) {
+	if (lock)
 		spin_unlock(lock);
-		set_bit(__QDISC_STATE_MISSED, &q->state);
-	} else {
-		__netif_schedule(q);
-	}
+	__netif_schedule(q);
 }
 
 static void try_bulk_dequeue_skb(struct Qdisc *q,
@@ -268,7 +242,6 @@ static struct sk_buff *dequeue_skb(struct Qdisc *q, bool *validate,
 			}
 		} else {
 			skb = NULL;
-			qdisc_maybe_clear_missed(q, txq);
 		}
 		if (lock)
 			spin_unlock(lock);
@@ -278,10 +251,8 @@ validate:
 	*validate = true;
 
 	if ((q->flags & TCQ_F_ONETXQUEUE) &&
-	    netif_xmit_frozen_or_stopped(txq)) {
-		qdisc_maybe_clear_missed(q, txq);
+	    netif_xmit_frozen_or_stopped(txq))
 		return skb;
-	}
 
 	skb = qdisc_dequeue_skb_bad_txq(q);
 	if (unlikely(skb)) {
@@ -340,8 +311,6 @@ bool sch_direct_xmit(struct sk_buff *skb, struct Qdisc *q,
 		HARD_TX_LOCK(dev, txq, smp_processor_id());
 		if (!netif_xmit_frozen_or_stopped(txq))
 			skb = dev_hard_start_xmit(skb, dev, txq, &ret);
-		else
-			qdisc_maybe_clear_missed(q, txq);
 
 		HARD_TX_UNLOCK(dev, txq);
 	} else {
@@ -415,11 +384,7 @@ void __qdisc_run(struct Qdisc *q)
 	while (qdisc_restart(q, &packets)) {
 		quota -= packets;
 		if (quota <= 0) {
-			if (q->flags & TCQ_F_NOLOCK)
-				set_bit(__QDISC_STATE_MISSED, &q->state);
-			else
-				__netif_schedule(q);
-
+			__netif_schedule(q);
 			break;
 		}
 	}
@@ -550,24 +515,6 @@ void netif_carrier_off(struct net_device *dev)
 }
 EXPORT_SYMBOL(netif_carrier_off);
 
-/**
- *	netif_carrier_event - report carrier state event
- *	@dev: network device
- *
- * Device has detected a carrier event but the carrier state wasn't changed.
- * Use in drivers when querying carrier state asynchronously, to avoid missing
- * events (link flaps) if link recovers before it's queried.
- */
-void netif_carrier_event(struct net_device *dev)
-{
-	if (dev->reg_state == NETREG_UNINITIALIZED)
-		return;
-	atomic_inc(&dev->carrier_up_count);
-	atomic_inc(&dev->carrier_down_count);
-	linkwatch_fire_event(dev);
-}
-EXPORT_SYMBOL_GPL(netif_carrier_event);
-
 /* "NOOP" scheduler: the best scheduler, recommended for all interfaces
    under all circumstances. It is difficult to invent anything faster or
    cheaper.
@@ -693,10 +640,8 @@ static struct sk_buff *pfifo_fast_dequeue(struct Qdisc *qdisc)
 {
 	struct pfifo_fast_priv *priv = qdisc_priv(qdisc);
 	struct sk_buff *skb = NULL;
-	bool need_retry = true;
 	int band;
 
-retry:
 	for (band = 0; band < PFIFO_FAST_BANDS && !skb; band++) {
 		struct skb_array *q = band2list(priv, band);
 
@@ -707,24 +652,8 @@ retry:
 	}
 	if (likely(skb)) {
 		qdisc_update_stats_at_dequeue(qdisc, skb);
-	} else if (need_retry &&
-		   READ_ONCE(qdisc->state) & QDISC_STATE_NON_EMPTY) {
-		/* Delay clearing the STATE_MISSED here to reduce
-		 * the overhead of the second spin_trylock() in
-		 * qdisc_run_begin() and __netif_schedule() calling
-		 * in qdisc_run_end().
-		 */
-		clear_bit(__QDISC_STATE_MISSED, &qdisc->state);
-		clear_bit(__QDISC_STATE_DRAINING, &qdisc->state);
-
-		/* Make sure dequeuing happens after clearing
-		 * STATE_MISSED.
-		 */
-		smp_mb__after_atomic();
-
-		need_retry = false;
-
-		goto retry;
+	} else {
+		WRITE_ONCE(qdisc->empty, true);
 	}
 
 	return skb;
@@ -913,7 +842,7 @@ struct Qdisc *qdisc_alloc(struct netdev_queue *dev_queue,
 
 	/* seqlock has the same scope of busylock, for NOLOCK qdisc */
 	spin_lock_init(&sch->seqlock);
-	lockdep_set_class(&sch->seqlock,
+	lockdep_set_class(&sch->busylock,
 			  dev->qdisc_tx_busylock ?: &qdisc_tx_busylock);
 
 	seqcount_init(&sch->running);
@@ -925,6 +854,7 @@ struct Qdisc *qdisc_alloc(struct netdev_queue *dev_queue,
 	sch->enqueue = ops->enqueue;
 	sch->dequeue = ops->dequeue;
 	sch->dev_queue = dev_queue;
+	sch->empty = true;
 	dev_hold(dev);
 	refcount_set(&sch->refcnt, 1);
 
@@ -1228,11 +1158,8 @@ static void dev_reset_queue(struct net_device *dev,
 	qdisc_reset(qdisc);
 
 	spin_unlock_bh(qdisc_lock(qdisc));
-	if (nolock) {
-		clear_bit(__QDISC_STATE_MISSED, &qdisc->state);
-		clear_bit(__QDISC_STATE_DRAINING, &qdisc->state);
+	if (nolock)
 		spin_unlock_bh(&qdisc->seqlock);
-	}
 }
 
 static bool some_qdisc_is_busy(struct net_device *dev)

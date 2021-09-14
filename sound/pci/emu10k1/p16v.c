@@ -194,8 +194,7 @@ static int snd_p16v_pcm_open_playback_channel(struct snd_pcm_substream *substrea
 #endif /* debug */
 	/* channel->interrupt = snd_p16v_pcm_channel_interrupt; */
 	channel->epcm = epcm;
-	err = snd_pcm_hw_constraint_integer(runtime, SNDRV_PCM_HW_PARAM_PERIODS);
-	if (err < 0)
+	if ((err = snd_pcm_hw_constraint_integer(runtime, SNDRV_PCM_HW_PARAM_PERIODS)) < 0)
                 return err;
 
 	runtime->sync.id32[0] = substream->pcm->card->number;
@@ -243,8 +242,7 @@ static int snd_p16v_pcm_open_capture_channel(struct snd_pcm_substream *substream
 #endif /* debug */
 	/* channel->interrupt = snd_p16v_pcm_channel_interrupt; */
 	channel->epcm = epcm;
-	err = snd_pcm_hw_constraint_integer(runtime, SNDRV_PCM_HW_PARAM_PERIODS);
-	if (err < 0)
+	if ((err = snd_pcm_hw_constraint_integer(runtime, SNDRV_PCM_HW_PARAM_PERIODS)) < 0)
 		return err;
 
 	return 0;
@@ -290,7 +288,7 @@ static int snd_p16v_pcm_prepare_playback(struct snd_pcm_substream *substream)
 	struct snd_emu10k1 *emu = snd_pcm_substream_chip(substream);
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	int channel = substream->pcm->device - emu->p16v_device_offset;
-	u32 *table_base = (u32 *)(emu->p16v_buffer->area+(8*16*channel));
+	u32 *table_base = (u32 *)(emu->p16v_buffer.area+(8*16*channel));
 	u32 period_size_bytes = frames_to_bytes(runtime, runtime->period_size);
 	int i;
 	u32 tmp;
@@ -308,8 +306,8 @@ static int snd_p16v_pcm_prepare_playback(struct snd_pcm_substream *substream)
 		   runtime->dma_addr, runtime->dma_area, table_base);
 	dev_dbg(emu->card->dev,
 		"dma_addr=%x, dma_area=%p, dma_bytes(size)=%x\n",
-		   emu->p16v_buffer->addr, emu->p16v_buffer->area,
-		   emu->p16v_buffer->bytes);
+		   emu->p16v_buffer.addr, emu->p16v_buffer.area,
+		   emu->p16v_buffer.bytes);
 #endif /* debug */
 	tmp = snd_emu10k1_ptr_read(emu, A_SPDIF_SAMPLERATE, channel);
         switch (runtime->rate) {
@@ -333,7 +331,7 @@ static int snd_p16v_pcm_prepare_playback(struct snd_pcm_substream *substream)
 		table_base[(i*2)+1]=period_size_bytes<<16;
 	}
  
-	snd_emu10k1_ptr20_write(emu, PLAYBACK_LIST_ADDR, channel, emu->p16v_buffer->addr+(8*16*channel));
+	snd_emu10k1_ptr20_write(emu, PLAYBACK_LIST_ADDR, channel, emu->p16v_buffer.addr+(8*16*channel));
 	snd_emu10k1_ptr20_write(emu, PLAYBACK_LIST_SIZE, channel, (runtime->periods - 1) << 19);
 	snd_emu10k1_ptr20_write(emu, PLAYBACK_LIST_PTR, channel, 0);
 	snd_emu10k1_ptr20_write(emu, PLAYBACK_DMA_ADDR, channel, runtime->dma_addr);
@@ -567,6 +565,20 @@ static const struct snd_pcm_ops snd_p16v_capture_ops = {
 	.pointer =     snd_p16v_pcm_pointer_capture,
 };
 
+
+int snd_p16v_free(struct snd_emu10k1 *chip)
+{
+	// release the data
+	if (chip->p16v_buffer.area) {
+		snd_dma_free_pages(&chip->p16v_buffer);
+		/*
+		dev_dbg(chip->card->dev, "period lables free: %p\n",
+			   &chip->p16v_buffer);
+		*/
+	}
+	return 0;
+}
+
 int snd_p16v_pcm(struct snd_emu10k1 *emu, int device)
 {
 	struct snd_pcm *pcm;
@@ -577,8 +589,7 @@ int snd_p16v_pcm(struct snd_emu10k1 *emu, int device)
 	/* dev_dbg(emu->card->dev, "snd_p16v_pcm called. device=%d\n", device); */
 	emu->p16v_device_offset = device;
 
-	err = snd_pcm_new(emu->card, "p16v", device, 1, capture, &pcm);
-	if (err < 0)
+	if ((err = snd_pcm_new(emu->card, "p16v", device, 1, capture, &pcm)) < 0)
 		return err;
   
 	pcm->private_data = emu;
@@ -797,8 +808,8 @@ int snd_p16v_mixer(struct snd_emu10k1 *emu)
         struct snd_card *card = emu->card;
 
 	for (i = 0; i < ARRAY_SIZE(p16v_mixer_controls); i++) {
-		err = snd_ctl_add(card, snd_ctl_new1(&p16v_mixer_controls[i], emu));
-		if (err < 0)
+		if ((err = snd_ctl_add(card, snd_ctl_new1(&p16v_mixer_controls[i],
+							  emu))) < 0)
 			return err;
 	}
         return 0;

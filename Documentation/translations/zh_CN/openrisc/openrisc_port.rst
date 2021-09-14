@@ -1,10 +1,7 @@
 .. include:: ../disclaimer-zh_CN.rst
 
-:Original: Documentation/openrisc/openrisc_port.rst
-
-:翻译:
-
- 司延腾 Yanteng Si <siyanteng@loongson.cn>
+:Original: :doc:`../../../openrisc/openrisc_port`
+:Translator: Yanteng Si <siyanteng@loongson.cn>
 
 .. _cn_openrisc_port:
 

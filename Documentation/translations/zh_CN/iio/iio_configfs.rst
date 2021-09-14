@@ -1,12 +1,10 @@
 .. include:: ../disclaimer-zh_CN.rst
 
-:Original: Documentation/iio/iio_configfs.rst
-
-:翻译:
-
- 司延腾 Yanteng Si <siyanteng@loongson.cn>
+:Original: :doc:`../../../iio/iio_configfs`
+:Translator: Yanteng Si <siyanteng@loongson.cn>
 
 .. _cn_iio_configfs:
+
 
 =====================
 工业 IIO configfs支持

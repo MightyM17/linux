@@ -341,7 +341,7 @@ static struct event_map local_status_to_event[] = {
 	LOCAL_STATUS_TO_EVENT_MAP(PM_MSI_INT_SYS_ERR),
 };
 
-static struct {
+struct {
 	u32 base;
 	u32 offset;
 	u32 mask;
@@ -412,14 +412,16 @@ static void mc_handle_msi(struct irq_desc *desc)
 		port->axi_base_addr + MC_PCIE_BRIDGE_ADDR;
 	unsigned long status;
 	u32 bit;
-	int ret;
+	u32 virq;
 
 	status = readl_relaxed(bridge_base_addr + ISTATUS_LOCAL);
 	if (status & PM_MSI_INT_MSI_MASK) {
 		status = readl_relaxed(bridge_base_addr + ISTATUS_MSI);
 		for_each_set_bit(bit, &status, msi->num_vectors) {
-			ret = generic_handle_domain_irq(msi->dev_domain, bit);
-			if (ret)
+			virq = irq_find_mapping(msi->dev_domain, bit);
+			if (virq)
+				generic_handle_irq(virq);
+			else
 				dev_err_ratelimited(dev, "bad MSI IRQ %d\n",
 						    bit);
 		}
@@ -568,15 +570,17 @@ static void mc_handle_intx(struct irq_desc *desc)
 		port->axi_base_addr + MC_PCIE_BRIDGE_ADDR;
 	unsigned long status;
 	u32 bit;
-	int ret;
+	u32 virq;
 
 	status = readl_relaxed(bridge_base_addr + ISTATUS_LOCAL);
 	if (status & PM_MSI_INT_INTX_MASK) {
 		status &= PM_MSI_INT_INTX_MASK;
 		status >>= PM_MSI_INT_INTX_SHIFT;
 		for_each_set_bit(bit, &status, PCI_NUM_INTX) {
-			ret = generic_handle_domain_irq(port->intx_domain, bit);
-			if (ret)
+			virq = irq_find_mapping(port->intx_domain, bit);
+			if (virq)
+				generic_handle_irq(virq);
+			else
 				dev_err_ratelimited(dev, "bad INTx IRQ %d\n",
 						    bit);
 		}
@@ -741,7 +745,7 @@ static void mc_handle_event(struct irq_desc *desc)
 	events = get_events(port);
 
 	for_each_set_bit(bit, &events, NUM_EVENTS)
-		generic_handle_domain_irq(port->event_domain, bit);
+		generic_handle_irq(irq_find_mapping(port->event_domain, bit));
 
 	chained_irq_exit(chip, desc);
 }

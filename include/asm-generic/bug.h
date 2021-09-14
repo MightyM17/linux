@@ -4,7 +4,6 @@
 
 #include <linux/compiler.h>
 #include <linux/instrumentation.h>
-#include <linux/once_lite.h>
 
 #define CUT_HERE		"------------[ cut here ]------------\n"
 
@@ -18,8 +17,7 @@
 #endif
 
 #ifndef __ASSEMBLY__
-#include <linux/panic.h>
-#include <linux/printk.h>
+#include <linux/kernel.h>
 
 #ifdef CONFIG_BUG
 
@@ -142,15 +140,39 @@ void __warn(const char *file, int line, void *caller, unsigned taint,
 })
 
 #ifndef WARN_ON_ONCE
-#define WARN_ON_ONCE(condition)					\
-	DO_ONCE_LITE_IF(condition, WARN_ON, 1)
+#define WARN_ON_ONCE(condition)	({				\
+	static bool __section(".data.once") __warned;		\
+	int __ret_warn_once = !!(condition);			\
+								\
+	if (unlikely(__ret_warn_once && !__warned)) {		\
+		__warned = true;				\
+		WARN_ON(1);					\
+	}							\
+	unlikely(__ret_warn_once);				\
+})
 #endif
 
-#define WARN_ONCE(condition, format...)				\
-	DO_ONCE_LITE_IF(condition, WARN, 1, format)
+#define WARN_ONCE(condition, format...)	({			\
+	static bool __section(".data.once") __warned;		\
+	int __ret_warn_once = !!(condition);			\
+								\
+	if (unlikely(__ret_warn_once && !__warned)) {		\
+		__warned = true;				\
+		WARN(1, format);				\
+	}							\
+	unlikely(__ret_warn_once);				\
+})
 
-#define WARN_TAINT_ONCE(condition, taint, format...)		\
-	DO_ONCE_LITE_IF(condition, WARN_TAINT, 1, taint, format)
+#define WARN_TAINT_ONCE(condition, taint, format...)	({	\
+	static bool __section(".data.once") __warned;		\
+	int __ret_warn_once = !!(condition);			\
+								\
+	if (unlikely(__ret_warn_once && !__warned)) {		\
+		__warned = true;				\
+		WARN_TAINT(1, taint, format);			\
+	}							\
+	unlikely(__ret_warn_once);				\
+})
 
 #else /* !CONFIG_BUG */
 #ifndef HAVE_ARCH_BUG

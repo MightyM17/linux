@@ -97,14 +97,14 @@ static const struct fs_parameter_spec virtio_fs_parameters[] = {
 	{}
 };
 
-static int virtio_fs_parse_param(struct fs_context *fsc,
+static int virtio_fs_parse_param(struct fs_context *fc,
 				 struct fs_parameter *param)
 {
 	struct fs_parse_result result;
-	struct fuse_fs_context *ctx = fsc->fs_private;
+	struct fuse_fs_context *ctx = fc->fs_private;
 	int opt;
 
-	opt = fs_parse(fsc, virtio_fs_parameters, param, &result);
+	opt = fs_parse(fc, virtio_fs_parameters, param, &result);
 	if (opt < 0)
 		return opt;
 
@@ -119,9 +119,9 @@ static int virtio_fs_parse_param(struct fs_context *fsc,
 	return 0;
 }
 
-static void virtio_fs_free_fsc(struct fs_context *fsc)
+static void virtio_fs_free_fc(struct fs_context *fc)
 {
-	struct fuse_fs_context *ctx = fsc->fs_private;
+	struct fuse_fs_context *ctx = fc->fs_private;
 
 	kfree(ctx);
 }
@@ -1447,7 +1447,6 @@ static int virtio_fs_get_tree(struct fs_context *fsc)
 	fc->release = fuse_free_conn;
 	fc->delete_stale = true;
 	fc->auto_submounts = true;
-	fc->sync_fs = true;
 
 	/* Tell FUSE to split requests that exceed the virtqueue's size */
 	fc->max_pages_limit = min_t(unsigned int, fc->max_pages_limit,
@@ -1488,7 +1487,7 @@ out_err:
 }
 
 static const struct fs_context_operations virtio_fs_context_ops = {
-	.free		= virtio_fs_free_fsc,
+	.free		= virtio_fs_free_fc,
 	.parse_param	= virtio_fs_parse_param,
 	.get_tree	= virtio_fs_get_tree,
 };
@@ -1496,9 +1495,6 @@ static const struct fs_context_operations virtio_fs_context_ops = {
 static int virtio_fs_init_fs_context(struct fs_context *fsc)
 {
 	struct fuse_fs_context *ctx;
-
-	if (fsc->purpose == FS_CONTEXT_FOR_SUBMOUNT)
-		return fuse_init_fs_context_submount(fsc);
 
 	ctx = kzalloc(sizeof(struct fuse_fs_context), GFP_KERNEL);
 	if (!ctx)

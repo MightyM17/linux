@@ -155,10 +155,11 @@ static int ioh_gpio_direction_input(struct gpio_chip *gpio, unsigned nr)
 	return 0;
 }
 
+#ifdef CONFIG_PM
 /*
  * Save register configuration and disable interrupts.
  */
-static void __maybe_unused ioh_gpio_save_reg_conf(struct ioh_gpio *chip)
+static void ioh_gpio_save_reg_conf(struct ioh_gpio *chip)
 {
 	int i;
 
@@ -184,7 +185,7 @@ static void __maybe_unused ioh_gpio_save_reg_conf(struct ioh_gpio *chip)
 /*
  * This function restores the register configuration of the GPIO device.
  */
-static void __maybe_unused ioh_gpio_restore_reg_conf(struct ioh_gpio *chip)
+static void ioh_gpio_restore_reg_conf(struct ioh_gpio *chip)
 {
 	int i;
 
@@ -206,6 +207,7 @@ static void __maybe_unused ioh_gpio_restore_reg_conf(struct ioh_gpio *chip)
 				  &chip->reg->ioh_sel_reg[i]);
 	}
 }
+#endif
 
 static int ioh_gpio_to_irq(struct gpio_chip *gpio, unsigned offset)
 {
@@ -520,22 +522,46 @@ static void ioh_gpio_remove(struct pci_dev *pdev)
 	kfree(chip);
 }
 
-static int __maybe_unused ioh_gpio_suspend(struct device *dev)
+#ifdef CONFIG_PM
+static int ioh_gpio_suspend(struct pci_dev *pdev, pm_message_t state)
 {
-	struct ioh_gpio *chip = dev_get_drvdata(dev);
+	s32 ret;
+	struct ioh_gpio *chip = pci_get_drvdata(pdev);
 	unsigned long flags;
 
 	spin_lock_irqsave(&chip->spinlock, flags);
 	ioh_gpio_save_reg_conf(chip);
 	spin_unlock_irqrestore(&chip->spinlock, flags);
 
+	ret = pci_save_state(pdev);
+	if (ret) {
+		dev_err(&pdev->dev, "pci_save_state Failed-%d\n", ret);
+		return ret;
+	}
+	pci_disable_device(pdev);
+	pci_set_power_state(pdev, PCI_D0);
+	ret = pci_enable_wake(pdev, PCI_D0, 1);
+	if (ret)
+		dev_err(&pdev->dev, "pci_enable_wake Failed -%d\n", ret);
+
 	return 0;
 }
 
-static int __maybe_unused ioh_gpio_resume(struct device *dev)
+static int ioh_gpio_resume(struct pci_dev *pdev)
 {
-	struct ioh_gpio *chip = dev_get_drvdata(dev);
+	s32 ret;
+	struct ioh_gpio *chip = pci_get_drvdata(pdev);
 	unsigned long flags;
+
+	ret = pci_enable_wake(pdev, PCI_D0, 0);
+
+	pci_set_power_state(pdev, PCI_D0);
+	ret = pci_enable_device(pdev);
+	if (ret) {
+		dev_err(&pdev->dev, "pci_enable_device Failed-%d ", ret);
+		return ret;
+	}
+	pci_restore_state(pdev);
 
 	spin_lock_irqsave(&chip->spinlock, flags);
 	iowrite32(0x01, &chip->reg->srst);
@@ -545,8 +571,10 @@ static int __maybe_unused ioh_gpio_resume(struct device *dev)
 
 	return 0;
 }
-
-static SIMPLE_DEV_PM_OPS(ioh_gpio_pm_ops, ioh_gpio_suspend, ioh_gpio_resume);
+#else
+#define ioh_gpio_suspend NULL
+#define ioh_gpio_resume NULL
+#endif
 
 static const struct pci_device_id ioh_gpio_pcidev_id[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_ROHM, 0x802E) },
@@ -559,9 +587,8 @@ static struct pci_driver ioh_gpio_driver = {
 	.id_table = ioh_gpio_pcidev_id,
 	.probe = ioh_gpio_probe,
 	.remove = ioh_gpio_remove,
-	.driver = {
-		.pm = &ioh_gpio_pm_ops,
-	},
+	.suspend = ioh_gpio_suspend,
+	.resume = ioh_gpio_resume
 };
 
 module_pci_driver(ioh_gpio_driver);

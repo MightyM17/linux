@@ -177,6 +177,8 @@
 };
 
 &gmac2phy {
+	pinctrl-names = "default";
+	pinctrl-0 = <&fephyled_linkm1>, <&fephyled_rxm1>;
 	status = "okay";
 };
 
@@ -377,11 +379,6 @@
 };
 
 &uart2 {
-	status = "okay";
-};
-
-&usbdrd3 {
-	dr_mode = "host";
 	status = "okay";
 };
 

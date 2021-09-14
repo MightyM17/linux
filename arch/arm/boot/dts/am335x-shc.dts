@@ -117,6 +117,18 @@
 	status = "okay";
 };
 
+&davinci_mdio {
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&davinci_mdio_default>;
+	pinctrl-1 = <&davinci_mdio_sleep>;
+	status = "okay";
+
+	ethernetphy0: ethernet-phy@0 {
+		reg = <0>;
+		smsc,disable-energy-detect;
+	};
+};
+
 &epwmss1 {
 	status = "okay";
 
@@ -128,14 +140,14 @@
 };
 
 &gpio1 {
-	hmtc-rst-hog {
+	hmtc_rst {
 		gpio-hog;
 		gpios = <24 GPIO_ACTIVE_LOW>;
 		output-high;
 		line-name = "homematic_reset";
 	};
 
-	hmtc-prog-hog {
+	hmtc_prog {
 		gpio-hog;
 		gpios = <27 GPIO_ACTIVE_LOW>;
 		output-high;
@@ -144,14 +156,14 @@
 };
 
 &gpio3 {
-	zgb-rst-hog {
+	zgb_rst {
 		gpio-hog;
 		gpios = <18 GPIO_ACTIVE_LOW>;
 		output-low;
 		line-name = "zigbee_reset";
 	};
 
-	zgb-boot-hog {
+	zgb_boot {
 		gpio-hog;
 		gpios = <19 GPIO_ACTIVE_HIGH>;
 		output-high;
@@ -181,31 +193,15 @@
 	};
 };
 
-&mac_sw {
+&mac {
 	pinctrl-names = "default", "sleep";
 	pinctrl-0 = <&cpsw_default>;
 	pinctrl-1 = <&cpsw_sleep>;
 	status = "okay";
-};
-
-&cpsw_port1 {
-	phy-mode = "mii";
-	phy-handle = <&ethernetphy0>;
-	ti,dual-emac-pvid = <1>;
-};
-
-&cpsw_port2 {
-	status = "disabled";
-};
-
-&davinci_mdio_sw {
-	pinctrl-names = "default", "sleep";
-	pinctrl-0 = <&davinci_mdio_default>;
-	pinctrl-1 = <&davinci_mdio_sleep>;
-
-	ethernetphy0: ethernet-phy@0 {
-		reg = <0>;
-		smsc,disable-energy-detect;
+	slaves = <1>;
+	cpsw_emac0: slave@200 {
+		phy-mode = "mii";
+		phy-handle = <&ethernetphy0>;
 	};
 };
 

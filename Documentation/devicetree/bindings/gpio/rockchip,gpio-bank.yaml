@@ -22,10 +22,7 @@ properties:
     maxItems: 1
 
   clocks:
-    minItems: 1
-    items:
-      - description: APB interface clock source
-      - description: GPIO debounce reference clock source
+    maxItems: 1
 
   gpio-controller: true
 

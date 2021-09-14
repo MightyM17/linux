@@ -49,10 +49,11 @@
 #define QED_NVM_CFG_MAX_ATTRS		50
 
 static char version[] =
-	"QLogic FastLinQ 4xxxx Core Module qed\n";
+	"QLogic FastLinQ 4xxxx Core Module qed " DRV_MODULE_VERSION "\n";
 
 MODULE_DESCRIPTION("QLogic FastLinQ 4xxxx Core Module");
 MODULE_LICENSE("GPL");
+MODULE_VERSION(DRV_MODULE_VERSION);
 
 #define FW_FILE_VERSION				\
 	__stringify(FW_MAJOR_VERSION) "."	\
@@ -615,12 +616,7 @@ static int qed_enable_msix(struct qed_dev *cdev,
 			rc = cnt;
 	}
 
-	/* For VFs, we should return with an error in case we didn't get the
-	 * exact number of msix vectors as we requested.
-	 * Not doing that will lead to a crash when starting queues for
-	 * this VF.
-	 */
-	if ((IS_PF(cdev) && rc > 0) || (IS_VF(cdev) && rc == cnt)) {
+	if (rc > 0) {
 		/* MSI-x configuration was achieved */
 		int_params->out.int_mode = QED_INT_MODE_MSIX;
 		int_params->out.num_vectors = rc;
@@ -1220,10 +1216,6 @@ static void qed_slowpath_task(struct work_struct *work)
 
 	if (test_and_clear_bit(QED_SLOWPATH_PERIODIC_DB_REC,
 			       &hwfn->slowpath_task_flags)) {
-		/* skip qed_db_rec_handler during recovery/unload */
-		if (hwfn->cdev->recov_in_prog || !hwfn->slowpath_wq_active)
-			goto out;
-
 		qed_db_rec_handler(hwfn, ptt);
 		if (hwfn->periodic_db_rec_count--)
 			qed_slowpath_delayed_work(hwfn,
@@ -1231,7 +1223,6 @@ static void qed_slowpath_task(struct work_struct *work)
 						  QED_PERIODIC_DB_REC_INTERVAL);
 	}
 
-out:
 	qed_ptt_release(hwfn, ptt);
 }
 

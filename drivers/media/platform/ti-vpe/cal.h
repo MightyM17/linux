@@ -29,7 +29,7 @@
 #include <media/videobuf2-v4l2.h>
 
 #define CAL_MODULE_NAME			"cal"
-#define CAL_MAX_NUM_CONTEXT		8
+#define CAL_NUM_CONTEXT			2
 #define CAL_NUM_CSI2_PORTS		2
 
 /*
@@ -44,22 +44,7 @@
 #define CAL_MAX_HEIGHT_LINES		16383
 
 #define CAL_CAMERARX_PAD_SINK		0
-#define CAL_CAMERARX_PAD_FIRST_SOURCE	1
-#define CAL_CAMERARX_NUM_SOURCE_PADS	1
-#define CAL_CAMERARX_NUM_PADS		(1 + CAL_CAMERARX_NUM_SOURCE_PADS)
-
-static inline bool cal_rx_pad_is_sink(u32 pad)
-{
-	/* Camera RX has 1 sink pad, and N source pads */
-	return pad == 0;
-}
-
-static inline bool cal_rx_pad_is_source(u32 pad)
-{
-	/* Camera RX has 1 sink pad, and N source pads */
-	return pad >= CAL_CAMERARX_PAD_FIRST_SOURCE &&
-	       pad <= CAL_CAMERARX_NUM_SOURCE_PADS;
-}
+#define CAL_CAMERARX_PAD_SOURCE		1
 
 struct device;
 struct device_node;
@@ -88,7 +73,6 @@ struct cal_format_info {
 	u32	code;
 	/* Bits per pixel */
 	u8	bpp;
-	bool	meta;
 };
 
 /* buffer for one video frame */
@@ -165,29 +149,22 @@ struct cal_data {
 struct cal_camerarx {
 	void __iomem		*base;
 	struct resource		*res;
+	struct device		*dev;
 	struct regmap_field	*fields[F_MAX_FIELDS];
 
 	struct cal_dev		*cal;
 	unsigned int		instance;
 
 	struct v4l2_fwnode_endpoint	endpoint;
-	struct device_node	*source_ep_node;
-	struct device_node	*source_node;
-	struct v4l2_subdev	*source;
+	struct device_node	*sensor_ep_node;
+	struct device_node	*sensor_node;
+	struct v4l2_subdev	*sensor;
 	struct media_pipeline	pipe;
 
 	struct v4l2_subdev	subdev;
-	struct media_pad	pads[CAL_CAMERARX_NUM_PADS];
-	struct v4l2_mbus_framefmt	formats[CAL_CAMERARX_NUM_PADS];
-
-	/*
-	 * Lock for camerarx ops. Protects:
-	 * - formats
-	 * - enable_count
-	 */
-	struct mutex		mutex;
-
-	unsigned int		enable_count;
+	struct media_pad	pads[2];
+	struct v4l2_mbus_framefmt	formats[2];
+	const struct cal_format_info	*fmtinfo;
 };
 
 struct cal_dev {
@@ -207,14 +184,11 @@ struct cal_dev {
 	/* Camera Core Module handle */
 	struct cal_camerarx	*phy[CAL_NUM_CSI2_PORTS];
 
-	u32 num_contexts;
-	struct cal_ctx		*ctx[CAL_MAX_NUM_CONTEXT];
+	struct cal_ctx		*ctx[CAL_NUM_CONTEXT];
 
 	struct media_device	mdev;
 	struct v4l2_device	v4l2_dev;
 	struct v4l2_async_notifier notifier;
-
-	unsigned long		reserved_pix_proc_mask;
 };
 
 /*
@@ -238,20 +212,14 @@ struct cal_ctx {
 	/* Used to store current pixel format */
 	struct v4l2_format	v_fmt;
 
-	/* Current subdev enumerated format (legacy) */
+	/* Current subdev enumerated format */
 	const struct cal_format_info	**active_fmt;
 	unsigned int		num_active_fmt;
 
 	unsigned int		sequence;
 	struct vb2_queue	vb_vidq;
-	u8			dma_ctx;
-	u8			cport;
-	u8			csi2_ctx;
-	u8			pix_proc;
-	u8			vc;
-	u8			datatype;
-
-	bool			use_pix_proc;
+	unsigned int		index;
+	unsigned int		cport;
 };
 
 extern unsigned int cal_debug;
@@ -269,11 +237,11 @@ extern bool cal_mc_api;
 	dev_err((cal)->dev, fmt, ##arg)
 
 #define ctx_dbg(level, ctx, fmt, arg...)				\
-	cal_dbg(level, (ctx)->cal, "ctx%u: " fmt, (ctx)->dma_ctx, ##arg)
+	cal_dbg(level, (ctx)->cal, "ctx%u: " fmt, (ctx)->index, ##arg)
 #define ctx_info(ctx, fmt, arg...)					\
-	cal_info((ctx)->cal, "ctx%u: " fmt, (ctx)->dma_ctx, ##arg)
+	cal_info((ctx)->cal, "ctx%u: " fmt, (ctx)->index, ##arg)
 #define ctx_err(ctx, fmt, arg...)					\
-	cal_err((ctx)->cal, "ctx%u: " fmt, (ctx)->dma_ctx, ##arg)
+	cal_err((ctx)->cal, "ctx%u: " fmt, (ctx)->index, ##arg)
 
 #define phy_dbg(level, phy, fmt, arg...)				\
 	cal_dbg(level, (phy)->cal, "phy%u: " fmt, (phy)->instance, ##arg)
@@ -329,8 +297,6 @@ struct cal_camerarx *cal_camerarx_create(struct cal_dev *cal,
 					 unsigned int instance);
 void cal_camerarx_destroy(struct cal_camerarx *phy);
 
-int cal_ctx_prepare(struct cal_ctx *ctx);
-void cal_ctx_unprepare(struct cal_ctx *ctx);
 void cal_ctx_set_dma_addr(struct cal_ctx *ctx, dma_addr_t addr);
 void cal_ctx_start(struct cal_ctx *ctx);
 void cal_ctx_stop(struct cal_ctx *ctx);

@@ -42,7 +42,6 @@
 #include <linux/kobject.h>
 #include <linux/dma-map-ops.h>
 #include <linux/interrupt.h>
-#include <linux/irqdomain.h>
 #include <linux/of.h>
 #include <linux/slab.h>
 #include <linux/stat.h>
@@ -366,13 +365,14 @@ static int ibmebus_bus_device_probe(struct device *dev)
 	return error;
 }
 
-static void ibmebus_bus_device_remove(struct device *dev)
+static int ibmebus_bus_device_remove(struct device *dev)
 {
 	struct platform_device *of_dev = to_platform_device(dev);
 	struct platform_driver *drv = to_platform_driver(dev->driver);
 
 	if (dev->driver && drv->remove)
 		drv->remove(of_dev);
+	return 0;
 }
 
 static void ibmebus_bus_device_shutdown(struct device *dev)

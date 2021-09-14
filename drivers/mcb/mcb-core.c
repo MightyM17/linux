@@ -77,7 +77,7 @@ static int mcb_probe(struct device *dev)
 	return ret;
 }
 
-static void mcb_remove(struct device *dev)
+static int mcb_remove(struct device *dev)
 {
 	struct mcb_driver *mdrv = to_mcb_driver(dev->driver);
 	struct mcb_device *mdev = to_mcb_device(dev);
@@ -89,6 +89,8 @@ static void mcb_remove(struct device *dev)
 	module_put(carrier_mod);
 
 	put_device(&mdev->dev);
+
+	return 0;
 }
 
 static void mcb_shutdown(struct device *dev)

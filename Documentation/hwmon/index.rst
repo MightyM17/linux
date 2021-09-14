@@ -39,7 +39,6 @@ Hardware Monitoring Kernel Drivers
    adt7475
    aht10
    amc6821
-   aquacomputer_d5next
    asb100
    asc7621
    aspeed-pwm-tacho
@@ -54,7 +53,6 @@ Hardware Monitoring Kernel Drivers
    da9055
    dell-smm-hwmon
    dme1737
-   dps920ab
    drivetemp
    ds1621
    ds620
@@ -139,7 +137,6 @@ Hardware Monitoring Kernel Drivers
    mcp3021
    menf21bmc
    mlxreg-fan
-   mp2888
    mp2975
    nct6683
    nct6775
@@ -153,7 +150,6 @@ Hardware Monitoring Kernel Drivers
    pc87360
    pc87427
    pcf8591
-   pim4328
    pm6764tr
    pmbus
    powr1220
@@ -161,7 +157,6 @@ Hardware Monitoring Kernel Drivers
    pwm-fan
    q54sj108a2
    raspberrypi-hwmon
-   sbrmi
    sbtsi_temp
    sch5627
    sch5636
@@ -169,7 +164,6 @@ Hardware Monitoring Kernel Drivers
    sht15
    sht21
    sht3x
-   sht4x
    shtc1
    sis5595
    sl28cpld

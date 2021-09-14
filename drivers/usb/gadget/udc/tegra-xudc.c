@@ -1610,7 +1610,7 @@ static void tegra_xudc_ep_context_setup(struct tegra_xudc_ep *ep)
 	u16 maxpacket, maxburst = 0, esit = 0;
 	u32 val;
 
-	maxpacket = usb_endpoint_maxp(desc);
+	maxpacket = usb_endpoint_maxp(desc) & 0x7ff;
 	if (xudc->gadget.speed == USB_SPEED_SUPER) {
 		if (!usb_endpoint_xfer_control(desc))
 			maxburst = comp_desc->bMaxBurst;
@@ -1621,7 +1621,7 @@ static void tegra_xudc_ep_context_setup(struct tegra_xudc_ep *ep)
 		   (usb_endpoint_xfer_int(desc) ||
 		    usb_endpoint_xfer_isoc(desc))) {
 		if (xudc->gadget.speed == USB_SPEED_HIGH) {
-			maxburst = usb_endpoint_maxp_mult(desc) - 1;
+			maxburst = (usb_endpoint_maxp(desc) >> 11) & 0x3;
 			if (maxburst == 0x3) {
 				dev_warn(xudc->dev,
 					 "invalid endpoint maxburst\n");
@@ -1907,7 +1907,7 @@ static void tegra_xudc_ep_free_request(struct usb_ep *usb_ep,
 	kfree(req);
 }
 
-static const struct usb_ep_ops tegra_xudc_ep_ops = {
+static struct usb_ep_ops tegra_xudc_ep_ops = {
 	.enable = tegra_xudc_ep_enable,
 	.disable = tegra_xudc_ep_disable,
 	.alloc_request = tegra_xudc_ep_alloc_request,
@@ -1928,7 +1928,7 @@ static int tegra_xudc_ep0_disable(struct usb_ep *usb_ep)
 	return -EBUSY;
 }
 
-static const struct usb_ep_ops tegra_xudc_ep0_ops = {
+static struct usb_ep_ops tegra_xudc_ep0_ops = {
 	.enable = tegra_xudc_ep0_enable,
 	.disable = tegra_xudc_ep0_disable,
 	.alloc_request = tegra_xudc_ep_alloc_request,
@@ -2168,7 +2168,7 @@ static int tegra_xudc_set_selfpowered(struct usb_gadget *gadget, int is_on)
 	return 0;
 }
 
-static const struct usb_gadget_ops tegra_xudc_gadget_ops = {
+static struct usb_gadget_ops tegra_xudc_gadget_ops = {
 	.get_frame = tegra_xudc_gadget_get_frame,
 	.wakeup = tegra_xudc_gadget_wakeup,
 	.pullup = tegra_xudc_gadget_pullup,
@@ -3508,8 +3508,10 @@ static int tegra_xudc_phy_get(struct tegra_xudc *xudc)
 		xudc->utmi_phy[i] = devm_phy_optional_get(xudc->dev, phy_name);
 		if (IS_ERR(xudc->utmi_phy[i])) {
 			err = PTR_ERR(xudc->utmi_phy[i]);
-			dev_err_probe(xudc->dev, err,
-				      "failed to get usb2-%d PHY\n", i);
+			if (err != -EPROBE_DEFER)
+				dev_err(xudc->dev, "failed to get usb2-%d PHY: %d\n",
+					i, err);
+
 			goto clean_up;
 		} else if (xudc->utmi_phy[i]) {
 			/* Get usb-phy, if utmi phy is available */
@@ -3518,8 +3520,8 @@ static int tegra_xudc_phy_get(struct tegra_xudc *xudc)
 						&xudc->vbus_nb);
 			if (IS_ERR(xudc->usbphy[i])) {
 				err = PTR_ERR(xudc->usbphy[i]);
-				dev_err_probe(xudc->dev, err,
-					      "failed to get usbphy-%d\n", i);
+				dev_err(xudc->dev, "failed to get usbphy-%d: %d\n",
+					i, err);
 				goto clean_up;
 			}
 		} else if (!xudc->utmi_phy[i]) {
@@ -3536,8 +3538,10 @@ static int tegra_xudc_phy_get(struct tegra_xudc *xudc)
 		xudc->usb3_phy[i] = devm_phy_optional_get(xudc->dev, phy_name);
 		if (IS_ERR(xudc->usb3_phy[i])) {
 			err = PTR_ERR(xudc->usb3_phy[i]);
-			dev_err_probe(xudc->dev, err,
-				      "failed to get usb3-%d PHY\n", usb3);
+			if (err != -EPROBE_DEFER)
+				dev_err(xudc->dev, "failed to get usb3-%d PHY: %d\n",
+					usb3, err);
+
 			goto clean_up;
 		} else if (xudc->usb3_phy[i])
 			dev_dbg(xudc->dev, "usb3-%d PHY registered", usb3);
@@ -3777,7 +3781,9 @@ static int tegra_xudc_probe(struct platform_device *pdev)
 
 	err = devm_clk_bulk_get(&pdev->dev, xudc->soc->num_clks, xudc->clks);
 	if (err) {
-		dev_err_probe(xudc->dev, err, "failed to request clocks\n");
+		if (err != -EPROBE_DEFER)
+			dev_err(xudc->dev, "failed to request clocks: %d\n", err);
+
 		return err;
 	}
 
@@ -3792,7 +3798,9 @@ static int tegra_xudc_probe(struct platform_device *pdev)
 	err = devm_regulator_bulk_get(&pdev->dev, xudc->soc->num_supplies,
 				      xudc->supplies);
 	if (err) {
-		dev_err_probe(xudc->dev, err, "failed to request regulators\n");
+		if (err != -EPROBE_DEFER)
+			dev_err(xudc->dev, "failed to request regulators: %d\n", err);
+
 		return err;
 	}
 
@@ -3853,7 +3861,6 @@ static int tegra_xudc_probe(struct platform_device *pdev)
 	return 0;
 
 free_eps:
-	pm_runtime_disable(&pdev->dev);
 	tegra_xudc_free_eps(xudc);
 free_event_ring:
 	tegra_xudc_free_event_ring(xudc);

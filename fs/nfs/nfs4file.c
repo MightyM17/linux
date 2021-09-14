@@ -158,11 +158,13 @@ static ssize_t __nfs4_copy_file_range(struct file *file_in, loff_t pos_in,
 		sync = true;
 retry:
 	if (!nfs42_files_from_same_server(file_in, file_out)) {
-		/*
-		 * for inter copy, if copy size is too small
-		 * then fallback to generic copy.
+		/* for inter copy, if copy size if smaller than 12 RPC
+		 * payloads, fallback to traditional copy. There are
+		 * 14 RPCs during an NFSv4.x mount between source/dest
+		 * servers.
 		 */
-		if (sync)
+		if (sync ||
+			count <= 14 * NFS_SERVER(file_inode(file_in))->rsize)
 			return -EOPNOTSUPP;
 		cn_resp = kzalloc(sizeof(struct nfs42_copy_notify_res),
 				GFP_NOFS);
@@ -209,7 +211,7 @@ static loff_t nfs4_file_llseek(struct file *filep, loff_t offset, int whence)
 	case SEEK_HOLE:
 	case SEEK_DATA:
 		ret = nfs42_proc_llseek(filep, offset, whence);
-		if (ret != -EOPNOTSUPP)
+		if (ret != -ENOTSUPP)
 			return ret;
 		fallthrough;
 	default:
@@ -433,12 +435,6 @@ void nfs42_ssc_unregister_ops(void)
 }
 #endif /* CONFIG_NFS_V4_2 */
 
-static int nfs4_setlease(struct file *file, long arg, struct file_lock **lease,
-			 void **priv)
-{
-	return nfs4_proc_setlease(file, arg, lease, priv);
-}
-
 const struct file_operations nfs4_file_operations = {
 	.read_iter	= nfs_file_read,
 	.write_iter	= nfs_file_write,
@@ -452,7 +448,7 @@ const struct file_operations nfs4_file_operations = {
 	.splice_read	= generic_file_splice_read,
 	.splice_write	= iter_file_splice_write,
 	.check_flags	= nfs_check_flags,
-	.setlease	= nfs4_setlease,
+	.setlease	= simple_nosetlease,
 #ifdef CONFIG_NFS_V4_2
 	.copy_file_range = nfs4_copy_file_range,
 	.llseek		= nfs4_file_llseek,

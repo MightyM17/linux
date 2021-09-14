@@ -285,21 +285,22 @@ siw_mmap_entry_insert(struct siw_ucontext *uctx,
  *
  * Create QP of requested size on given device.
  *
- * @qp:		Queue pait
+ * @pd:		Protection Domain
  * @attrs:	Initial QP attributes.
  * @udata:	used to provide QP ID, SQ and RQ size back to user.
  */
 
-int siw_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *attrs,
-		  struct ib_udata *udata)
+struct ib_qp *siw_create_qp(struct ib_pd *pd,
+			    struct ib_qp_init_attr *attrs,
+			    struct ib_udata *udata)
 {
-	struct ib_pd *pd = ibqp->pd;
-	struct siw_qp *qp = to_siw_qp(ibqp);
+	struct siw_qp *qp = NULL;
 	struct ib_device *base_dev = pd->device;
 	struct siw_device *sdev = to_siw_dev(base_dev);
 	struct siw_ucontext *uctx =
 		rdma_udata_to_drv_context(udata, struct siw_ucontext,
 					  base_ucontext);
+	struct siw_cq *scq = NULL, *rcq = NULL;
 	unsigned long flags;
 	int num_sqe, num_rqe, rv = 0;
 	size_t length;
@@ -307,16 +308,17 @@ int siw_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *attrs,
 	siw_dbg(base_dev, "create new QP\n");
 
 	if (attrs->create_flags)
-		return -EOPNOTSUPP;
+		return ERR_PTR(-EOPNOTSUPP);
 
 	if (atomic_inc_return(&sdev->num_qp) > SIW_MAX_QP) {
 		siw_dbg(base_dev, "too many QP's\n");
-		return -ENOMEM;
+		rv = -ENOMEM;
+		goto err_out;
 	}
 	if (attrs->qp_type != IB_QPT_RC) {
 		siw_dbg(base_dev, "only RC QP's supported\n");
 		rv = -EOPNOTSUPP;
-		goto err_atomic;
+		goto err_out;
 	}
 	if ((attrs->cap.max_send_wr > SIW_MAX_QP_WR) ||
 	    (attrs->cap.max_recv_wr > SIW_MAX_QP_WR) ||
@@ -324,13 +326,13 @@ int siw_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *attrs,
 	    (attrs->cap.max_recv_sge > SIW_MAX_SGE)) {
 		siw_dbg(base_dev, "QP size error\n");
 		rv = -EINVAL;
-		goto err_atomic;
+		goto err_out;
 	}
 	if (attrs->cap.max_inline_data > SIW_MAX_INLINE) {
 		siw_dbg(base_dev, "max inline send: %d > %d\n",
 			attrs->cap.max_inline_data, (int)SIW_MAX_INLINE);
 		rv = -EINVAL;
-		goto err_atomic;
+		goto err_out;
 	}
 	/*
 	 * NOTE: we allow for zero element SQ and RQ WQE's SGL's
@@ -339,15 +341,21 @@ int siw_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *attrs,
 	if (attrs->cap.max_send_wr + attrs->cap.max_recv_wr == 0) {
 		siw_dbg(base_dev, "QP must have send or receive queue\n");
 		rv = -EINVAL;
-		goto err_atomic;
+		goto err_out;
 	}
+	scq = to_siw_cq(attrs->send_cq);
+	rcq = to_siw_cq(attrs->recv_cq);
 
-	if (!attrs->send_cq || (!attrs->recv_cq && !attrs->srq)) {
+	if (!scq || (!rcq && !attrs->srq)) {
 		siw_dbg(base_dev, "send CQ or receive CQ invalid\n");
 		rv = -EINVAL;
-		goto err_atomic;
+		goto err_out;
 	}
-
+	qp = kzalloc(sizeof(*qp), GFP_KERNEL);
+	if (!qp) {
+		rv = -ENOMEM;
+		goto err_out;
+	}
 	init_rwsem(&qp->state_lock);
 	spin_lock_init(&qp->sq_lock);
 	spin_lock_init(&qp->rq_lock);
@@ -355,7 +363,7 @@ int siw_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *attrs,
 
 	rv = siw_qp_add(sdev, qp);
 	if (rv)
-		goto err_atomic;
+		goto err_out;
 
 	num_sqe = attrs->cap.max_send_wr;
 	num_rqe = attrs->cap.max_recv_wr;
@@ -370,7 +378,7 @@ int siw_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *attrs,
 	else {
 		/* Zero sized SQ is not supported */
 		rv = -EINVAL;
-		goto err_out_xa;
+		goto err_out;
 	}
 	if (num_rqe)
 		num_rqe = roundup_pow_of_two(num_rqe);
@@ -393,8 +401,8 @@ int siw_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *attrs,
 		}
 	}
 	qp->pd = pd;
-	qp->scq = to_siw_cq(attrs->send_cq);
-	qp->rcq = to_siw_cq(attrs->recv_cq);
+	qp->scq = scq;
+	qp->rcq = rcq;
 
 	if (attrs->srq) {
 		/*
@@ -477,20 +485,23 @@ int siw_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *attrs,
 	list_add_tail(&qp->devq, &sdev->qp_list);
 	spin_unlock_irqrestore(&sdev->lock, flags);
 
-	return 0;
+	return &qp->base_qp;
 
 err_out_xa:
 	xa_erase(&sdev->qp_xa, qp_id(qp));
-	if (uctx) {
-		rdma_user_mmap_entry_remove(qp->sq_entry);
-		rdma_user_mmap_entry_remove(qp->rq_entry);
+err_out:
+	if (qp) {
+		if (uctx) {
+			rdma_user_mmap_entry_remove(qp->sq_entry);
+			rdma_user_mmap_entry_remove(qp->rq_entry);
+		}
+		vfree(qp->sendq);
+		vfree(qp->recvq);
+		kfree(qp);
 	}
-	vfree(qp->sendq);
-	vfree(qp->recvq);
-
-err_atomic:
 	atomic_dec(&sdev->num_qp);
-	return rv;
+
+	return ERR_PTR(rv);
 }
 
 /*

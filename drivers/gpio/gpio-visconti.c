@@ -187,7 +187,15 @@ static int visconti_gpio_probe(struct platform_device *pdev)
 	girq->default_type = IRQ_TYPE_NONE;
 	girq->handler = handle_level_irq;
 
-	return devm_gpiochip_add_data(dev, &priv->gpio_chip, priv);
+	ret = devm_gpiochip_add_data(dev, &priv->gpio_chip, priv);
+	if (ret) {
+		dev_err(dev, "failed to add GPIO chip\n");
+		return ret;
+	}
+
+	platform_set_drvdata(pdev, priv);
+
+	return ret;
 }
 
 static const struct of_device_id visconti_gpio_of_match[] = {

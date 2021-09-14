@@ -200,8 +200,7 @@ struct vmw_ttm_tt {
 const size_t vmw_tt_size = sizeof(struct vmw_ttm_tt);
 
 /**
- * __vmw_piter_non_sg_next: Helper functions to advance
- * a struct vmw_piter iterator.
+ * Helper functions to advance a struct vmw_piter iterator.
  *
  * @viter: Pointer to the iterator.
  *
@@ -221,6 +220,34 @@ static bool __vmw_piter_sg_next(struct vmw_piter *viter)
 	return __sg_page_iter_dma_next(&viter->iter) && ret;
 }
 
+
+/**
+ * Helper functions to return a pointer to the current page.
+ *
+ * @viter: Pointer to the iterator
+ *
+ * These functions return a pointer to the page currently
+ * pointed to by @viter. Functions are selected depending on the
+ * current mapping mode.
+ */
+static struct page *__vmw_piter_non_sg_page(struct vmw_piter *viter)
+{
+	return viter->pages[viter->i];
+}
+
+/**
+ * Helper functions to return the DMA address of the current page.
+ *
+ * @viter: Pointer to the iterator
+ *
+ * These functions return the DMA address of the page currently
+ * pointed to by @viter. Functions are selected depending on the
+ * current mapping mode.
+ */
+static dma_addr_t __vmw_piter_phys_addr(struct vmw_piter *viter)
+{
+	return page_to_phys(viter->pages[viter->i]);
+}
 
 static dma_addr_t __vmw_piter_dma_addr(struct vmw_piter *viter)
 {
@@ -249,8 +276,13 @@ void vmw_piter_start(struct vmw_piter *viter, const struct vmw_sg_table *vsgt,
 {
 	viter->i = p_offset - 1;
 	viter->num_pages = vsgt->num_pages;
+	viter->page = &__vmw_piter_non_sg_page;
 	viter->pages = vsgt->pages;
 	switch (vsgt->mode) {
+	case vmw_dma_phys:
+		viter->next = &__vmw_piter_non_sg_next;
+		viter->dma_address = &__vmw_piter_phys_addr;
+		break;
 	case vmw_dma_alloc_coherent:
 		viter->next = &__vmw_piter_non_sg_next;
 		viter->dma_address = &__vmw_piter_dma_addr;
@@ -328,6 +360,7 @@ static int vmw_ttm_map_dma(struct vmw_ttm_tt *vmw_tt)
 	int ret = 0;
 	static size_t sgl_size;
 	static size_t sgt_size;
+	struct scatterlist *sg;
 
 	if (vmw_tt->mapped)
 		return 0;
@@ -350,12 +383,15 @@ static int vmw_ttm_map_dma(struct vmw_ttm_tt *vmw_tt)
 		if (unlikely(ret != 0))
 			return ret;
 
-		ret = sg_alloc_table_from_pages_segment(
-			&vmw_tt->sgt, vsgt->pages, vsgt->num_pages, 0,
-			(unsigned long)vsgt->num_pages << PAGE_SHIFT,
-			dma_get_max_seg_size(dev_priv->drm.dev), GFP_KERNEL);
-		if (ret)
+		sg = __sg_alloc_table_from_pages(&vmw_tt->sgt, vsgt->pages,
+				vsgt->num_pages, 0,
+				(unsigned long) vsgt->num_pages << PAGE_SHIFT,
+				dma_get_max_seg_size(dev_priv->drm.dev),
+				NULL, 0, GFP_KERNEL);
+		if (IS_ERR(sg)) {
+			ret = PTR_ERR(sg);
 			goto out_sg_alloc_fail;
+		}
 
 		if (vsgt->num_pages > vmw_tt->sgt.orig_nents) {
 			uint64_t over_alloc =
@@ -622,6 +658,14 @@ static void vmw_evict_flags(struct ttm_buffer_object *bo,
 	*placement = vmw_sys_placement;
 }
 
+static int vmw_verify_access(struct ttm_buffer_object *bo, struct file *filp)
+{
+	struct ttm_object_file *tfile =
+		vmw_fpriv((struct drm_file *)filp->private_data)->tfile;
+
+	return vmw_user_bo_verify_access(bo, tfile);
+}
+
 static int vmw_ttm_io_mem_reserve(struct ttm_device *bdev, struct ttm_resource *mem)
 {
 	struct vmw_private *dev_priv = container_of(bdev, struct vmw_private, bdev);
@@ -680,7 +724,7 @@ static int vmw_move(struct ttm_buffer_object *bo,
 		    struct ttm_resource *new_mem,
 		    struct ttm_place *hop)
 {
-	struct ttm_resource_manager *old_man = ttm_manager_type(bo->bdev, bo->resource->mem_type);
+	struct ttm_resource_manager *old_man = ttm_manager_type(bo->bdev, bo->mem.mem_type);
 	struct ttm_resource_manager *new_man = ttm_manager_type(bo->bdev, new_mem->mem_type);
 	int ret;
 
@@ -690,11 +734,11 @@ static int vmw_move(struct ttm_buffer_object *bo,
 			return ret;
 	}
 
-	vmw_move_notify(bo, bo->resource, new_mem);
+	vmw_move_notify(bo, &bo->mem, new_mem);
 
 	if (old_man->use_tt && new_man->use_tt) {
-		if (bo->resource->mem_type == TTM_PL_SYSTEM) {
-			ttm_bo_move_null(bo, new_mem);
+		if (bo->mem.mem_type == TTM_PL_SYSTEM) {
+			ttm_bo_assign_mem(bo, new_mem);
 			return 0;
 		}
 		ret = ttm_bo_wait_ctx(bo, ctx);
@@ -702,7 +746,7 @@ static int vmw_move(struct ttm_buffer_object *bo,
 			goto fail;
 
 		vmw_ttm_unbind(bo->bdev, bo->ttm);
-		ttm_resource_free(bo, &bo->resource);
+		ttm_resource_free(bo, &bo->mem);
 		ttm_bo_assign_mem(bo, new_mem);
 		return 0;
 	} else {
@@ -712,7 +756,7 @@ static int vmw_move(struct ttm_buffer_object *bo,
 	}
 	return 0;
 fail:
-	vmw_move_notify(bo, new_mem, bo->resource);
+	vmw_move_notify(bo, new_mem, &bo->mem);
 	return ret;
 }
 
@@ -724,6 +768,7 @@ struct ttm_device_funcs vmw_bo_driver = {
 	.eviction_valuable = ttm_bo_eviction_valuable,
 	.evict_flags = vmw_evict_flags,
 	.move = vmw_move,
+	.verify_access = vmw_verify_access,
 	.swap_notify = vmw_swap_notify,
 	.io_mem_reserve = &vmw_ttm_io_mem_reserve,
 };

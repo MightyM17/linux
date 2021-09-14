@@ -58,7 +58,7 @@ static void ttm_bo_mem_space_debug(struct ttm_buffer_object *bo,
 	int i, mem_type;
 
 	drm_printf(&p, "No space for %p (%lu pages, %zuK, %zuM)\n",
-		   bo, bo->resource->num_pages, bo->base.size >> 10,
+		   bo, bo->mem.num_pages, bo->base.size >> 10,
 		   bo->base.size >> 20);
 	for (i = 0; i < placement->num_placement; i++) {
 		mem_type = placement->placement[i].mem_type;
@@ -102,9 +102,6 @@ void ttm_bo_move_to_lru_tail(struct ttm_buffer_object *bo,
 		return;
 	}
 
-	if (!mem)
-		return;
-
 	man = ttm_manager_type(bdev, mem->mem_type);
 	list_move_tail(&bo->lru, &man->lru[bo->priority]);
 
@@ -112,7 +109,7 @@ void ttm_bo_move_to_lru_tail(struct ttm_buffer_object *bo,
 		bdev->funcs->del_from_lru_notify(bo);
 
 	if (bulk && !bo->pin_count) {
-		switch (bo->resource->mem_type) {
+		switch (bo->mem.mem_type) {
 		case TTM_PL_TT:
 			ttm_bo_bulk_move_set_pos(&bulk->tt[bo->priority], bo);
 			break;
@@ -166,12 +163,10 @@ static int ttm_bo_handle_move_mem(struct ttm_buffer_object *bo,
 				  struct ttm_operation_ctx *ctx,
 				  struct ttm_place *hop)
 {
-	struct ttm_resource_manager *old_man, *new_man;
 	struct ttm_device *bdev = bo->bdev;
+	struct ttm_resource_manager *old_man = ttm_manager_type(bdev, bo->mem.mem_type);
+	struct ttm_resource_manager *new_man = ttm_manager_type(bdev, mem->mem_type);
 	int ret;
-
-	old_man = ttm_manager_type(bdev, bo->resource->mem_type);
-	new_man = ttm_manager_type(bdev, mem->mem_type);
 
 	ttm_bo_unmap_virtual(bo);
 
@@ -205,7 +200,7 @@ static int ttm_bo_handle_move_mem(struct ttm_buffer_object *bo,
 	return 0;
 
 out_err:
-	new_man = ttm_manager_type(bdev, bo->resource->mem_type);
+	new_man = ttm_manager_type(bdev, bo->mem.mem_type);
 	if (!new_man->use_tt)
 		ttm_bo_tt_destroy(bo);
 
@@ -226,7 +221,7 @@ static void ttm_bo_cleanup_memtype_use(struct ttm_buffer_object *bo)
 		bo->bdev->funcs->delete_mem_notify(bo);
 
 	ttm_bo_tt_destroy(bo);
-	ttm_resource_free(bo, &bo->resource);
+	ttm_resource_free(bo, &bo->mem);
 }
 
 static int ttm_bo_individualize_resv(struct ttm_buffer_object *bo)
@@ -264,8 +259,8 @@ static void ttm_bo_flush_all_fences(struct ttm_buffer_object *bo)
 	int i;
 
 	rcu_read_lock();
-	fobj = dma_resv_shared_list(resv);
-	fence = dma_resv_excl_fence(resv);
+	fobj = rcu_dereference(resv->fence);
+	fence = rcu_dereference(resv->fence_excl);
 	if (fence && !fence->ops->signaled)
 		dma_fence_enable_sw_signaling(fence);
 
@@ -279,7 +274,7 @@ static void ttm_bo_flush_all_fences(struct ttm_buffer_object *bo)
 }
 
 /**
- * ttm_bo_cleanup_refs
+ * function ttm_bo_cleanup_refs
  * If bo idle, remove from lru lists, and unref.
  * If not idle, block if possible.
  *
@@ -299,7 +294,7 @@ static int ttm_bo_cleanup_refs(struct ttm_buffer_object *bo,
 	struct dma_resv *resv = &bo->base._resv;
 	int ret;
 
-	if (dma_resv_test_signaled(resv, true))
+	if (dma_resv_test_signaled_rcu(resv, true))
 		ret = 0;
 	else
 		ret = -EBUSY;
@@ -311,8 +306,8 @@ static int ttm_bo_cleanup_refs(struct ttm_buffer_object *bo,
 			dma_resv_unlock(bo->base.resv);
 		spin_unlock(&bo->bdev->lru_lock);
 
-		lret = dma_resv_wait_timeout(resv, true, interruptible,
-					     30 * HZ);
+		lret = dma_resv_wait_timeout_rcu(resv, true, interruptible,
+						 30 * HZ);
 
 		if (lret < 0)
 			return lret;
@@ -406,26 +401,24 @@ static void ttm_bo_release(struct kref *kref)
 	struct ttm_device *bdev = bo->bdev;
 	int ret;
 
-	WARN_ON_ONCE(bo->pin_count);
-
 	if (!bo->deleted) {
 		ret = ttm_bo_individualize_resv(bo);
 		if (ret) {
 			/* Last resort, if we fail to allocate memory for the
 			 * fences block for the BO to become idle
 			 */
-			dma_resv_wait_timeout(bo->base.resv, true, false,
-					      30 * HZ);
+			dma_resv_wait_timeout_rcu(bo->base.resv, true, false,
+						  30 * HZ);
 		}
 
 		if (bo->bdev->funcs->release_notify)
 			bo->bdev->funcs->release_notify(bo);
 
 		drm_vma_offset_remove(bdev->vma_manager, &bo->base.vma_node);
-		ttm_mem_io_free(bdev, bo->resource);
+		ttm_mem_io_free(bdev, &bo->mem);
 	}
 
-	if (!dma_resv_test_signaled(bo->base.resv, true) ||
+	if (!dma_resv_test_signaled_rcu(bo->base.resv, true) ||
 	    !dma_resv_trylock(bo->base.resv)) {
 		/* The BO is not idle, resurrect it for delayed destroy */
 		ttm_bo_flush_all_fences(bo);
@@ -441,9 +434,9 @@ static void ttm_bo_release(struct kref *kref)
 		 * FIXME: QXL is triggering this. Can be removed when the
 		 * driver is fixed.
 		 */
-		if (bo->pin_count) {
+		if (WARN_ON_ONCE(bo->pin_count)) {
 			bo->pin_count = 0;
-			ttm_bo_move_to_lru_tail(bo, bo->resource, NULL);
+			ttm_bo_move_to_lru_tail(bo, &bo->mem, NULL);
 		}
 
 		kref_init(&bo->kref);
@@ -465,6 +458,8 @@ static void ttm_bo_release(struct kref *kref)
 
 	atomic_dec(&ttm_glob.bo_count);
 	dma_fence_put(bo->moving);
+	if (!ttm_bo_uses_embedded_gem_object(bo))
+		dma_resv_fini(&bo->base._resv);
 	bo->destroy(bo);
 }
 
@@ -488,36 +483,11 @@ void ttm_bo_unlock_delayed_workqueue(struct ttm_device *bdev, int resched)
 }
 EXPORT_SYMBOL(ttm_bo_unlock_delayed_workqueue);
 
-static int ttm_bo_bounce_temp_buffer(struct ttm_buffer_object *bo,
-				     struct ttm_resource **mem,
-				     struct ttm_operation_ctx *ctx,
-				     struct ttm_place *hop)
-{
-	struct ttm_placement hop_placement;
-	struct ttm_resource *hop_mem;
-	int ret;
-
-	hop_placement.num_placement = hop_placement.num_busy_placement = 1;
-	hop_placement.placement = hop_placement.busy_placement = hop;
-
-	/* find space in the bounce domain */
-	ret = ttm_bo_mem_space(bo, &hop_placement, &hop_mem, ctx);
-	if (ret)
-		return ret;
-	/* move to the bounce domain */
-	ret = ttm_bo_handle_move_mem(bo, hop_mem, false, ctx, NULL);
-	if (ret) {
-		ttm_resource_free(bo, &hop_mem);
-		return ret;
-	}
-	return 0;
-}
-
 static int ttm_bo_evict(struct ttm_buffer_object *bo,
 			struct ttm_operation_ctx *ctx)
 {
 	struct ttm_device *bdev = bo->bdev;
-	struct ttm_resource *evict_mem;
+	struct ttm_resource evict_mem;
 	struct ttm_placement placement;
 	struct ttm_place hop;
 	int ret = 0;
@@ -531,16 +501,16 @@ static int ttm_bo_evict(struct ttm_buffer_object *bo,
 	bdev->funcs->evict_flags(bo, &placement);
 
 	if (!placement.num_placement && !placement.num_busy_placement) {
-		ret = ttm_bo_wait(bo, true, false);
-		if (ret)
-			return ret;
+		ttm_bo_wait(bo, false, false);
 
-		/*
-		 * Since we've already synced, this frees backing store
-		 * immediately.
-		 */
-		return ttm_bo_pipeline_gutting(bo);
+		ttm_bo_cleanup_memtype_use(bo);
+		return ttm_tt_create(bo, false);
 	}
+
+	evict_mem = bo->mem;
+	evict_mem.mm_node = NULL;
+	evict_mem.bus.offset = 0;
+	evict_mem.bus.addr = NULL;
 
 	ret = ttm_bo_mem_space(bo, &placement, &evict_mem, ctx);
 	if (ret) {
@@ -552,17 +522,12 @@ static int ttm_bo_evict(struct ttm_buffer_object *bo,
 		goto out;
 	}
 
-bounce:
-	ret = ttm_bo_handle_move_mem(bo, evict_mem, true, ctx, &hop);
-	if (ret == -EMULTIHOP) {
-		ret = ttm_bo_bounce_temp_buffer(bo, &evict_mem, ctx, &hop);
-		if (ret) {
+	ret = ttm_bo_handle_move_mem(bo, &evict_mem, true, ctx, &hop);
+	if (unlikely(ret)) {
+		WARN(ret == -EMULTIHOP, "Unexpected multihop in eviction - likely driver bug\n");
+		if (ret != -ERESTARTSYS)
 			pr_err("Buffer eviction failed\n");
-			ttm_resource_free(bo, &evict_mem);
-			goto out;
-		}
-		/* try and move to final place now. */
-		goto bounce;
+		ttm_resource_free(bo, &evict_mem);
 	}
 out:
 	return ret;
@@ -571,15 +536,11 @@ out:
 bool ttm_bo_eviction_valuable(struct ttm_buffer_object *bo,
 			      const struct ttm_place *place)
 {
-	dma_resv_assert_held(bo->base.resv);
-	if (bo->resource->mem_type == TTM_PL_SYSTEM)
-		return true;
-
 	/* Don't evict this BO if it's outside of the
 	 * requested placement range
 	 */
-	if (place->fpfn >= (bo->resource->start + bo->resource->num_pages) ||
-	    (place->lpfn && place->lpfn <= bo->resource->start))
+	if (place->fpfn >= (bo->mem.start + bo->mem.num_pages) ||
+	    (place->lpfn && place->lpfn <= bo->mem.start))
 		return false;
 
 	return true;
@@ -597,9 +558,7 @@ EXPORT_SYMBOL(ttm_bo_eviction_valuable);
  * b. Otherwise, trylock it.
  */
 static bool ttm_bo_evict_swapout_allowable(struct ttm_buffer_object *bo,
-					   struct ttm_operation_ctx *ctx,
-					   const struct ttm_place *place,
-					   bool *locked, bool *busy)
+			struct ttm_operation_ctx *ctx, bool *locked, bool *busy)
 {
 	bool ret = false;
 
@@ -615,14 +574,6 @@ static bool ttm_bo_evict_swapout_allowable(struct ttm_buffer_object *bo,
 		*locked = ret;
 		if (busy)
 			*busy = !ret;
-	}
-
-	if (ret && place && !bo->bdev->funcs->eviction_valuable(bo, place)) {
-		ret = false;
-		if (*locked) {
-			dma_resv_unlock(bo->base.resv);
-			*locked = false;
-		}
 	}
 
 	return ret;
@@ -679,14 +630,20 @@ int ttm_mem_evict_first(struct ttm_device *bdev,
 		list_for_each_entry(bo, &man->lru[i], lru) {
 			bool busy;
 
-			if (!ttm_bo_evict_swapout_allowable(bo, ctx, place,
-							    &locked, &busy)) {
+			if (!ttm_bo_evict_swapout_allowable(bo, ctx, &locked,
+							    &busy)) {
 				if (busy && !busy_bo && ticket !=
 				    dma_resv_locking_ctx(bo->base.resv))
 					busy_bo = bo;
 				continue;
 			}
 
+			if (place && !bdev->funcs->eviction_valuable(bo,
+								      place)) {
+				if (locked)
+					dma_resv_unlock(bo->base.resv);
+				continue;
+			}
 			if (!ttm_bo_get_unless_zero(bo)) {
 				if (locked)
 					dma_resv_unlock(bo->base.resv);
@@ -730,9 +687,7 @@ int ttm_mem_evict_first(struct ttm_device *bdev,
 }
 
 /*
- * Add the last move fence to the BO and reserve a new shared slot. We only use
- * a shared slot to avoid unecessary sync and rely on the subsequent bo move to
- * either stall or use an exclusive fence respectively set bo->moving.
+ * Add the last move fence to the BO and reserve a new shared slot.
  */
 static int ttm_bo_add_move_fence(struct ttm_buffer_object *bo,
 				 struct ttm_resource_manager *man,
@@ -774,15 +729,14 @@ static int ttm_bo_add_move_fence(struct ttm_buffer_object *bo,
  */
 static int ttm_bo_mem_force_space(struct ttm_buffer_object *bo,
 				  const struct ttm_place *place,
-				  struct ttm_resource **mem,
+				  struct ttm_resource *mem,
 				  struct ttm_operation_ctx *ctx)
 {
 	struct ttm_device *bdev = bo->bdev;
-	struct ttm_resource_manager *man;
+	struct ttm_resource_manager *man = ttm_manager_type(bdev, mem->mem_type);
 	struct ww_acquire_ctx *ticket;
 	int ret;
 
-	man = ttm_manager_type(bdev, place->mem_type);
 	ticket = dma_resv_locking_ctx(bo->base.resv);
 	do {
 		ret = ttm_resource_alloc(bo, place, mem);
@@ -796,7 +750,37 @@ static int ttm_bo_mem_force_space(struct ttm_buffer_object *bo,
 			return ret;
 	} while (1);
 
-	return ttm_bo_add_move_fence(bo, man, *mem, ctx->no_wait_gpu);
+	return ttm_bo_add_move_fence(bo, man, mem, ctx->no_wait_gpu);
+}
+
+/**
+ * ttm_bo_mem_placement - check if placement is compatible
+ * @bo: BO to find memory for
+ * @place: where to search
+ * @mem: the memory object to fill in
+ *
+ * Check if placement is compatible and fill in mem structure.
+ * Returns -EBUSY if placement won't work or negative error code.
+ * 0 when placement can be used.
+ */
+static int ttm_bo_mem_placement(struct ttm_buffer_object *bo,
+				const struct ttm_place *place,
+				struct ttm_resource *mem)
+{
+	struct ttm_device *bdev = bo->bdev;
+	struct ttm_resource_manager *man;
+
+	man = ttm_manager_type(bdev, place->mem_type);
+	if (!man || !ttm_resource_manager_used(man))
+		return -EBUSY;
+
+	mem->mem_type = place->mem_type;
+	mem->placement = place->flags;
+
+	spin_lock(&bo->bdev->lru_lock);
+	ttm_bo_move_to_lru_tail(bo, mem, NULL);
+	spin_unlock(&bo->bdev->lru_lock);
+	return 0;
 }
 
 /*
@@ -809,7 +793,7 @@ static int ttm_bo_mem_force_space(struct ttm_buffer_object *bo,
  */
 int ttm_bo_mem_space(struct ttm_buffer_object *bo,
 			struct ttm_placement *placement,
-			struct ttm_resource **mem,
+			struct ttm_resource *mem,
 			struct ttm_operation_ctx *ctx)
 {
 	struct ttm_device *bdev = bo->bdev;
@@ -824,8 +808,8 @@ int ttm_bo_mem_space(struct ttm_buffer_object *bo,
 		const struct ttm_place *place = &placement->placement[i];
 		struct ttm_resource_manager *man;
 
-		man = ttm_manager_type(bdev, place->mem_type);
-		if (!man || !ttm_resource_manager_used(man))
+		ret = ttm_bo_mem_placement(bo, place, mem);
+		if (ret)
 			continue;
 
 		type_found = true;
@@ -835,7 +819,8 @@ int ttm_bo_mem_space(struct ttm_buffer_object *bo,
 		if (unlikely(ret))
 			goto error;
 
-		ret = ttm_bo_add_move_fence(bo, man, *mem, ctx->no_wait_gpu);
+		man = ttm_manager_type(bdev, mem->mem_type);
+		ret = ttm_bo_add_move_fence(bo, man, mem, ctx->no_wait_gpu);
 		if (unlikely(ret)) {
 			ttm_resource_free(bo, mem);
 			if (ret == -EBUSY)
@@ -848,10 +833,9 @@ int ttm_bo_mem_space(struct ttm_buffer_object *bo,
 
 	for (i = 0; i < placement->num_busy_placement; ++i) {
 		const struct ttm_place *place = &placement->busy_placement[i];
-		struct ttm_resource_manager *man;
 
-		man = ttm_manager_type(bdev, place->mem_type);
-		if (!man || !ttm_resource_manager_used(man))
+		ret = ttm_bo_mem_placement(bo, place, mem);
+		if (ret)
 			continue;
 
 		type_found = true;
@@ -870,22 +854,59 @@ int ttm_bo_mem_space(struct ttm_buffer_object *bo,
 	}
 
 error:
-	if (bo->resource->mem_type == TTM_PL_SYSTEM && !bo->pin_count)
+	if (bo->mem.mem_type == TTM_PL_SYSTEM && !bo->pin_count)
 		ttm_bo_move_to_lru_tail_unlocked(bo);
 
 	return ret;
 }
 EXPORT_SYMBOL(ttm_bo_mem_space);
 
+static int ttm_bo_bounce_temp_buffer(struct ttm_buffer_object *bo,
+				     struct ttm_resource *mem,
+				     struct ttm_operation_ctx *ctx,
+				     struct ttm_place *hop)
+{
+	struct ttm_placement hop_placement;
+	int ret;
+	struct ttm_resource hop_mem = *mem;
+
+	hop_mem.mm_node = NULL;
+	hop_mem.mem_type = TTM_PL_SYSTEM;
+	hop_mem.placement = 0;
+
+	hop_placement.num_placement = hop_placement.num_busy_placement = 1;
+	hop_placement.placement = hop_placement.busy_placement = hop;
+
+	/* find space in the bounce domain */
+	ret = ttm_bo_mem_space(bo, &hop_placement, &hop_mem, ctx);
+	if (ret)
+		return ret;
+	/* move to the bounce domain */
+	ret = ttm_bo_handle_move_mem(bo, &hop_mem, false, ctx, NULL);
+	if (ret) {
+		ttm_resource_free(bo, &hop_mem);
+		return ret;
+	}
+	return 0;
+}
+
 static int ttm_bo_move_buffer(struct ttm_buffer_object *bo,
 			      struct ttm_placement *placement,
 			      struct ttm_operation_ctx *ctx)
 {
-	struct ttm_resource *mem;
+	int ret = 0;
 	struct ttm_place hop;
-	int ret;
+	struct ttm_resource mem;
 
 	dma_resv_assert_held(bo->base.resv);
+
+	memset(&hop, 0, sizeof(hop));
+
+	mem.num_pages = PAGE_ALIGN(bo->base.size) >> PAGE_SHIFT;
+	mem.page_alignment = bo->mem.page_alignment;
+	mem.bus.offset = 0;
+	mem.bus.addr = NULL;
+	mem.mm_node = NULL;
 
 	/*
 	 * Determine where to move the buffer.
@@ -900,7 +921,7 @@ static int ttm_bo_move_buffer(struct ttm_buffer_object *bo,
 	if (ret)
 		return ret;
 bounce:
-	ret = ttm_bo_handle_move_mem(bo, mem, false, ctx, &hop);
+	ret = ttm_bo_handle_move_mem(bo, &mem, false, ctx, &hop);
 	if (ret == -EMULTIHOP) {
 		ret = ttm_bo_bounce_temp_buffer(bo, &mem, ctx, &hop);
 		if (ret)
@@ -920,9 +941,6 @@ static bool ttm_bo_places_compat(const struct ttm_place *places,
 				 uint32_t *new_flags)
 {
 	unsigned i;
-
-	if (mem->placement & TTM_PL_FLAG_TEMPORARY)
-		return false;
 
 	for (i = 0; i < num_placement; i++) {
 		const struct ttm_place *heap = &places[i];
@@ -971,13 +989,18 @@ int ttm_bo_validate(struct ttm_buffer_object *bo,
 	/*
 	 * Remove the backing store if no placement is given.
 	 */
-	if (!placement->num_placement && !placement->num_busy_placement)
-		return ttm_bo_pipeline_gutting(bo);
+	if (!placement->num_placement && !placement->num_busy_placement) {
+		ret = ttm_bo_pipeline_gutting(bo);
+		if (ret)
+			return ret;
+
+		return ttm_tt_create(bo, false);
+	}
 
 	/*
 	 * Check whether we need to move buffer.
 	 */
-	if (!ttm_bo_mem_compat(placement, bo->resource, &new_flags)) {
+	if (!ttm_bo_mem_compat(placement, &bo->mem, &new_flags)) {
 		ret = ttm_bo_move_buffer(bo, placement, ctx);
 		if (ret)
 			return ret;
@@ -985,7 +1008,7 @@ int ttm_bo_validate(struct ttm_buffer_object *bo,
 	/*
 	 * We might need to add a TTM.
 	 */
-	if (bo->resource->mem_type == TTM_PL_SYSTEM) {
+	if (bo->mem.mem_type == TTM_PL_SYSTEM) {
 		ret = ttm_tt_create(bo, true);
 		if (ret)
 			return ret;
@@ -1005,9 +1028,8 @@ int ttm_bo_init_reserved(struct ttm_device *bdev,
 			 struct dma_resv *resv,
 			 void (*destroy) (struct ttm_buffer_object *))
 {
-	static const struct ttm_place sys_mem = { .mem_type = TTM_PL_SYSTEM };
 	bool locked;
-	int ret;
+	int ret = 0;
 
 	bo->destroy = destroy ? destroy : ttm_bo_default_destroy;
 
@@ -1016,8 +1038,14 @@ int ttm_bo_init_reserved(struct ttm_device *bdev,
 	INIT_LIST_HEAD(&bo->ddestroy);
 	bo->bdev = bdev;
 	bo->type = type;
-	bo->page_alignment = page_alignment;
+	bo->mem.mem_type = TTM_PL_SYSTEM;
+	bo->mem.num_pages = PAGE_ALIGN(size) >> PAGE_SHIFT;
+	bo->mem.mm_node = NULL;
+	bo->mem.page_alignment = page_alignment;
+	bo->mem.bus.offset = 0;
+	bo->mem.bus.addr = NULL;
 	bo->moving = NULL;
+	bo->mem.placement = 0;
 	bo->pin_count = 0;
 	bo->sg = sg;
 	if (resv) {
@@ -1026,13 +1054,16 @@ int ttm_bo_init_reserved(struct ttm_device *bdev,
 	} else {
 		bo->base.resv = &bo->base._resv;
 	}
-	atomic_inc(&ttm_glob.bo_count);
-
-	ret = ttm_resource_alloc(bo, &sys_mem, &bo->resource);
-	if (unlikely(ret)) {
-		ttm_bo_put(bo);
-		return ret;
+	if (!ttm_bo_uses_embedded_gem_object(bo)) {
+		/*
+		 * bo.base is not initialized, so we have to setup the
+		 * struct elements we want use regardless.
+		 */
+		bo->base.size = size;
+		dma_resv_init(&bo->base._resv);
+		drm_vma_node_reset(&bo->base.vma_node);
 	}
+	atomic_inc(&ttm_glob.bo_count);
 
 	/*
 	 * For ttm_bo_type_device buffers, allocate
@@ -1041,7 +1072,7 @@ int ttm_bo_init_reserved(struct ttm_device *bdev,
 	if (bo->type == ttm_bo_type_device ||
 	    bo->type == ttm_bo_type_sg)
 		ret = drm_vma_offset_add(bdev->vma_manager, &bo->base.vma_node,
-					 bo->resource->num_pages);
+					 bo->mem.num_pages);
 
 	/* passed reservation objects should already be locked,
 	 * since otherwise lockdep will be angered in radeon.
@@ -1103,7 +1134,7 @@ void ttm_bo_unmap_virtual(struct ttm_buffer_object *bo)
 	struct ttm_device *bdev = bo->bdev;
 
 	drm_vma_node_unmap(&bo->base.vma_node, bdev->dev_mapping);
-	ttm_mem_io_free(bdev, bo->resource);
+	ttm_mem_io_free(bdev, &bo->mem);
 }
 EXPORT_SYMBOL(ttm_bo_unmap_virtual);
 
@@ -1113,14 +1144,14 @@ int ttm_bo_wait(struct ttm_buffer_object *bo,
 	long timeout = 15 * HZ;
 
 	if (no_wait) {
-		if (dma_resv_test_signaled(bo->base.resv, true))
+		if (dma_resv_test_signaled_rcu(bo->base.resv, true))
 			return 0;
 		else
 			return -EBUSY;
 	}
 
-	timeout = dma_resv_wait_timeout(bo->base.resv, true, interruptible,
-					timeout);
+	timeout = dma_resv_wait_timeout_rcu(bo->base.resv, true,
+						      interruptible, timeout);
 	if (timeout < 0)
 		return timeout;
 
@@ -1135,34 +1166,22 @@ EXPORT_SYMBOL(ttm_bo_wait);
 int ttm_bo_swapout(struct ttm_buffer_object *bo, struct ttm_operation_ctx *ctx,
 		   gfp_t gfp_flags)
 {
-	struct ttm_place place;
 	bool locked;
 	int ret;
 
-	/*
-	 * While the bo may already reside in SYSTEM placement, set
-	 * SYSTEM as new placement to cover also the move further below.
-	 * The driver may use the fact that we're moving from SYSTEM
-	 * as an indication that we're about to swap out.
-	 */
-	memset(&place, 0, sizeof(place));
-	place.mem_type = TTM_PL_SYSTEM;
-	if (!ttm_bo_evict_swapout_allowable(bo, ctx, &place, &locked, NULL))
+	if (!ttm_bo_evict_swapout_allowable(bo, ctx, &locked, NULL))
 		return -EBUSY;
 
-	if (!bo->ttm || !ttm_tt_is_populated(bo->ttm) ||
-	    bo->ttm->page_flags & TTM_PAGE_FLAG_SG ||
-	    bo->ttm->page_flags & TTM_PAGE_FLAG_SWAPPED ||
-	    !ttm_bo_get_unless_zero(bo)) {
+	if (!ttm_bo_get_unless_zero(bo)) {
 		if (locked)
 			dma_resv_unlock(bo->base.resv);
 		return -EBUSY;
 	}
 
 	if (bo->deleted) {
-		ret = ttm_bo_cleanup_refs(bo, false, false, locked);
+		ttm_bo_cleanup_refs(bo, false, false, locked);
 		ttm_bo_put(bo);
-		return ret == -EBUSY ? -ENOSPC : ret;
+		return 0;
 	}
 
 	ttm_bo_del_from_lru(bo);
@@ -1172,17 +1191,19 @@ int ttm_bo_swapout(struct ttm_buffer_object *bo, struct ttm_operation_ctx *ctx,
 	/*
 	 * Move to system cached
 	 */
-	if (bo->resource->mem_type != TTM_PL_SYSTEM) {
+	if (bo->mem.mem_type != TTM_PL_SYSTEM) {
 		struct ttm_operation_ctx ctx = { false, false };
-		struct ttm_resource *evict_mem;
+		struct ttm_resource evict_mem;
 		struct ttm_place hop;
 
 		memset(&hop, 0, sizeof(hop));
-		ret = ttm_resource_alloc(bo, &place, &evict_mem);
-		if (unlikely(ret))
-			goto out;
 
-		ret = ttm_bo_handle_move_mem(bo, evict_mem, true, &ctx, &hop);
+		evict_mem = bo->mem;
+		evict_mem.mm_node = NULL;
+		evict_mem.placement = 0;
+		evict_mem.mem_type = TTM_PL_SYSTEM;
+
+		ret = ttm_bo_handle_move_mem(bo, &evict_mem, true, &ctx, &hop);
 		if (unlikely(ret != 0)) {
 			WARN(ret == -EMULTIHOP, "Unexpected multihop in swaput - likely driver bug.\n");
 			goto out;
@@ -1205,8 +1226,7 @@ int ttm_bo_swapout(struct ttm_buffer_object *bo, struct ttm_operation_ctx *ctx,
 	if (bo->bdev->funcs->swap_notify)
 		bo->bdev->funcs->swap_notify(bo);
 
-	if (ttm_tt_is_populated(bo->ttm))
-		ret = ttm_tt_swapout(bo->bdev, bo->ttm, gfp_flags);
+	ret = ttm_tt_swapout(bo->bdev, bo->ttm, gfp_flags);
 out:
 
 	/*
@@ -1216,7 +1236,7 @@ out:
 	if (locked)
 		dma_resv_unlock(bo->base.resv);
 	ttm_bo_put(bo);
-	return ret == -EBUSY ? -ENOSPC : ret;
+	return ret;
 }
 
 void ttm_bo_tt_destroy(struct ttm_buffer_object *bo)

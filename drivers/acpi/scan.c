@@ -3,19 +3,16 @@
  * scan.c - support for transforming the ACPI namespace into individual objects
  */
 
-#define pr_fmt(fmt) "ACPI: " fmt
-
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/kernel.h>
 #include <linux/acpi.h>
 #include <linux/acpi_iort.h>
-#include <linux/acpi_viot.h>
-#include <linux/iommu.h>
 #include <linux/signal.h>
 #include <linux/kthread.h>
 #include <linux/dmi.h>
+#include <linux/nls.h>
 #include <linux/dma-map-ops.h>
 #include <linux/platform_data/x86/apple.h>
 #include <linux/pgtable.h>
@@ -49,6 +46,12 @@ static DEFINE_MUTEX(acpi_hp_context_lock);
  * table.
  */
 static u64 spcr_uart_addr;
+
+struct acpi_dep_data {
+	struct list_head node;
+	acpi_handle supplier;
+	acpi_handle consumer;
+};
 
 void acpi_scan_lock_acquire(void)
 {
@@ -609,6 +612,11 @@ struct acpi_device *acpi_bus_get_acpi_device(acpi_handle handle)
 	return handle_to_device(handle, get_acpi_device);
 }
 
+void acpi_bus_put_acpi_device(struct acpi_device *adev)
+{
+	acpi_dev_put(adev);
+}
+
 static struct acpi_device_bus_id *acpi_device_bus_id_match(const char *dev_id)
 {
 	struct acpi_device_bus_id *acpi_device_bus_id;
@@ -636,28 +644,23 @@ static int acpi_device_set_name(struct acpi_device *device,
 	return 0;
 }
 
-static int acpi_tie_acpi_dev(struct acpi_device *adev)
-{
-	acpi_handle handle = adev->handle;
-	acpi_status status;
-
-	if (!handle)
-		return 0;
-
-	status = acpi_attach_data(handle, acpi_scan_drop_device, adev);
-	if (ACPI_FAILURE(status)) {
-		acpi_handle_err(handle, "Unable to attach device data\n");
-		return -ENODEV;
-	}
-
-	return 0;
-}
-
-static int __acpi_device_add(struct acpi_device *device,
-			     void (*release)(struct device *))
+int acpi_device_add(struct acpi_device *device,
+		    void (*release)(struct device *))
 {
 	struct acpi_device_bus_id *acpi_device_bus_id;
 	int result;
+
+	if (device->handle) {
+		acpi_status status;
+
+		status = acpi_attach_data(device->handle, acpi_scan_drop_device,
+					  device);
+		if (ACPI_FAILURE(status)) {
+			acpi_handle_err(device->handle,
+					"Unable to attach device data\n");
+			return -ENODEV;
+		}
+	}
 
 	/*
 	 * Linkage
@@ -726,7 +729,7 @@ static int __acpi_device_add(struct acpi_device *device,
 
 	result = acpi_device_setup_files(device);
 	if (result)
-		pr_err("Error creating sysfs interface for device %s\n",
+		printk(KERN_ERR PREFIX "Error creating sysfs interface for device %s\n",
 		       dev_name(&device->dev));
 
 	return 0;
@@ -745,17 +748,6 @@ err_unlock:
 	acpi_detach_data(device->handle, acpi_scan_drop_device);
 
 	return result;
-}
-
-int acpi_device_add(struct acpi_device *adev, void (*release)(struct device *))
-{
-	int ret;
-
-	ret = acpi_tie_acpi_dev(adev);
-	if (ret)
-		return ret;
-
-	return __acpi_device_add(adev, release);
 }
 
 /* --------------------------------------------------------------------------
@@ -1328,7 +1320,8 @@ static void acpi_set_pnp_ids(acpi_handle handle, struct acpi_device_pnp *pnp,
 
 		acpi_get_object_info(handle, &info);
 		if (!info) {
-			pr_err("%s: Error reading device info\n", __func__);
+			pr_err(PREFIX "%s: Error reading device info\n",
+					__func__);
 			return;
 		}
 
@@ -1412,7 +1405,7 @@ void acpi_free_pnp_ids(struct acpi_device_pnp *pnp)
  *
  * Return false if DMA is not supported. Otherwise, return true
  */
-bool acpi_dma_supported(const struct acpi_device *adev)
+bool acpi_dma_supported(struct acpi_device *adev)
 {
 	if (!adev)
 		return false;
@@ -1527,78 +1520,6 @@ int acpi_dma_get_range(struct device *dev, u64 *dma_addr, u64 *offset,
 	return ret >= 0 ? 0 : ret;
 }
 
-#ifdef CONFIG_IOMMU_API
-int acpi_iommu_fwspec_init(struct device *dev, u32 id,
-			   struct fwnode_handle *fwnode,
-			   const struct iommu_ops *ops)
-{
-	int ret = iommu_fwspec_init(dev, fwnode, ops);
-
-	if (!ret)
-		ret = iommu_fwspec_add_ids(dev, &id, 1);
-
-	return ret;
-}
-
-static inline const struct iommu_ops *acpi_iommu_fwspec_ops(struct device *dev)
-{
-	struct iommu_fwspec *fwspec = dev_iommu_fwspec_get(dev);
-
-	return fwspec ? fwspec->ops : NULL;
-}
-
-static const struct iommu_ops *acpi_iommu_configure_id(struct device *dev,
-						       const u32 *id_in)
-{
-	int err;
-	const struct iommu_ops *ops;
-
-	/*
-	 * If we already translated the fwspec there is nothing left to do,
-	 * return the iommu_ops.
-	 */
-	ops = acpi_iommu_fwspec_ops(dev);
-	if (ops)
-		return ops;
-
-	err = iort_iommu_configure_id(dev, id_in);
-	if (err && err != -EPROBE_DEFER)
-		err = viot_iommu_configure(dev);
-
-	/*
-	 * If we have reason to believe the IOMMU driver missed the initial
-	 * iommu_probe_device() call for dev, replay it to get things in order.
-	 */
-	if (!err && dev->bus && !device_iommu_mapped(dev))
-		err = iommu_probe_device(dev);
-
-	/* Ignore all other errors apart from EPROBE_DEFER */
-	if (err == -EPROBE_DEFER) {
-		return ERR_PTR(err);
-	} else if (err) {
-		dev_dbg(dev, "Adding to IOMMU failed: %d\n", err);
-		return NULL;
-	}
-	return acpi_iommu_fwspec_ops(dev);
-}
-
-#else /* !CONFIG_IOMMU_API */
-
-int acpi_iommu_fwspec_init(struct device *dev, u32 id,
-			   struct fwnode_handle *fwnode,
-			   const struct iommu_ops *ops)
-{
-	return -ENODEV;
-}
-
-static const struct iommu_ops *acpi_iommu_configure_id(struct device *dev,
-						       const u32 *id_in)
-{
-	return NULL;
-}
-
-#endif /* !CONFIG_IOMMU_API */
-
 /**
  * acpi_dma_configure_id - Set-up DMA configuration for the device.
  * @dev: The pointer to the device
@@ -1616,9 +1537,9 @@ int acpi_dma_configure_id(struct device *dev, enum dev_dma_attr attr,
 		return 0;
 	}
 
-	acpi_arch_dma_setup(dev, &dma_addr, &size);
+	iort_dma_setup(dev, &dma_addr, &size);
 
-	iommu = acpi_iommu_configure_id(dev, input_id);
+	iommu = iort_iommu_configure_id(dev, input_id);
 	if (PTR_ERR(iommu) == -EPROBE_DEFER)
 		return -EPROBE_DEFER;
 
@@ -1750,16 +1671,8 @@ void acpi_init_device_object(struct acpi_device *device, acpi_handle handle,
 	device_initialize(&device->dev);
 	dev_set_uevent_suppress(&device->dev, true);
 	acpi_init_coherency(device);
-}
-
-static void acpi_scan_dep_init(struct acpi_device *adev)
-{
-	struct acpi_dep_data *dep;
-
-	list_for_each_entry(dep, &acpi_dep_list, node) {
-		if (dep->consumer == adev->handle)
-			adev->dep_unmet++;
-	}
+	/* Assume there are unmet deps to start with. */
+	device->dep_unmet = 1;
 }
 
 void acpi_device_add_finalize(struct acpi_device *device)
@@ -1775,10 +1688,9 @@ static void acpi_scan_init_status(struct acpi_device *adev)
 }
 
 static int acpi_add_single_object(struct acpi_device **child,
-				  acpi_handle handle, int type, bool dep_init)
+				  acpi_handle handle, int type)
 {
 	struct acpi_device *device;
-	bool release_dep_lock = false;
 	int result;
 
 	device = kzalloc(sizeof(struct acpi_device), GFP_KERNEL);
@@ -1791,32 +1703,13 @@ static int acpi_add_single_object(struct acpi_device **child,
 	 * acpi_bus_get_status() and use its quirk handling.  Note that
 	 * this must be done before the get power-/wakeup_dev-flags calls.
 	 */
-	if (type == ACPI_BUS_TYPE_DEVICE || type == ACPI_BUS_TYPE_PROCESSOR) {
-		if (dep_init) {
-			mutex_lock(&acpi_dep_list_lock);
-			/*
-			 * Hold the lock until the acpi_tie_acpi_dev() call
-			 * below to prevent concurrent acpi_scan_clear_dep()
-			 * from deleting a dependency list entry without
-			 * updating dep_unmet for the device.
-			 */
-			release_dep_lock = true;
-			acpi_scan_dep_init(device);
-		}
+	if (type == ACPI_BUS_TYPE_DEVICE || type == ACPI_BUS_TYPE_PROCESSOR)
 		acpi_scan_init_status(device);
-	}
 
 	acpi_bus_get_power_flags(device);
 	acpi_bus_get_wakeup_device_flags(device);
 
-	result = acpi_tie_acpi_dev(device);
-
-	if (release_dep_lock)
-		mutex_unlock(&acpi_dep_list_lock);
-
-	if (!result)
-		result = __acpi_device_add(device, acpi_device_release);
-
+	result = acpi_device_add(device, acpi_device_release);
 	if (result) {
 		acpi_device_release(&device->dev);
 		return result;
@@ -1993,6 +1886,22 @@ static u32 acpi_scan_check_dep(acpi_handle handle, bool check_dep)
 	return count;
 }
 
+static void acpi_scan_dep_init(struct acpi_device *adev)
+{
+	struct acpi_dep_data *dep;
+
+	adev->dep_unmet = 0;
+
+	mutex_lock(&acpi_dep_list_lock);
+
+	list_for_each_entry(dep, &acpi_dep_list, node) {
+		if (dep->consumer == adev->handle)
+			adev->dep_unmet++;
+	}
+
+	mutex_unlock(&acpi_dep_list_lock);
+}
+
 static bool acpi_bus_scan_second_pass;
 
 static acpi_status acpi_bus_check_add(acpi_handle handle, bool check_dep,
@@ -2040,15 +1949,19 @@ static acpi_status acpi_bus_check_add(acpi_handle handle, bool check_dep,
 		return AE_OK;
 	}
 
-	/*
-	 * If check_dep is true at this point, the device has no dependencies,
-	 * or the creation of the device object would have been postponed above.
-	 */
-	acpi_add_single_object(&device, handle, type, !check_dep);
+	acpi_add_single_object(&device, handle, type);
 	if (!device)
 		return AE_CTRL_DEPTH;
 
 	acpi_scan_init_hotplug(device);
+	/*
+	 * If check_dep is true at this point, the device has no dependencies,
+	 * or the creation of the device object would have been postponed above.
+	 */
+	if (check_dep)
+		device->dep_unmet = 0;
+	else
+		acpi_scan_dep_init(device);
 
 out:
 	if (!*adev_p)
@@ -2198,141 +2111,29 @@ static void acpi_bus_attach(struct acpi_device *device, bool first_pass)
 		device->handler->hotplug.notify_online(device);
 }
 
-static int acpi_dev_get_first_consumer_dev_cb(struct acpi_dep_data *dep, void *data)
-{
-	struct acpi_device *adev;
-
-	adev = acpi_bus_get_acpi_device(dep->consumer);
-	if (adev) {
-		*(struct acpi_device **)data = adev;
-		return 1;
-	}
-	/* Continue parsing if the device object is not present. */
-	return 0;
-}
-
-struct acpi_scan_clear_dep_work {
-	struct work_struct work;
-	struct acpi_device *adev;
-};
-
-static void acpi_scan_clear_dep_fn(struct work_struct *work)
-{
-	struct acpi_scan_clear_dep_work *cdw;
-
-	cdw = container_of(work, struct acpi_scan_clear_dep_work, work);
-
-	acpi_scan_lock_acquire();
-	acpi_bus_attach(cdw->adev, true);
-	acpi_scan_lock_release();
-
-	acpi_dev_put(cdw->adev);
-	kfree(cdw);
-}
-
-static bool acpi_scan_clear_dep_queue(struct acpi_device *adev)
-{
-	struct acpi_scan_clear_dep_work *cdw;
-
-	if (adev->dep_unmet)
-		return false;
-
-	cdw = kmalloc(sizeof(*cdw), GFP_KERNEL);
-	if (!cdw)
-		return false;
-
-	cdw->adev = adev;
-	INIT_WORK(&cdw->work, acpi_scan_clear_dep_fn);
-	/*
-	 * Since the work function may block on the lock until the entire
-	 * initial enumeration of devices is complete, put it into the unbound
-	 * workqueue.
-	 */
-	queue_work(system_unbound_wq, &cdw->work);
-
-	return true;
-}
-
-static int acpi_scan_clear_dep(struct acpi_dep_data *dep, void *data)
-{
-	struct acpi_device *adev = acpi_bus_get_acpi_device(dep->consumer);
-
-	if (adev) {
-		adev->dep_unmet--;
-		if (!acpi_scan_clear_dep_queue(adev))
-			acpi_dev_put(adev);
-	}
-
-	list_del(&dep->node);
-	kfree(dep);
-
-	return 0;
-}
-
-/**
- * acpi_walk_dep_device_list - Apply a callback to every entry in acpi_dep_list
- * @handle:	The ACPI handle of the supplier device
- * @callback:	Pointer to the callback function to apply
- * @data:	Pointer to some data to pass to the callback
- *
- * The return value of the callback determines this function's behaviour. If 0
- * is returned we continue to iterate over acpi_dep_list. If a positive value
- * is returned then the loop is broken but this function returns 0. If a
- * negative value is returned by the callback then the loop is broken and that
- * value is returned as the final error.
- */
-static int acpi_walk_dep_device_list(acpi_handle handle,
-				int (*callback)(struct acpi_dep_data *, void *),
-				void *data)
+void acpi_walk_dep_device_list(acpi_handle handle)
 {
 	struct acpi_dep_data *dep, *tmp;
-	int ret = 0;
+	struct acpi_device *adev;
 
 	mutex_lock(&acpi_dep_list_lock);
 	list_for_each_entry_safe(dep, tmp, &acpi_dep_list, node) {
 		if (dep->supplier == handle) {
-			ret = callback(dep, data);
-			if (ret)
-				break;
+			acpi_bus_get_device(dep->consumer, &adev);
+
+			if (adev) {
+				adev->dep_unmet--;
+				if (!adev->dep_unmet)
+					acpi_bus_attach(adev, true);
+			}
+
+			list_del(&dep->node);
+			kfree(dep);
 		}
 	}
 	mutex_unlock(&acpi_dep_list_lock);
-
-	return ret > 0 ? 0 : ret;
 }
-
-/**
- * acpi_dev_clear_dependencies - Inform consumers that the device is now active
- * @supplier: Pointer to the supplier &struct acpi_device
- *
- * Clear dependencies on the given device.
- */
-void acpi_dev_clear_dependencies(struct acpi_device *supplier)
-{
-	acpi_walk_dep_device_list(supplier->handle, acpi_scan_clear_dep, NULL);
-}
-EXPORT_SYMBOL_GPL(acpi_dev_clear_dependencies);
-
-/**
- * acpi_dev_get_first_consumer_dev - Return ACPI device dependent on @supplier
- * @supplier: Pointer to the dependee device
- *
- * Returns the first &struct acpi_device which declares itself dependent on
- * @supplier via the _DEP buffer, parsed from the acpi_dep_list.
- *
- * The caller is responsible for putting the reference to adev when it is no
- * longer needed.
- */
-struct acpi_device *acpi_dev_get_first_consumer_dev(struct acpi_device *supplier)
-{
-	struct acpi_device *adev = NULL;
-
-	acpi_walk_dep_device_list(supplier->handle,
-				  acpi_dev_get_first_consumer_dev_cb, &adev);
-
-	return adev;
-}
-EXPORT_SYMBOL_GPL(acpi_dev_get_first_consumer_dev);
+EXPORT_SYMBOL_GPL(acpi_walk_dep_device_list);
 
 /**
  * acpi_bus_scan - Add ACPI device node objects in a given namespace scope.
@@ -2422,7 +2223,7 @@ int acpi_bus_register_early_device(int type)
 	struct acpi_device *device = NULL;
 	int result;
 
-	result = acpi_add_single_object(&device, NULL, type, false);
+	result = acpi_add_single_object(&device, NULL, type);
 	if (result)
 		return result;
 
@@ -2442,7 +2243,7 @@ static int acpi_bus_scan_fixed(void)
 		struct acpi_device *device = NULL;
 
 		result = acpi_add_single_object(&device, NULL,
-						ACPI_BUS_TYPE_POWER_BUTTON, false);
+						ACPI_BUS_TYPE_POWER_BUTTON);
 		if (result)
 			return result;
 
@@ -2458,7 +2259,7 @@ static int acpi_bus_scan_fixed(void)
 		struct acpi_device *device = NULL;
 
 		result = acpi_add_single_object(&device, NULL,
-						ACPI_BUS_TYPE_SLEEP_BUTTON, false);
+						ACPI_BUS_TYPE_SLEEP_BUTTON);
 		if (result)
 			return result;
 
@@ -2477,7 +2278,7 @@ static void __init acpi_get_spcr_uart_addr(void)
 	status = acpi_get_table(ACPI_SIG_SPCR, 0,
 				(struct acpi_table_header **)&spcr_ptr);
 	if (ACPI_FAILURE(status)) {
-		pr_warn("STAO table present, but SPCR is missing\n");
+		pr_warn(PREFIX "STAO table present, but SPCR is missing\n");
 		return;
 	}
 
@@ -2518,7 +2319,7 @@ int __init acpi_scan_init(void)
 				(struct acpi_table_header **)&stao_ptr);
 	if (ACPI_SUCCESS(status)) {
 		if (stao_ptr->header.length > sizeof(struct acpi_table_stao))
-			pr_info("STAO Name List not yet supported.\n");
+			pr_info(PREFIX "STAO Name List not yet supported.\n");
 
 		if (stao_ptr->ignore_uart)
 			acpi_get_spcr_uart_addr();
@@ -2607,28 +2408,46 @@ int __init __acpi_probe_device_table(struct acpi_probe_entry *ap_head, int nr)
 	return count;
 }
 
+struct acpi_table_events_work {
+	struct work_struct work;
+	void *table;
+	u32 event;
+};
+
 static void acpi_table_events_fn(struct work_struct *work)
 {
-	acpi_scan_lock_acquire();
-	acpi_bus_scan(ACPI_ROOT_OBJECT);
-	acpi_scan_lock_release();
+	struct acpi_table_events_work *tew;
 
-	kfree(work);
+	tew = container_of(work, struct acpi_table_events_work, work);
+
+	if (tew->event == ACPI_TABLE_EVENT_LOAD) {
+		acpi_scan_lock_acquire();
+		acpi_bus_scan(ACPI_ROOT_OBJECT);
+		acpi_scan_lock_release();
+	}
+
+	kfree(tew);
 }
 
-void acpi_scan_table_notify(void)
+void acpi_scan_table_handler(u32 event, void *table, void *context)
 {
-	struct work_struct *work;
+	struct acpi_table_events_work *tew;
 
 	if (!acpi_scan_initialized)
 		return;
 
-	work = kmalloc(sizeof(*work), GFP_KERNEL);
-	if (!work)
+	if (event != ACPI_TABLE_EVENT_LOAD)
 		return;
 
-	INIT_WORK(work, acpi_table_events_fn);
-	schedule_work(work);
+	tew = kmalloc(sizeof(*tew), GFP_KERNEL);
+	if (!tew)
+		return;
+
+	INIT_WORK(&tew->work, acpi_table_events_fn);
+	tew->table = table;
+	tew->event = event;
+
+	schedule_work(&tew->work);
 }
 
 int acpi_reconfig_notifier_register(struct notifier_block *nb)

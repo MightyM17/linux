@@ -459,10 +459,8 @@ static int rpmsg_dev_match(struct device *dev, struct device_driver *drv)
 
 	if (ids)
 		for (i = 0; ids[i].name[0]; i++)
-			if (rpmsg_id_match(rpdev, &ids[i])) {
-				rpdev->id.driver_data = ids[i].driver_data;
+			if (rpmsg_id_match(rpdev, &ids[i]))
 				return 1;
-			}
 
 	return of_driver_match_device(dev, drv);
 }
@@ -530,13 +528,14 @@ out:
 	return err;
 }
 
-static void rpmsg_dev_remove(struct device *dev)
+static int rpmsg_dev_remove(struct device *dev)
 {
 	struct rpmsg_device *rpdev = to_rpmsg_device(dev);
 	struct rpmsg_driver *rpdrv = to_rpmsg_driver(rpdev->dev.driver);
+	int err = 0;
 
 	if (rpdev->ops->announce_destroy)
-		rpdev->ops->announce_destroy(rpdev);
+		err = rpdev->ops->announce_destroy(rpdev);
 
 	if (rpdrv->remove)
 		rpdrv->remove(rpdev);
@@ -545,6 +544,8 @@ static void rpmsg_dev_remove(struct device *dev)
 
 	if (rpdev->ept)
 		rpmsg_destroy_ept(rpdev->ept);
+
+	return err;
 }
 
 static struct bus_type rpmsg_bus = {

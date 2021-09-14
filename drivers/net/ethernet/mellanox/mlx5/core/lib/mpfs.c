@@ -33,7 +33,6 @@
 #include <linux/etherdevice.h>
 #include <linux/mlx5/driver.h>
 #include <linux/mlx5/mlx5_ifc.h>
-#include <linux/mlx5/mpfs.h>
 #include <linux/mlx5/eswitch.h>
 #include "mlx5_core.h"
 #include "lib/mpfs.h"
@@ -176,7 +175,6 @@ out:
 	mutex_unlock(&mpfs->lock);
 	return err;
 }
-EXPORT_SYMBOL(mlx5_mpfs_add_mac);
 
 int mlx5_mpfs_del_mac(struct mlx5_core_dev *dev, u8 *mac)
 {
@@ -208,4 +206,3 @@ unlock:
 	mutex_unlock(&mpfs->lock);
 	return err;
 }
-EXPORT_SYMBOL(mlx5_mpfs_del_mac);

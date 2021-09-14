@@ -55,7 +55,8 @@ static struct sk_buff *seville_xmit(struct sk_buff *skb,
 }
 
 static struct sk_buff *ocelot_rcv(struct sk_buff *skb,
-				  struct net_device *netdev)
+				  struct net_device *netdev,
+				  struct packet_type *pt)
 {
 	u64 src_port, qos_class;
 	u64 vlan_tci, tag_type;
@@ -103,7 +104,7 @@ static struct sk_buff *ocelot_rcv(struct sk_buff *skb,
 		 */
 		return NULL;
 
-	dsa_default_offload_fwd_mark(skb);
+	skb->offload_fwd_mark = 1;
 	skb->priority = qos_class;
 
 	/* Ocelot switches copy frames unmodified to the CPU. However, it is
@@ -142,7 +143,7 @@ static const struct dsa_device_ops ocelot_netdev_ops = {
 	.proto			= DSA_TAG_PROTO_OCELOT,
 	.xmit			= ocelot_xmit,
 	.rcv			= ocelot_rcv,
-	.needed_headroom	= OCELOT_TOTAL_TAG_LEN,
+	.overhead		= OCELOT_TOTAL_TAG_LEN,
 	.promisc_on_master	= true,
 };
 
@@ -154,7 +155,7 @@ static const struct dsa_device_ops seville_netdev_ops = {
 	.proto			= DSA_TAG_PROTO_SEVILLE,
 	.xmit			= seville_xmit,
 	.rcv			= ocelot_rcv,
-	.needed_headroom	= OCELOT_TOTAL_TAG_LEN,
+	.overhead		= OCELOT_TOTAL_TAG_LEN,
 	.promisc_on_master	= true,
 };
 

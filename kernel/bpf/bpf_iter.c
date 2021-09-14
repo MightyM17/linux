@@ -360,28 +360,6 @@ bool bpf_iter_prog_supported(struct bpf_prog *prog)
 	return supported;
 }
 
-const struct bpf_func_proto *
-bpf_iter_get_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
-{
-	const struct bpf_iter_target_info *tinfo;
-	const struct bpf_func_proto *fn = NULL;
-
-	mutex_lock(&targets_mutex);
-	list_for_each_entry(tinfo, &targets, list) {
-		if (tinfo->btf_id == prog->aux->attach_btf_id) {
-			const struct bpf_iter_reg *reg_info;
-
-			reg_info = tinfo->reg_info;
-			if (reg_info->get_func_proto)
-				fn = reg_info->get_func_proto(func_id, prog);
-			break;
-		}
-	}
-	mutex_unlock(&targets_mutex);
-
-	return fn;
-}
-
 static void bpf_iter_link_release(struct bpf_link *link)
 {
 	struct bpf_iter_link *iter_link =
@@ -495,16 +473,15 @@ bool bpf_link_is_iter(struct bpf_link *link)
 	return link->ops == &bpf_iter_link_lops;
 }
 
-int bpf_iter_link_attach(const union bpf_attr *attr, bpfptr_t uattr,
-			 struct bpf_prog *prog)
+int bpf_iter_link_attach(const union bpf_attr *attr, struct bpf_prog *prog)
 {
+	union bpf_iter_link_info __user *ulinfo;
 	struct bpf_link_primer link_primer;
 	struct bpf_iter_target_info *tinfo;
 	union bpf_iter_link_info linfo;
 	struct bpf_iter_link *link;
 	u32 prog_btf_id, linfo_len;
 	bool existed = false;
-	bpfptr_t ulinfo;
 	int err;
 
 	if (attr->link_create.target_fd || attr->link_create.flags)
@@ -512,18 +489,18 @@ int bpf_iter_link_attach(const union bpf_attr *attr, bpfptr_t uattr,
 
 	memset(&linfo, 0, sizeof(union bpf_iter_link_info));
 
-	ulinfo = make_bpfptr(attr->link_create.iter_info, uattr.is_kernel);
+	ulinfo = u64_to_user_ptr(attr->link_create.iter_info);
 	linfo_len = attr->link_create.iter_info_len;
-	if (bpfptr_is_null(ulinfo) ^ !linfo_len)
+	if (!ulinfo ^ !linfo_len)
 		return -EINVAL;
 
-	if (!bpfptr_is_null(ulinfo)) {
+	if (ulinfo) {
 		err = bpf_check_uarg_tail_zero(ulinfo, sizeof(linfo),
 					       linfo_len);
 		if (err)
 			return err;
 		linfo_len = min_t(u32, linfo_len, sizeof(linfo));
-		if (copy_from_bpfptr(&linfo, ulinfo, linfo_len))
+		if (copy_from_user(&linfo, ulinfo, linfo_len))
 			return -EFAULT;
 	}
 
@@ -686,7 +663,7 @@ int bpf_iter_run_prog(struct bpf_prog *prog, void *ctx)
 
 	rcu_read_lock();
 	migrate_disable();
-	ret = bpf_prog_run(prog, ctx);
+	ret = BPF_PROG_RUN(prog, ctx);
 	migrate_enable();
 	rcu_read_unlock();
 

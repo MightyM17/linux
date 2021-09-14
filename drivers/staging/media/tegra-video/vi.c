@@ -297,9 +297,10 @@ static int tegra_channel_start_streaming(struct vb2_queue *vq, u32 count)
 	struct tegra_vi_channel *chan = vb2_get_drv_priv(vq);
 	int ret;
 
-	ret = pm_runtime_resume_and_get(chan->vi->dev);
+	ret = pm_runtime_get_sync(chan->vi->dev);
 	if (ret < 0) {
 		dev_err(chan->vi->dev, "failed to get runtime PM: %d\n", ret);
+		pm_runtime_put_noidle(chan->vi->dev);
 		return ret;
 	}
 
@@ -493,7 +494,7 @@ static int __tegra_channel_try_format(struct tegra_vi_channel *chan,
 	const struct tegra_video_format *fmtinfo;
 	struct v4l2_subdev *subdev;
 	struct v4l2_subdev_format fmt;
-	struct v4l2_subdev_state *sd_state;
+	struct v4l2_subdev_pad_config *pad_cfg;
 	struct v4l2_subdev_frame_size_enum fse = {
 		.which = V4L2_SUBDEV_FORMAT_TRY,
 	};
@@ -507,9 +508,9 @@ static int __tegra_channel_try_format(struct tegra_vi_channel *chan,
 	if (!subdev)
 		return -ENODEV;
 
-	sd_state = v4l2_subdev_alloc_state(subdev);
-	if (IS_ERR(sd_state))
-		return PTR_ERR(sd_state);
+	pad_cfg = v4l2_subdev_alloc_pad_config(subdev);
+	if (!pad_cfg)
+		return -ENOMEM;
 	/*
 	 * Retrieve the format information and if requested format isn't
 	 * supported, keep the current format.
@@ -532,33 +533,33 @@ static int __tegra_channel_try_format(struct tegra_vi_channel *chan,
 	 * If not available, try to get crop boundary from subdev.
 	 */
 	fse.code = fmtinfo->code;
-	ret = v4l2_subdev_call(subdev, pad, enum_frame_size, sd_state, &fse);
+	ret = v4l2_subdev_call(subdev, pad, enum_frame_size, pad_cfg, &fse);
 	if (ret) {
 		if (!v4l2_subdev_has_op(subdev, pad, get_selection)) {
-			sd_state->pads->try_crop.width = 0;
-			sd_state->pads->try_crop.height = 0;
+			pad_cfg->try_crop.width = 0;
+			pad_cfg->try_crop.height = 0;
 		} else {
 			ret = v4l2_subdev_call(subdev, pad, get_selection,
 					       NULL, &sdsel);
 			if (ret)
 				return -EINVAL;
 
-			sd_state->pads->try_crop.width = sdsel.r.width;
-			sd_state->pads->try_crop.height = sdsel.r.height;
+			pad_cfg->try_crop.width = sdsel.r.width;
+			pad_cfg->try_crop.height = sdsel.r.height;
 		}
 	} else {
-		sd_state->pads->try_crop.width = fse.max_width;
-		sd_state->pads->try_crop.height = fse.max_height;
+		pad_cfg->try_crop.width = fse.max_width;
+		pad_cfg->try_crop.height = fse.max_height;
 	}
 
-	ret = v4l2_subdev_call(subdev, pad, set_fmt, sd_state, &fmt);
+	ret = v4l2_subdev_call(subdev, pad, set_fmt, pad_cfg, &fmt);
 	if (ret < 0)
 		return ret;
 
 	v4l2_fill_pix_format(pix, &fmt.format);
 	tegra_channel_fmt_align(chan, pix, fmtinfo->bpp);
 
-	v4l2_subdev_free_state(sd_state);
+	v4l2_subdev_free_pad_config(pad_cfg);
 
 	return 0;
 }
@@ -1811,8 +1812,8 @@ static int tegra_vi_graph_parse_one(struct tegra_vi_channel *chan,
 			continue;
 		}
 
-		tvge = v4l2_async_notifier_add_fwnode_subdev(&chan->notifier, remote,
-							     struct tegra_vi_graph_entity);
+		tvge = v4l2_async_notifier_add_fwnode_subdev(&chan->notifier,
+				remote, struct tegra_vi_graph_entity);
 		if (IS_ERR(tvge)) {
 			ret = PTR_ERR(tvge);
 			dev_err(vi->dev,

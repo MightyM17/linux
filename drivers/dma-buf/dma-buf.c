@@ -29,8 +29,6 @@
 #include <uapi/linux/dma-buf.h>
 #include <uapi/linux/magic.h>
 
-#include "dma-buf-sysfs-stats.h"
-
 static inline int is_dma_buf_file(struct file *);
 
 struct dma_buf_list {
@@ -76,7 +74,6 @@ static void dma_buf_release(struct dentry *dentry)
 	 */
 	BUG_ON(dmabuf->cb_shared.active || dmabuf->cb_excl.active);
 
-	dma_buf_stats_teardown(dmabuf);
 	dmabuf->ops->release(dmabuf);
 
 	if (dmabuf->resv == (struct dma_resv *)&dmabuf[1])
@@ -237,7 +234,7 @@ retry:
 		shared_count = fobj->shared_count;
 	else
 		shared_count = 0;
-	fence_excl = dma_resv_excl_fence(resv);
+	fence_excl = rcu_dereference(resv->fence_excl);
 	if (read_seqcount_retry(&resv->seq, seq)) {
 		rcu_read_unlock();
 		goto retry;
@@ -583,10 +580,6 @@ struct dma_buf *dma_buf_export(const struct dma_buf_export_info *exp_info)
 	file->f_mode |= FMODE_LSEEK;
 	dmabuf->file = file;
 
-	ret = dma_buf_stats_setup(dmabuf);
-	if (ret)
-		goto err_sysfs;
-
 	mutex_init(&dmabuf->lock);
 	INIT_LIST_HEAD(&dmabuf->attachments);
 
@@ -596,14 +589,6 @@ struct dma_buf *dma_buf_export(const struct dma_buf_export_info *exp_info)
 
 	return dmabuf;
 
-err_sysfs:
-	/*
-	 * Set file->f_path.dentry->d_fsdata to NULL so that when
-	 * dma_buf_release() gets invoked by dentry_ops, it exits
-	 * early before calling the release() dma_buf op.
-	 */
-	file->f_path.dentry->d_fsdata = NULL;
-	fput(file);
 err_dmabuf:
 	kfree(dmabuf);
 err_module:
@@ -775,7 +760,7 @@ dma_buf_dynamic_attach(struct dma_buf *dmabuf, struct device *dev,
 
 		if (dma_buf_is_dynamic(attach->dmabuf)) {
 			dma_resv_lock(attach->dmabuf->resv, NULL);
-			ret = dmabuf->ops->pin(attach);
+			ret = dma_buf_pin(attach);
 			if (ret)
 				goto err_unlock;
 		}
@@ -801,7 +786,7 @@ err_attach:
 
 err_unpin:
 	if (dma_buf_is_dynamic(attach->dmabuf))
-		dmabuf->ops->unpin(attach);
+		dma_buf_unpin(attach);
 
 err_unlock:
 	if (dma_buf_is_dynamic(attach->dmabuf))
@@ -858,7 +843,7 @@ void dma_buf_detach(struct dma_buf *dmabuf, struct dma_buf_attachment *attach)
 		__unmap_dma_buf(attach, attach->sgt, attach->dir);
 
 		if (dma_buf_is_dynamic(attach->dmabuf)) {
-			dmabuf->ops->unpin(attach);
+			dma_buf_unpin(attach);
 			dma_resv_unlock(attach->dmabuf->resv);
 		}
 	}
@@ -941,9 +926,6 @@ EXPORT_SYMBOL_GPL(dma_buf_unpin);
  * the underlying backing storage is pinned for as long as a mapping exists,
  * therefore users/importers should not hold onto a mapping for undue amounts of
  * time.
- *
- * Important: Dynamic importers must wait for the exclusive fence of the struct
- * dma_resv attached to the DMA-BUF first.
  */
 struct sg_table *dma_buf_map_attachment(struct dma_buf_attachment *attach,
 					enum dma_data_direction direction)
@@ -974,7 +956,7 @@ struct sg_table *dma_buf_map_attachment(struct dma_buf_attachment *attach,
 	if (dma_buf_is_dynamic(attach->dmabuf)) {
 		dma_resv_assert_held(attach->dmabuf->resv);
 		if (!IS_ENABLED(CONFIG_DMABUF_MOVE_NOTIFY)) {
-			r = attach->dmabuf->ops->pin(attach);
+			r = dma_buf_pin(attach);
 			if (r)
 				return ERR_PTR(r);
 		}
@@ -986,7 +968,7 @@ struct sg_table *dma_buf_map_attachment(struct dma_buf_attachment *attach,
 
 	if (IS_ERR(sg_table) && dma_buf_is_dynamic(attach->dmabuf) &&
 	     !IS_ENABLED(CONFIG_DMABUF_MOVE_NOTIFY))
-		attach->dmabuf->ops->unpin(attach);
+		dma_buf_unpin(attach);
 
 	if (!IS_ERR(sg_table) && attach->dmabuf->ops->cache_sgt_mapping) {
 		attach->sgt = sg_table;
@@ -1010,6 +992,7 @@ struct sg_table *dma_buf_map_attachment(struct dma_buf_attachment *attach,
 		}
 	}
 #endif /* CONFIG_DMA_API_DEBUG */
+
 	return sg_table;
 }
 EXPORT_SYMBOL_GPL(dma_buf_map_attachment);
@@ -1164,7 +1147,8 @@ static int __dma_buf_begin_cpu_access(struct dma_buf *dmabuf,
 	long ret;
 
 	/* Wait on any implicit rendering fences */
-	ret = dma_resv_wait_timeout(resv, write, true, MAX_SCHEDULE_TIMEOUT);
+	ret = dma_resv_wait_timeout_rcu(resv, write, true,
+						  MAX_SCHEDULE_TIMEOUT);
 	if (ret < 0)
 		return ret;
 
@@ -1365,14 +1349,15 @@ EXPORT_SYMBOL_GPL(dma_buf_vunmap);
 #ifdef CONFIG_DEBUG_FS
 static int dma_buf_debug_show(struct seq_file *s, void *unused)
 {
+	int ret;
 	struct dma_buf *buf_obj;
 	struct dma_buf_attachment *attach_obj;
 	struct dma_resv *robj;
 	struct dma_resv_list *fobj;
 	struct dma_fence *fence;
+	unsigned seq;
 	int count = 0, attach_count, shared_count, i;
 	size_t size = 0;
-	int ret;
 
 	ret = mutex_lock_interruptible(&db_list.lock);
 
@@ -1398,24 +1383,33 @@ static int dma_buf_debug_show(struct seq_file *s, void *unused)
 				buf_obj->name ?: "");
 
 		robj = buf_obj->resv;
-		fence = dma_resv_excl_fence(robj);
+		while (true) {
+			seq = read_seqcount_begin(&robj->seq);
+			rcu_read_lock();
+			fobj = rcu_dereference(robj->fence);
+			shared_count = fobj ? fobj->shared_count : 0;
+			fence = rcu_dereference(robj->fence_excl);
+			if (!read_seqcount_retry(&robj->seq, seq))
+				break;
+			rcu_read_unlock();
+		}
+
 		if (fence)
 			seq_printf(s, "\tExclusive fence: %s %s %ssignalled\n",
 				   fence->ops->get_driver_name(fence),
 				   fence->ops->get_timeline_name(fence),
 				   dma_fence_is_signaled(fence) ? "" : "un");
-
-		fobj = rcu_dereference_protected(robj->fence,
-						 dma_resv_held(robj));
-		shared_count = fobj ? fobj->shared_count : 0;
 		for (i = 0; i < shared_count; i++) {
-			fence = rcu_dereference_protected(fobj->shared[i],
-							  dma_resv_held(robj));
+			fence = rcu_dereference(fobj->shared[i]);
+			if (!dma_fence_get_rcu(fence))
+				continue;
 			seq_printf(s, "\tShared fence: %s %s %ssignalled\n",
 				   fence->ops->get_driver_name(fence),
 				   fence->ops->get_timeline_name(fence),
 				   dma_fence_is_signaled(fence) ? "" : "un");
+			dma_fence_put(fence);
 		}
+		rcu_read_unlock();
 
 		seq_puts(s, "\tAttached Devices:\n");
 		attach_count = 0;
@@ -1486,12 +1480,6 @@ static inline void dma_buf_uninit_debugfs(void)
 
 static int __init dma_buf_init(void)
 {
-	int ret;
-
-	ret = dma_buf_init_sysfs_statistics();
-	if (ret)
-		return ret;
-
 	dma_buf_mnt = kern_mount(&dma_buf_fs_type);
 	if (IS_ERR(dma_buf_mnt))
 		return PTR_ERR(dma_buf_mnt);
@@ -1507,6 +1495,5 @@ static void __exit dma_buf_deinit(void)
 {
 	dma_buf_uninit_debugfs();
 	kern_unmount(dma_buf_mnt);
-	dma_buf_uninit_sysfs_statistics();
 }
 __exitcall(dma_buf_deinit);

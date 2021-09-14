@@ -47,26 +47,32 @@ static int zorro_device_probe(struct device *dev)
 	struct zorro_driver *drv = to_zorro_driver(dev->driver);
 	struct zorro_dev *z = to_zorro_dev(dev);
 
-	if (drv->probe) {
+	if (!z->driver && drv->probe) {
 		const struct zorro_device_id *id;
 
 		id = zorro_match_device(drv->id_table, z);
 		if (id)
 			error = drv->probe(z, id);
-		if (error >= 0)
+		if (error >= 0) {
+			z->driver = drv;
 			error = 0;
+		}
 	}
 	return error;
 }
 
 
-static void zorro_device_remove(struct device *dev)
+static int zorro_device_remove(struct device *dev)
 {
 	struct zorro_dev *z = to_zorro_dev(dev);
 	struct zorro_driver *drv = to_zorro_driver(dev->driver);
 
-	if (drv->remove)
-		drv->remove(z);
+	if (drv) {
+		if (drv->remove)
+			drv->remove(z);
+		z->driver = NULL;
+	}
+	return 0;
 }
 
 

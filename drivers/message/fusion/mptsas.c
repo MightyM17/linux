@@ -86,7 +86,7 @@ MODULE_PARM_DESC(mpt_pt_clear,
 		" Clear persistency table: enable=1  "
 		"(default=MPTSCSIH_PT_CLEAR=0)");
 
-/* scsi-mid layer global parameter is max_report_luns, which is 511 */
+/* scsi-mid layer global parmeter is max_report_luns, which is 511 */
 #define MPTSAS_MAX_LUN (16895)
 static int max_lun = MPTSAS_MAX_LUN;
 module_param(max_lun, int, 0);
@@ -420,14 +420,12 @@ mptsas_find_portinfo_by_handle(MPT_ADAPTER *ioc, u16 handle)
 }
 
 /**
- *	mptsas_find_portinfo_by_sas_address - find and return portinfo for
- *		this sas_address
+ *	mptsas_find_portinfo_by_sas_address -
  *	@ioc: Pointer to MPT_ADAPTER structure
- *	@sas_address: expander sas address
+ *	@handle:
  *
- *	This function should be called with the sas_topology_mutex already held.
+ *	This function should be called with the sas_topology_mutex already held
  *
- *	Return: %NULL if not found.
  **/
 static struct mptsas_portinfo *
 mptsas_find_portinfo_by_sas_address(MPT_ADAPTER *ioc, u64 sas_address)
@@ -569,14 +567,12 @@ starget)
 }
 
 /**
- *	mptsas_add_device_component - adds a new device component to our lists
+ *	mptsas_add_device_component -
  *	@ioc: Pointer to MPT_ADAPTER structure
- *	@channel: channel number
- *	@id: Logical Target ID for reset (if appropriate)
- *	@sas_address: expander sas address
- *	@device_info: specific bits (flags) for devices
- *	@slot: enclosure slot ID
- *	@enclosure_logical_id: enclosure WWN
+ *	@channel: fw mapped id's
+ *	@id:
+ *	@sas_address:
+ *	@device_info:
  *
  **/
 static void
@@ -638,10 +634,10 @@ mptsas_add_device_component(MPT_ADAPTER *ioc, u8 channel, u8 id,
 }
 
 /**
- *	mptsas_add_device_component_by_fw - adds a new device component by FW ID
+ *	mptsas_add_device_component_by_fw -
  *	@ioc: Pointer to MPT_ADAPTER structure
- *	@channel: channel number
- *	@id: Logical Target ID
+ *	@channel:  fw mapped id's
+ *	@id:
  *
  **/
 static void
@@ -672,7 +668,8 @@ mptsas_add_device_component_by_fw(MPT_ADAPTER *ioc, u8 channel, u8 id)
 /**
  *	mptsas_add_device_component_starget_ir - Handle Integrated RAID, adding each individual device to list
  *	@ioc: Pointer to MPT_ADAPTER structure
- *	@starget: SCSI target for this SCSI device
+ *	@channel: fw mapped id's
+ *	@id:
  *
  **/
 static void
@@ -774,9 +771,9 @@ mptsas_add_device_component_starget_ir(MPT_ADAPTER *ioc,
 }
 
 /**
- *	mptsas_add_device_component_starget - adds a SCSI target device component
+ *	mptsas_add_device_component_starget -
  *	@ioc: Pointer to MPT_ADAPTER structure
- *	@starget: SCSI target for this SCSI device
+ *	@starget:
  *
  **/
 static void
@@ -809,7 +806,7 @@ mptsas_add_device_component_starget(MPT_ADAPTER *ioc,
  *	mptsas_del_device_component_by_os - Once a device has been removed, we mark the entry in the list as being cached
  *	@ioc: Pointer to MPT_ADAPTER structure
  *	@channel: os mapped id's
- *	@id: Logical Target ID
+ *	@id:
  *
  **/
 static void
@@ -981,12 +978,11 @@ mptsas_setup_wide_ports(MPT_ADAPTER *ioc, struct mptsas_portinfo *port_info)
 }
 
 /**
- * mptsas_find_vtarget - find a virtual target device (FC LUN device or
- *				SCSI target device)
+ * csmisas_find_vtarget
  *
- * @ioc: Pointer to MPT_ADAPTER structure
- * @channel: channel number
- * @id: Logical Target ID
+ * @ioc
+ * @volume_id
+ * @volume_bus
  *
  **/
 static VirtTarget *
@@ -1051,14 +1047,15 @@ mptsas_queue_rescan(MPT_ADAPTER *ioc)
 
 
 /**
- * mptsas_target_reset - Issues TARGET_RESET to end device using
- *			 handshaking method
+ * mptsas_target_reset
  *
- * @ioc: Pointer to MPT_ADAPTER structure
- * @channel: channel number
- * @id: Logical Target ID for reset
+ * Issues TARGET_RESET to end device using handshaking method
  *
- * Return: (1) success
+ * @ioc
+ * @channel
+ * @id
+ *
+ * Returns (1) success
  *         (0) failure
  *
  **/
@@ -1122,14 +1119,14 @@ mptsas_block_io_starget(struct scsi_target *starget)
 }
 
 /**
- * mptsas_target_reset_queue - queue a target reset
+ * mptsas_target_reset_queue
  *
- * @ioc: Pointer to MPT_ADAPTER structure
- * @sas_event_data: SAS Device Status Change Event data
- *
- * Receive request for TARGET_RESET after receiving a firmware
+ * Receive request for TARGET_RESET after receiving an firmware
  * event NOT_RESPONDING_EVENT, then put command in link list
  * and queue if task_queue already in use.
+ *
+ * @ioc
+ * @sas_event_data
  *
  **/
 static void
@@ -1210,11 +1207,9 @@ mptsas_schedule_target_reset(void *iocp)
 /**
  *	mptsas_taskmgmt_complete - complete SAS task management function
  *	@ioc: Pointer to MPT_ADAPTER structure
- *	@mf: MPT message frame
- *	@mr: SCSI Task Management Reply structure ptr (may be %NULL)
  *
  *	Completion for TARGET_RESET after NOT_RESPONDING_EVENT, enable work
- *	queue to finish off removing device from upper layers, then send next
+ *	queue to finish off removing device from upper layers. then send next
  *	TARGET_RESET in the queue.
  **/
 static int
@@ -1305,10 +1300,10 @@ mptsas_taskmgmt_complete(MPT_ADAPTER *ioc, MPT_FRAME_HDR *mf, MPT_FRAME_HDR *mr)
 }
 
 /**
- * mptsas_ioc_reset - issue an IOC reset for this reset phase
+ * mptscsih_ioc_reset
  *
- * @ioc: Pointer to MPT_ADAPTER structure
- * @reset_phase: id of phase of reset
+ * @ioc
+ * @reset_phase
  *
  **/
 static int
@@ -1355,7 +1350,7 @@ mptsas_ioc_reset(MPT_ADAPTER *ioc, int reset_phase)
 
 
 /**
- * enum device_state - TUR device state
+ * enum device_state -
  * @DEVICE_RETRY: need to retry the TUR
  * @DEVICE_ERROR: TUR return error, don't add device
  * @DEVICE_READY: device can be added
@@ -1946,7 +1941,7 @@ mptsas_qcmd(struct Scsi_Host *shost, struct scsi_cmnd *SCpnt)
 }
 
 /**
- *	mptsas_eh_timed_out - resets the scsi_cmnd timeout
+ *	mptsas_mptsas_eh_timed_out - resets the scsi_cmnd timeout
  *		if the device under question is currently in the
  *		device removal delay.
  *	@sc: scsi command that the midlayer is about to time out
@@ -2844,15 +2839,14 @@ struct rep_manu_reply{
 };
 
 /**
-  * mptsas_exp_repmanufacture_info - sets expander manufacturer info
+  * mptsas_exp_repmanufacture_info -
   * @ioc: per adapter object
   * @sas_address: expander sas address
   * @edev: the sas_expander_device object
   *
-  * For an edge expander or a fanout expander:
-  * fills in the sas_expander_device object when SMP port is created.
+  * Fills in the sas_expander_device object when SMP port is created.
   *
-  * Return: 0 for success, non-zero for failure.
+  * Returns 0 for success, non-zero for failure.
   */
 static int
 mptsas_exp_repmanufacture_info(MPT_ADAPTER *ioc,
@@ -3290,7 +3284,7 @@ static int mptsas_probe_one_phy(struct device *dev,
 					rphy_to_expander_device(rphy));
 	}
 
-	/* If the device exists, verify it wasn't previously flagged
+	/* If the device exists,verify it wasn't previously flagged
 	as a missing device.  If so, clear it */
 	vtarget = mptsas_find_vtarget(ioc,
 	    phy_info->attached.channel,
@@ -3617,7 +3611,8 @@ static void mptsas_expander_delete(MPT_ADAPTER *ioc,
 
 /**
  * mptsas_send_expander_event - expanders events
- * @fw_event: event data
+ * @ioc: Pointer to MPT_ADAPTER structure
+ * @expander_data: event data
  *
  *
  * This function handles adding, removing, and refreshing
@@ -3662,9 +3657,9 @@ mptsas_send_expander_event(struct fw_event_work *fw_event)
 
 
 /**
- * mptsas_expander_add - adds a newly discovered expander
+ * mptsas_expander_add -
  * @ioc: Pointer to MPT_ADAPTER structure
- * @handle: device handle
+ * @handle:
  *
  */
 static struct mptsas_portinfo *
@@ -4005,9 +4000,9 @@ mptsas_probe_devices(MPT_ADAPTER *ioc)
 }
 
 /**
- *	mptsas_scan_sas_topology - scans new SAS topology
- *	  (part of probe or rescan)
+ *	mptsas_scan_sas_topology -
  *	@ioc: Pointer to MPT_ADAPTER structure
+ *	@sas_address:
  *
  **/
 static void
@@ -4155,12 +4150,11 @@ mptsas_find_phyinfo_by_sas_address(MPT_ADAPTER *ioc, u64 sas_address)
 }
 
 /**
- *	mptsas_find_phyinfo_by_phys_disk_num - find phyinfo for the
- *	  specified @phys_disk_num
+ *	mptsas_find_phyinfo_by_phys_disk_num -
  *	@ioc: Pointer to MPT_ADAPTER structure
- *	@phys_disk_num: (hot plug) physical disk number (for RAID support)
- *	@channel: channel number
- *	@id: Logical Target ID
+ *	@phys_disk_num:
+ *	@channel:
+ *	@id:
  *
  **/
 static struct mptsas_phyinfo *
@@ -4779,9 +4773,8 @@ mptsas_send_raid_event(struct fw_event_work *fw_event)
  *	@lun: Logical unit for reset (if appropriate)
  *	@task_context: Context for the task to be aborted
  *	@timeout: timeout for task management control
- *	@issue_reset: set to 1 on return if reset is needed, else 0
  *
- *	Return: 0 on success or -1 on failure.
+ *	return 0 on success and -1 on failure:
  *
  */
 static int
@@ -4854,9 +4847,9 @@ mptsas_issue_tm(MPT_ADAPTER *ioc, u8 type, u8 channel, u8 id, u64 lun,
 
 /**
  *	mptsas_broadcast_primitive_work - Handle broadcast primitives
- *	@fw_event: work queue payload containing info describing the event
+ *	@work: work queue payload containing info describing the event
  *
- *	This will be handled in workqueue context.
+ *	this will be handled in workqueue context.
  */
 static void
 mptsas_broadcast_primitive_work(struct fw_event_work *fw_event)

@@ -10,14 +10,11 @@ int mt76_connac_pm_wake(struct mt76_phy *phy, struct mt76_connac_pm *pm)
 	if (!pm->enable)
 		return 0;
 
-	if (mt76_is_usb(dev))
+	if (!mt76_is_mmio(dev))
 		return 0;
 
 	cancel_delayed_work_sync(&pm->ps_work);
 	if (!test_bit(MT76_STATE_PM, &phy->state))
-		return 0;
-
-	if (pm->suspended)
 		return 0;
 
 	queue_work(dev->wq, &pm->wake_work);
@@ -37,13 +34,10 @@ void mt76_connac_power_save_sched(struct mt76_phy *phy,
 {
 	struct mt76_dev *dev = phy->dev;
 
-	if (mt76_is_usb(dev))
+	if (!mt76_is_mmio(dev))
 		return;
 
 	if (!pm->enable)
-		return;
-
-	if (pm->suspended)
 		return;
 
 	pm->last_activity = jiffies;

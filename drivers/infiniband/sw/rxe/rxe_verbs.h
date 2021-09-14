@@ -77,7 +77,6 @@ enum wqe_state {
 };
 
 struct rxe_sq {
-	bool			is_user;
 	int			max_wr;
 	int			max_sge;
 	int			max_inline;
@@ -86,7 +85,6 @@ struct rxe_sq {
 };
 
 struct rxe_rq {
-	bool			is_user;
 	int			max_wr;
 	int			max_sge;
 	spinlock_t		producer_lock; /* guard queue producer */
@@ -100,7 +98,6 @@ struct rxe_srq {
 	struct rxe_pd		*pd;
 	struct rxe_rq		rq;
 	u32			srq_num;
-	bool			is_user;
 
 	int			limit;
 	int			error;
@@ -186,7 +183,6 @@ struct rxe_resp_info {
 
 	/* RDMA read / atomic only */
 	u64			va;
-	u64			offset;
 	struct rxe_mr		*mr;
 	u32			resid;
 	u32			rkey;
@@ -210,12 +206,12 @@ struct rxe_resp_info {
 };
 
 struct rxe_qp {
-	struct ib_qp		ibqp;
 	struct rxe_pool_entry	pelem;
+	struct ib_qp		ibqp;
 	struct ib_qp_attr	attr;
 	unsigned int		valid;
 	unsigned int		mtu;
-	bool			is_user;
+	int			is_user;
 
 	struct rxe_pd		*pd;
 	struct rxe_srq		*srq;
@@ -277,16 +273,7 @@ enum rxe_mr_type {
 	RXE_MR_TYPE_NONE,
 	RXE_MR_TYPE_DMA,
 	RXE_MR_TYPE_MR,
-};
-
-enum rxe_mr_copy_dir {
-	RXE_TO_MR_OBJ,
-	RXE_FROM_MR_OBJ,
-};
-
-enum rxe_mr_lookup_type {
-	RXE_LOOKUP_LOCAL,
-	RXE_LOOKUP_REMOTE,
+	RXE_MR_TYPE_MW,
 };
 
 #define RXE_BUF_PER_MAP		(PAGE_SIZE / sizeof(struct rxe_phys_buf))
@@ -299,13 +286,6 @@ struct rxe_phys_buf {
 struct rxe_map {
 	struct rxe_phys_buf	buf[RXE_BUF_PER_MAP];
 };
-
-static inline int rkey_is_mw(u32 rkey)
-{
-	u32 index = rkey >> 8;
-
-	return (index >= RXE_MIN_MW_INDEX) && (index <= RXE_MAX_MW_INDEX);
-}
 
 struct rxe_mr {
 	struct rxe_pool_entry	pelem;
@@ -332,27 +312,18 @@ struct rxe_mr {
 	u32			max_buf;
 	u32			num_map;
 
-	atomic_t		num_mw;
-
 	struct rxe_map		**map;
 };
 
 enum rxe_mw_state {
-	RXE_MW_STATE_INVALID	= RXE_MR_STATE_INVALID,
-	RXE_MW_STATE_FREE	= RXE_MR_STATE_FREE,
-	RXE_MW_STATE_VALID	= RXE_MR_STATE_VALID,
+	RXE_MW_STATE_INVALID = RXE_MR_STATE_INVALID,
+	RXE_MW_STATE_FREE = RXE_MR_STATE_FREE,
+	RXE_MW_STATE_VALID = RXE_MR_STATE_VALID,
 };
 
 struct rxe_mw {
-	struct ib_mw		ibmw;
-	struct rxe_pool_entry	pelem;
-	spinlock_t		lock;
-	enum rxe_mw_state	state;
-	struct rxe_qp		*qp; /* Type 2 only */
-	struct rxe_mr		*mr;
-	int			access;
-	u64			addr;
-	u64			length;
+	struct ib_mw ibmw;
+	struct rxe_pool_entry pelem;
 };
 
 struct rxe_mc_grp {
@@ -482,16 +453,6 @@ static inline u32 mr_lkey(struct rxe_mr *mr)
 static inline u32 mr_rkey(struct rxe_mr *mr)
 {
 	return mr->ibmr.rkey;
-}
-
-static inline struct rxe_pd *rxe_mw_pd(struct rxe_mw *mw)
-{
-	return to_rpd(mw->ibmw.pd);
-}
-
-static inline u32 rxe_mw_rkey(struct rxe_mw *mw)
-{
-	return mw->ibmw.rkey;
 }
 
 int rxe_register_device(struct rxe_dev *rxe, const char *ibdev_name);

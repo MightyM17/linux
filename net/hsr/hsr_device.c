@@ -218,7 +218,6 @@ static netdev_tx_t hsr_dev_xmit(struct sk_buff *skb, struct net_device *dev)
 	if (master) {
 		skb->dev = master->dev;
 		skb_reset_mac_header(skb);
-		skb_reset_mac_len(skb);
 		hsr_forward_skb(skb, master);
 	} else {
 		atomic_long_inc(&dev->tx_dropped);
@@ -260,7 +259,6 @@ static struct sk_buff *hsr_init_skb(struct hsr_port *master)
 		goto out;
 
 	skb_reset_mac_header(skb);
-	skb_reset_mac_len(skb);
 	skb_reset_network_header(skb);
 	skb_reset_transport_header(skb);
 

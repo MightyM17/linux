@@ -1598,7 +1598,8 @@ static int __cmd_timechart(struct timechart *tchart, const char *output_name)
 		.force = tchart->force,
 	};
 
-	struct perf_session *session = perf_session__new(&data, &tchart->tool);
+	struct perf_session *session = perf_session__new(&data, false,
+							 &tchart->tool);
 	int ret = -EINVAL;
 
 	if (IS_ERR(session))

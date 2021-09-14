@@ -76,8 +76,8 @@ handler is never re-entered: if the same interrupt arrives, it is queued
 fast: frequently it simply acknowledges the interrupt, marks a 'software
 interrupt' for execution and exits.
 
-You can tell you are in a hardware interrupt, because in_hardirq() returns
-true.
+You can tell you are in a hardware interrupt, because
+:c:func:`in_irq()` returns true.
 
 .. warning::
 
@@ -601,7 +601,7 @@ Defined in ``include/linux/export.h``
 
 This is the variant of `EXPORT_SYMBOL()` that allows specifying a symbol
 namespace. Symbol Namespaces are documented in
-Documentation/core-api/symbol-namespaces.rst
+:doc:`../core-api/symbol-namespaces`
 
 :c:func:`EXPORT_SYMBOL_NS_GPL()`
 --------------------------------
@@ -610,7 +610,7 @@ Defined in ``include/linux/export.h``
 
 This is the variant of `EXPORT_SYMBOL_GPL()` that allows specifying a symbol
 namespace. Symbol Namespaces are documented in
-Documentation/core-api/symbol-namespaces.rst
+:doc:`../core-api/symbol-namespaces`
 
 Routines and Conventions
 ========================

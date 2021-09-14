@@ -47,7 +47,9 @@ static unsigned short pxa2xx_ac97_legacy_read(struct snd_ac97 *ac97,
 static void pxa2xx_ac97_legacy_write(struct snd_ac97 *ac97,
 				     unsigned short reg, unsigned short val)
 {
-	pxa2xx_ac97_write(ac97->num, reg, val);
+	int __always_unused ret;
+
+	ret = pxa2xx_ac97_write(ac97->num, reg, val);
 }
 
 static const struct snd_ac97_bus_ops pxa2xx_ac97_ops = {
@@ -172,28 +174,38 @@ static const struct snd_pcm_ops pxa2xx_ac97_pcm_ops = {
 	.open		= pxa2xx_ac97_pcm_open,
 	.close		= pxa2xx_ac97_pcm_close,
 	.hw_params	= pxa2xx_pcm_hw_params,
+	.hw_free	= pxa2xx_pcm_hw_free,
 	.prepare	= pxa2xx_ac97_pcm_prepare,
 	.trigger	= pxa2xx_pcm_trigger,
 	.pointer	= pxa2xx_pcm_pointer,
+	.mmap		= pxa2xx_pcm_mmap,
 };
 
 
 static int pxa2xx_ac97_pcm_new(struct snd_card *card)
 {
 	struct snd_pcm *pcm;
-	int ret;
+	int stream, ret;
 
 	ret = snd_pcm_new(card, "PXA2xx-PCM", 0, 1, 1, &pcm);
 	if (ret)
 		goto out;
 
+	pcm->private_free = pxa2xx_pcm_free_dma_buffers;
+
 	ret = dma_coerce_mask_and_coherent(card->dev, DMA_BIT_MASK(32));
 	if (ret)
 		goto out;
 
-	snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_PLAYBACK, &pxa2xx_ac97_pcm_ops);
-	snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_CAPTURE, &pxa2xx_ac97_pcm_ops);
-	ret = pxa2xx_pcm_preallocate_dma_buffer(pcm);
+	stream = SNDRV_PCM_STREAM_PLAYBACK;
+	snd_pcm_set_ops(pcm, stream, &pxa2xx_ac97_pcm_ops);
+	ret = pxa2xx_pcm_preallocate_dma_buffer(pcm, stream);
+	if (ret)
+		goto out;
+
+	stream = SNDRV_PCM_STREAM_CAPTURE;
+	snd_pcm_set_ops(pcm, stream, &pxa2xx_ac97_pcm_ops);
+	ret = pxa2xx_pcm_preallocate_dma_buffer(pcm, stream);
 	if (ret)
 		goto out;
 

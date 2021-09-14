@@ -74,6 +74,7 @@
 		simple-audio-card,widgets =
 			"Speaker", "Speaker",
 			"Headphone", "Headphones",
+			"Line", "FM Radio",
 			"Microphone", "Built-in Mic";
 		simple-audio-card,routing =
 			"Headphones Amp INL", "LHPOUT",
@@ -84,8 +85,8 @@
 			"Speaker Amp INR", "ROUT",
 			"Speaker", "Speaker Amp OUTL",
 			"Speaker", "Speaker Amp OUTR",
-			"LLINEIN", "Cap-less",
-			"RLINEIN", "Cap-less",
+			"LLINEIN", "FM Radio",
+			"RLINEIN", "FM Radio",
 			"Built-in Mic", "MICBIAS",
 			"MIC1P", "Built-in Mic",
 			"MIC1N", "Built-in Mic";

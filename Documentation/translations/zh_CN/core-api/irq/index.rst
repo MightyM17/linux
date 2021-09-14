@@ -1,10 +1,7 @@
 .. include:: ../../disclaimer-zh_CN.rst
 
-:Original: Documentation/core-api/irq/index.rst
-
-:翻译:
-
- 司延腾 Yanteng Si <siyanteng@loongson.cn>
+:Original: :doc:`../../../../core-api/irq/index`
+:Translator: Yanteng Si <siyanteng@loongson.cn>
 
 .. _cn_irq_index.rst:
 

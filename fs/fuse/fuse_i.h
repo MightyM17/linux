@@ -149,6 +149,13 @@ struct fuse_inode {
 	/** Lock to protect write related fields */
 	spinlock_t lock;
 
+	/**
+	 * Can't take inode lock in fault path (leads to circular dependency).
+	 * Introduce another semaphore which can be taken in fault path and
+	 * then other filesystem paths can take this to block faults.
+	 */
+	struct rw_semaphore i_mmap_sem;
+
 #ifdef CONFIG_FUSE_DAX
 	/*
 	 * Dax specific inode data
@@ -482,7 +489,6 @@ struct fuse_dev {
 
 struct fuse_fs_context {
 	int fd;
-	struct file *file;
 	unsigned int rootmode;
 	kuid_t user_id;
 	kgid_t group_id;
@@ -507,13 +513,6 @@ struct fuse_fs_context {
 
 	/* fuse_dev pointer to fill in, should contain NULL on entry */
 	void **fudptr;
-};
-
-struct fuse_sync_bucket {
-	/* count is a possible scalability bottleneck */
-	atomic_t count;
-	wait_queue_head_t waitq;
-	struct rcu_head rcu;
 };
 
 /**
@@ -762,9 +761,6 @@ struct fuse_conn {
 	/* Auto-mount submounts announced by the server */
 	unsigned int auto_submounts:1;
 
-	/* Propagate syncfs() to server */
-	unsigned int sync_fs:1;
-
 	/** The number of requests waiting for completion */
 	atomic_t num_waiting;
 
@@ -808,9 +804,6 @@ struct fuse_conn {
 
 	/** List of filesystems using this connection */
 	struct list_head mounts;
-
-	/* New writepages go into this bucket */
-	struct fuse_sync_bucket __rcu *curr_bucket;
 };
 
 /*
@@ -874,13 +867,6 @@ static inline u64 fuse_get_attr_version(struct fuse_conn *fc)
 	return atomic64_read(&fc->attr_version);
 }
 
-static inline bool fuse_stale_inode(const struct inode *inode, int generation,
-				    struct fuse_attr *attr)
-{
-	return inode->i_generation != generation ||
-		inode_wrong_type(inode, attr->mode);
-}
-
 static inline void fuse_make_bad(struct inode *inode)
 {
 	remove_inode_hash(inode);
@@ -912,15 +898,6 @@ static inline void fuse_page_descs_length_init(struct fuse_page_desc *descs,
 
 	for (i = index; i < index + nr_pages; i++)
 		descs[i].length = PAGE_SIZE - descs[i].offset;
-}
-
-static inline void fuse_sync_bucket_dec(struct fuse_sync_bucket *bucket)
-{
-	/* Need RCU protection to prevent use after free after the decrement */
-	rcu_read_lock();
-	if (atomic_dec_and_test(&bucket->count))
-		wake_up(&bucket->waitq);
-	rcu_read_unlock();
 }
 
 /** Device operations */
@@ -1105,16 +1082,20 @@ void fuse_send_init(struct fuse_mount *fm);
 int fuse_fill_super_common(struct super_block *sb, struct fuse_fs_context *ctx);
 
 /*
+ * Fill in superblock for submounts
+ * @sb: partially-initialized superblock to fill in
+ * @parent_fi: The fuse_inode of the parent filesystem where this submount is
+ * 	       mounted
+ */
+int fuse_fill_super_submount(struct super_block *sb,
+			     struct fuse_inode *parent_fi);
+
+/*
  * Remove the mount from the connection
  *
  * Returns whether this was the last mount
  */
 bool fuse_mount_remove(struct fuse_mount *fm);
-
-/*
- * Setup context ops for submounts
- */
-int fuse_init_fs_context_submount(struct fs_context *fsc);
 
 /*
  * Shut down the connection (possibly sending DESTROY request).
@@ -1229,7 +1210,7 @@ extern const struct xattr_handler *fuse_acl_xattr_handlers[];
 extern const struct xattr_handler *fuse_no_acl_xattr_handlers[];
 
 struct posix_acl;
-struct posix_acl *fuse_get_acl(struct inode *inode, int type, bool rcu);
+struct posix_acl *fuse_get_acl(struct inode *inode, int type);
 int fuse_set_acl(struct user_namespace *mnt_userns, struct inode *inode,
 		 struct posix_acl *acl, int type);
 

@@ -517,7 +517,7 @@ static void rockchip_pcie_legacy_int_handler(struct irq_desc *desc)
 	struct device *dev = rockchip->dev;
 	u32 reg;
 	u32 hwirq;
-	int ret;
+	u32 virq;
 
 	chained_irq_enter(chip, desc);
 
@@ -528,8 +528,10 @@ static void rockchip_pcie_legacy_int_handler(struct irq_desc *desc)
 		hwirq = ffs(reg) - 1;
 		reg &= ~BIT(hwirq);
 
-		ret = generic_handle_domain_irq(rockchip->irq_domain, hwirq);
-		if (ret)
+		virq = irq_find_mapping(rockchip->irq_domain, hwirq);
+		if (virq)
+			generic_handle_irq(virq);
+		else
 			dev_err(dev, "unexpected IRQ, INT%d\n", hwirq);
 	}
 
@@ -587,6 +589,10 @@ static int rockchip_pcie_parse_host_dt(struct rockchip_pcie *rockchip)
 	int err;
 
 	err = rockchip_pcie_parse_dt(rockchip);
+	if (err)
+		return err;
+
+	err = rockchip_pcie_setup_irq(rockchip);
 	if (err)
 		return err;
 
@@ -967,6 +973,8 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
 	if (err)
 		goto err_vpcie;
 
+	rockchip_pcie_enable_interrupts(rockchip);
+
 	err = rockchip_pcie_init_irq_domain(rockchip);
 	if (err < 0)
 		goto err_deinit_port;
@@ -983,12 +991,6 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
 
 	bridge->sysdata = rockchip;
 	bridge->ops = &rockchip_pcie_ops;
-
-	err = rockchip_pcie_setup_irq(rockchip);
-	if (err)
-		goto err_remove_irq_domain;
-
-	rockchip_pcie_enable_interrupts(rockchip);
 
 	err = pci_host_probe(bridge);
 	if (err < 0)

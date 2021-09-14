@@ -101,6 +101,7 @@ struct dinode {
 					u8 unused[16];	/* 16: */
 					dxd_t _dxd;	/* 16: */
 					union {
+						__le32 _rdev;	/* 4: */
 						/*
 						 * The fast symlink area
 						 * is expected to overflow
@@ -108,15 +109,9 @@ struct dinode {
 						 * needed (which will clear
 						 * INLINEEA).
 						 */
-						struct {
-							union {
-								__le32 _rdev;	/* 4: */
-								u8 _fastsymlink[128];
-							} _u;
-							u8 _inlineea[128];
-						};
-						u8 _inline_all[256];
-					};
+						u8 _fastsymlink[128];
+					} _u;
+					u8 _inlineea[128];
 				} _special;
 			} _u2;
 		} _file;
@@ -127,7 +122,6 @@ struct dinode {
 #define di_rdev		u._file._u2._special._u._rdev
 #define di_fastsymlink	u._file._u2._special._u._fastsymlink
 #define di_inlineea	u._file._u2._special._inlineea
-#define di_inline_all	u._file._u2._special._inline_all
 	} u;
 };
 

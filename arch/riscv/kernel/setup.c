@@ -17,6 +17,7 @@
 #include <linux/of_fdt.h>
 #include <linux/of_platform.h>
 #include <linux/sched/task.h>
+#include <linux/swiotlb.h>
 #include <linux/smp.h>
 #include <linux/efi.h>
 #include <linux/crash_dump.h>
@@ -229,14 +230,14 @@ static void __init init_resources(void)
 	}
 
 	/* Clean-up any unused pre-allocated resources */
-	if (res_idx >= 0)
-		memblock_free(__pa(mem_res), (res_idx + 1) * sizeof(*mem_res));
+	mem_res_sz = (num_resources - res_idx + 1) * sizeof(*mem_res);
+	memblock_free((phys_addr_t) mem_res, mem_res_sz);
 	return;
 
  error:
 	/* Better an empty resource tree than an inconsistent one */
 	release_child_resources(&iomem_resource);
-	memblock_free(__pa(mem_res), mem_res_sz);
+	memblock_free((phys_addr_t) mem_res, mem_res_sz);
 }
 
 
@@ -255,7 +256,7 @@ static void __init parse_dtb(void)
 
 	pr_err("No DTB passed to the kernel\n");
 #ifdef CONFIG_CMDLINE_FORCE
-	strscpy(boot_command_line, CONFIG_CMDLINE, COMMAND_LINE_SIZE);
+	strlcpy(boot_command_line, CONFIG_CMDLINE, COMMAND_LINE_SIZE);
 	pr_info("Forcing kernel command line to: %s\n", boot_command_line);
 #endif
 }
@@ -263,7 +264,10 @@ static void __init parse_dtb(void)
 void __init setup_arch(char **cmdline_p)
 {
 	parse_dtb();
-	setup_initial_init_mm(_stext, _etext, _edata, _end);
+	init_mm.start_code = (unsigned long) _stext;
+	init_mm.end_code   = (unsigned long) _etext;
+	init_mm.end_data   = (unsigned long) _edata;
+	init_mm.brk        = (unsigned long) _end;
 
 	*cmdline_p = boot_command_line;
 
@@ -272,6 +276,7 @@ void __init setup_arch(char **cmdline_p)
 	parse_early_param();
 
 	efi_init();
+	setup_bootmem();
 	paging_init();
 #if IS_ENABLED(CONFIG_BUILTIN_DTB)
 	unflatten_and_copy_device_tree();
@@ -285,6 +290,15 @@ void __init setup_arch(char **cmdline_p)
 
 	init_resources();
 	sbi_init();
+
+	if (IS_ENABLED(CONFIG_STRICT_KERNEL_RWX)) {
+		protect_kernel_text_data();
+		protect_kernel_linear_mapping_text_rodata();
+	}
+
+#ifdef CONFIG_SWIOTLB
+	swiotlb_init(1);
+#endif
 
 #ifdef CONFIG_KASAN
 	kasan_init();
@@ -320,10 +334,11 @@ subsys_initcall(topology_init);
 
 void free_initmem(void)
 {
+	unsigned long init_begin = (unsigned long)__init_begin;
+	unsigned long init_end = (unsigned long)__init_end;
+
 	if (IS_ENABLED(CONFIG_STRICT_KERNEL_RWX))
-		set_kernel_memory(lm_alias(__init_begin), lm_alias(__init_end),
-				  IS_ENABLED(CONFIG_64BIT) ?
-					set_memory_rw : set_memory_rw_nx);
+		set_memory_rw_nx(init_begin, (init_end - init_begin) >> PAGE_SHIFT);
 
 	free_initmem_default(POISON_FREE_INITMEM);
 }

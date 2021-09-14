@@ -14,7 +14,6 @@
 			- "qcom,pcie-qcs404" for qcs404
 			- "qcom,pcie-sdm845" for sdm845
 			- "qcom,pcie-sm8250" for sm8250
-			- "qcom,pcie-ipq6018" for ipq6018
 
 - reg:
 	Usage: required
@@ -34,22 +33,22 @@
 - device_type:
 	Usage: required
 	Value type: <string>
-	Definition: Should be "pci". As specified in snps,dw-pcie.yaml
+	Definition: Should be "pci". As specified in designware-pcie.txt
 
 - #address-cells:
 	Usage: required
 	Value type: <u32>
-	Definition: Should be 3. As specified in snps,dw-pcie.yaml
+	Definition: Should be 3. As specified in designware-pcie.txt
 
 - #size-cells:
 	Usage: required
 	Value type: <u32>
-	Definition: Should be 2. As specified in snps,dw-pcie.yaml
+	Definition: Should be 2. As specified in designware-pcie.txt
 
 - ranges:
 	Usage: required
 	Value type: <prop-encoded-array>
-	Definition: As specified in snps,dw-pcie.yaml
+	Definition: As specified in designware-pcie.txt
 
 - interrupts:
 	Usage: required
@@ -64,17 +63,17 @@
 - #interrupt-cells:
 	Usage: required
 	Value type: <u32>
-	Definition: Should be 1. As specified in snps,dw-pcie.yaml
+	Definition: Should be 1. As specified in designware-pcie.txt
 
 - interrupt-map-mask:
 	Usage: required
 	Value type: <prop-encoded-array>
-	Definition: As specified in snps,dw-pcie.yaml
+	Definition: As specified in designware-pcie.txt
 
 - interrupt-map:
 	Usage: required
 	Value type: <prop-encoded-array>
-	Definition: As specified in snps,dw-pcie.yaml
+	Definition: As specified in designware-pcie.txt
 
 - clocks:
 	Usage: required
@@ -123,16 +122,6 @@
 			- "axi_s"	AXI Slave clock
 			- "ahb"		AHB clock
 			- "aux"		Auxiliary clock
-
-- clock-names:
-	Usage: required for ipq6018
-	Value type: <stringlist>
-	Definition: Should contain the following entries
-			- "iface"	PCIe to SysNOC BIU clock
-			- "axi_m"	AXI Master clock
-			- "axi_s"	AXI Slave clock
-			- "axi_bridge"	AXI bridge clock
-			- "rchng"
 
 - clock-names:
 	Usage: required for qcs404
@@ -219,19 +208,6 @@
 			- "axi_s"		AXI Slave reset
 			- "ahb"			AHB Reset
 			- "axi_m_sticky"	AXI Master Sticky reset
-
-- reset-names:
-	Usage: required for ipq6018
-	Value type: <stringlist>
-	Definition: Should contain the following entries
-			- "pipe"		PIPE reset
-			- "sleep"		Sleep reset
-			- "sticky"		Core Sticky reset
-			- "axi_m"		AXI Master reset
-			- "axi_s"		AXI Slave reset
-			- "ahb"			AHB Reset
-			- "axi_m_sticky"	AXI Master Sticky reset
-			- "axi_s_sticky"	AXI Slave Sticky reset
 
 - reset-names:
 	Usage: required for qcs404

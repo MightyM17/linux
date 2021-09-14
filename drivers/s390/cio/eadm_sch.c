@@ -282,7 +282,7 @@ disable:
 	spin_unlock_irq(sch->lock);
 }
 
-static void eadm_subchannel_remove(struct subchannel *sch)
+static int eadm_subchannel_remove(struct subchannel *sch)
 {
 	struct eadm_private *private = get_eadm_private(sch);
 
@@ -297,6 +297,8 @@ static void eadm_subchannel_remove(struct subchannel *sch)
 	spin_unlock_irq(sch->lock);
 
 	kfree(private);
+
+	return 0;
 }
 
 static void eadm_subchannel_shutdown(struct subchannel *sch)

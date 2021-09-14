@@ -56,11 +56,7 @@ struct mxc4005_data {
 	struct mutex mutex;
 	struct regmap *regmap;
 	struct iio_trigger *dready_trig;
-	/* Ensure timestamp is naturally aligned */
-	struct {
-		__be16 chans[3];
-		s64 timestamp __aligned(8);
-	} scan;
+	__be16 buffer[8];
 	bool trigger_enabled;
 };
 
@@ -139,7 +135,7 @@ static int mxc4005_read_xyz(struct mxc4005_data *data)
 	int ret;
 
 	ret = regmap_bulk_read(data->regmap, MXC4005_REG_XOUT_UPPER,
-			       data->scan.chans, sizeof(data->scan.chans));
+			       data->buffer, sizeof(data->buffer));
 	if (ret < 0) {
 		dev_err(data->dev, "failed to read axes\n");
 		return ret;
@@ -305,7 +301,7 @@ static irqreturn_t mxc4005_trigger_handler(int irq, void *private)
 	if (ret < 0)
 		goto err;
 
-	iio_push_to_buffers_with_timestamp(indio_dev, &data->scan,
+	iio_push_to_buffers_with_timestamp(indio_dev, data->buffer,
 					   pf->timestamp);
 
 err:
@@ -437,7 +433,7 @@ static int mxc4005_probe(struct i2c_client *client,
 		data->dready_trig = devm_iio_trigger_alloc(&client->dev,
 							   "%s-dev%d",
 							   indio_dev->name,
-							   iio_device_id(indio_dev));
+							   indio_dev->id);
 		if (!data->dready_trig)
 			return -ENOMEM;
 

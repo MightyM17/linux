@@ -640,8 +640,7 @@ static int scd30_setup_trigger(struct iio_dev *indio_dev)
 	struct iio_trigger *trig;
 	int ret;
 
-	trig = devm_iio_trigger_alloc(dev, "%s-dev%d", indio_dev->name,
-				      iio_device_id(indio_dev));
+	trig = devm_iio_trigger_alloc(dev, "%s-dev%d", indio_dev->name, indio_dev->id);
 	if (!trig) {
 		dev_err(dev, "failed to allocate trigger\n");
 		return -ENOMEM;

@@ -12,6 +12,7 @@
 	compatible = "st,stih410-b2260", "st,stih410";
 
 	chosen {
+		bootargs = "clk_ignore_unused";
 		stdout-path = &uart1;
 	};
 

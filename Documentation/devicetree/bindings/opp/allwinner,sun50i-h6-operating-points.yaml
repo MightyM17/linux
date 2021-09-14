@@ -18,9 +18,6 @@ description: |
   sun50i-cpufreq-nvmem driver reads the efuse value from the SoC to
   provide the OPP framework with required information.
 
-allOf:
-  - $ref: opp-v2-base.yaml#
-
 properties:
   compatible:
     const: allwinner,sun50i-h6-operating-points
@@ -46,7 +43,6 @@ patternProperties:
 
     properties:
       opp-hz: true
-      clock-latency-ns: true
 
     patternProperties:
       "opp-microvolt-.*": true

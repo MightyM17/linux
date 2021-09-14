@@ -725,7 +725,7 @@ err_put_fd:
 	return ret;
 }
 /**
- * drm_syncobj_open - initializes syncobj file-private structures at devnode open time
+ * drm_syncobj_open - initalizes syncobj file-private structures at devnode open time
  * @file_private: drm file-private structure to set up
  *
  * Called at device open time, sets up the structure for handling refcounting
@@ -861,7 +861,7 @@ static int drm_syncobj_transfer_to_timeline(struct drm_file *file_private,
 				     &fence);
 	if (ret)
 		goto err;
-	chain = dma_fence_chain_alloc();
+	chain = kzalloc(sizeof(struct dma_fence_chain), GFP_KERNEL);
 	if (!chain) {
 		ret = -ENOMEM;
 		goto err1;
@@ -1402,10 +1402,10 @@ drm_syncobj_timeline_signal_ioctl(struct drm_device *dev, void *data,
 		goto err_points;
 	}
 	for (i = 0; i < args->count_handles; i++) {
-		chains[i] = dma_fence_chain_alloc();
+		chains[i] = kzalloc(sizeof(struct dma_fence_chain), GFP_KERNEL);
 		if (!chains[i]) {
 			for (j = 0; j < i; j++)
-				dma_fence_chain_free(chains[j]);
+				kfree(chains[j]);
 			ret = -ENOMEM;
 			goto err_chains;
 		}

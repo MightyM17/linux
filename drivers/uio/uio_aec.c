@@ -133,7 +133,7 @@ static void remove(struct pci_dev *pdev)
 	uio_unregister_device(info);
 	pci_release_regions(pdev);
 	pci_disable_device(pdev);
-	pci_iounmap(pdev, info->priv);
+	iounmap(info->priv);
 }
 
 static struct pci_driver pci_driver = {

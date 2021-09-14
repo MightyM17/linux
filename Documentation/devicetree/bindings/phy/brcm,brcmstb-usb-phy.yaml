@@ -22,6 +22,7 @@ properties:
 
   reg:
     minItems: 1
+    maxItems: 6
     items:
       - description: the base CTRL register
       - description: XHCI EC register
@@ -32,6 +33,7 @@ properties:
 
   reg-names:
     minItems: 1
+    maxItems: 6
     items:
       - const: ctrl
       - const: xhci_ec
@@ -49,6 +51,7 @@ properties:
 
   clock-names:
     minItems: 1
+    maxItems: 2
     items:
       - const: sw_usb
       - const: sw_usb3

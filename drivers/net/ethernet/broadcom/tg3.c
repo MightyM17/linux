@@ -6564,8 +6564,10 @@ static void tg3_tx(struct tg3_napi *tnapi)
 			skb_tstamp_tx(skb, &timestamp);
 		}
 
-		dma_unmap_single(&tp->pdev->dev, dma_unmap_addr(ri, mapping),
-				 skb_headlen(skb), DMA_TO_DEVICE);
+		pci_unmap_single(tp->pdev,
+				 dma_unmap_addr(ri, mapping),
+				 skb_headlen(skb),
+				 PCI_DMA_TODEVICE);
 
 		ri->skb = NULL;
 
@@ -6582,10 +6584,10 @@ static void tg3_tx(struct tg3_napi *tnapi)
 			if (unlikely(ri->skb != NULL || sw_idx == hw_idx))
 				tx_bug = 1;
 
-			dma_unmap_page(&tp->pdev->dev,
+			pci_unmap_page(tp->pdev,
 				       dma_unmap_addr(ri, mapping),
 				       skb_frag_size(&skb_shinfo(skb)->frags[i]),
-				       DMA_TO_DEVICE);
+				       PCI_DMA_TODEVICE);
 
 			while (ri->fragmented) {
 				ri->fragmented = false;
@@ -6644,8 +6646,8 @@ static void tg3_rx_data_free(struct tg3 *tp, struct ring_info *ri, u32 map_sz)
 	if (!ri->data)
 		return;
 
-	dma_unmap_single(&tp->pdev->dev, dma_unmap_addr(ri, mapping), map_sz,
-			 DMA_FROM_DEVICE);
+	pci_unmap_single(tp->pdev, dma_unmap_addr(ri, mapping),
+			 map_sz, PCI_DMA_FROMDEVICE);
 	tg3_frag_free(skb_size <= PAGE_SIZE, ri->data);
 	ri->data = NULL;
 }
@@ -6709,9 +6711,11 @@ static int tg3_alloc_rx_data(struct tg3 *tp, struct tg3_rx_prodring_set *tpr,
 	if (!data)
 		return -ENOMEM;
 
-	mapping = dma_map_single(&tp->pdev->dev, data + TG3_RX_OFFSET(tp),
-				 data_size, DMA_FROM_DEVICE);
-	if (unlikely(dma_mapping_error(&tp->pdev->dev, mapping))) {
+	mapping = pci_map_single(tp->pdev,
+				 data + TG3_RX_OFFSET(tp),
+				 data_size,
+				 PCI_DMA_FROMDEVICE);
+	if (unlikely(pci_dma_mapping_error(tp->pdev, mapping))) {
 		tg3_frag_free(skb_size <= PAGE_SIZE, data);
 		return -EIO;
 	}
@@ -6878,8 +6882,8 @@ static int tg3_rx(struct tg3_napi *tnapi, int budget)
 			if (skb_size < 0)
 				goto drop_it;
 
-			dma_unmap_single(&tp->pdev->dev, dma_addr, skb_size,
-					 DMA_FROM_DEVICE);
+			pci_unmap_single(tp->pdev, dma_addr, skb_size,
+					 PCI_DMA_FROMDEVICE);
 
 			/* Ensure that the update to the data happens
 			 * after the usage of the old DMA mapping.
@@ -6904,13 +6908,11 @@ static int tg3_rx(struct tg3_napi *tnapi, int budget)
 				goto drop_it_no_recycle;
 
 			skb_reserve(skb, TG3_RAW_IP_ALIGN);
-			dma_sync_single_for_cpu(&tp->pdev->dev, dma_addr, len,
-						DMA_FROM_DEVICE);
+			pci_dma_sync_single_for_cpu(tp->pdev, dma_addr, len, PCI_DMA_FROMDEVICE);
 			memcpy(skb->data,
 			       data + TG3_RX_OFFSET(tp),
 			       len);
-			dma_sync_single_for_device(&tp->pdev->dev, dma_addr,
-						   len, DMA_FROM_DEVICE);
+			pci_dma_sync_single_for_device(tp->pdev, dma_addr, len, PCI_DMA_FROMDEVICE);
 		}
 
 		skb_put(skb, len);
@@ -7760,8 +7762,10 @@ static void tg3_tx_skb_unmap(struct tg3_napi *tnapi, u32 entry, int last)
 	skb = txb->skb;
 	txb->skb = NULL;
 
-	dma_unmap_single(&tnapi->tp->pdev->dev, dma_unmap_addr(txb, mapping),
-			 skb_headlen(skb), DMA_TO_DEVICE);
+	pci_unmap_single(tnapi->tp->pdev,
+			 dma_unmap_addr(txb, mapping),
+			 skb_headlen(skb),
+			 PCI_DMA_TODEVICE);
 
 	while (txb->fragmented) {
 		txb->fragmented = false;
@@ -7775,9 +7779,9 @@ static void tg3_tx_skb_unmap(struct tg3_napi *tnapi, u32 entry, int last)
 		entry = NEXT_TX(entry);
 		txb = &tnapi->tx_buffers[entry];
 
-		dma_unmap_page(&tnapi->tp->pdev->dev,
+		pci_unmap_page(tnapi->tp->pdev,
 			       dma_unmap_addr(txb, mapping),
-			       skb_frag_size(frag), DMA_TO_DEVICE);
+			       skb_frag_size(frag), PCI_DMA_TODEVICE);
 
 		while (txb->fragmented) {
 			txb->fragmented = false;
@@ -7812,10 +7816,10 @@ static int tigon3_dma_hwbug_workaround(struct tg3_napi *tnapi,
 		ret = -1;
 	} else {
 		/* New SKB is guaranteed to be linear. */
-		new_addr = dma_map_single(&tp->pdev->dev, new_skb->data,
-					  new_skb->len, DMA_TO_DEVICE);
+		new_addr = pci_map_single(tp->pdev, new_skb->data, new_skb->len,
+					  PCI_DMA_TODEVICE);
 		/* Make sure the mapping succeeded */
-		if (dma_mapping_error(&tp->pdev->dev, new_addr)) {
+		if (pci_dma_mapping_error(tp->pdev, new_addr)) {
 			dev_kfree_skb_any(new_skb);
 			ret = -1;
 		} else {
@@ -8039,9 +8043,8 @@ static netdev_tx_t tg3_start_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	len = skb_headlen(skb);
 
-	mapping = dma_map_single(&tp->pdev->dev, skb->data, len,
-				 DMA_TO_DEVICE);
-	if (dma_mapping_error(&tp->pdev->dev, mapping))
+	mapping = pci_map_single(tp->pdev, skb->data, len, PCI_DMA_TODEVICE);
+	if (pci_dma_mapping_error(tp->pdev, mapping))
 		goto drop;
 
 
@@ -12788,7 +12791,7 @@ static void tg3_get_ethtool_stats(struct net_device *dev,
 		memset(tmp_stats, 0, sizeof(struct tg3_ethtool_stats));
 }
 
-static __be32 *tg3_vpd_readblock(struct tg3 *tp, unsigned int *vpdlen)
+static __be32 *tg3_vpd_readblock(struct tg3 *tp, u32 *vpdlen)
 {
 	int i;
 	__be32 *buf;
@@ -12822,11 +12825,15 @@ static __be32 *tg3_vpd_readblock(struct tg3 *tp, unsigned int *vpdlen)
 			offset = TG3_NVM_VPD_OFF;
 			len = TG3_NVM_VPD_LEN;
 		}
+	} else {
+		len = TG3_NVM_PCI_VPD_MAX_LEN;
+	}
 
-		buf = kmalloc(len, GFP_KERNEL);
-		if (!buf)
-			return NULL;
+	buf = kmalloc(len, GFP_KERNEL);
+	if (buf == NULL)
+		return NULL;
 
+	if (magic == TG3_EEPROM_MAGIC) {
 		for (i = 0; i < len; i += 4) {
 			/* The data is in little-endian format in NVRAM.
 			 * Use the big-endian read routines to preserve
@@ -12837,9 +12844,12 @@ static __be32 *tg3_vpd_readblock(struct tg3 *tp, unsigned int *vpdlen)
 		}
 		*vpdlen = len;
 	} else {
-		buf = pci_vpd_alloc(tp->pdev, vpdlen);
-		if (IS_ERR(buf))
-			return NULL;
+		ssize_t cnt;
+
+		cnt = pci_read_vpd(tp->pdev, 0, len, (u8 *)buf);
+		if (cnt < 0)
+			goto error;
+		*vpdlen = cnt;
 	}
 
 	return buf;
@@ -12861,10 +12871,9 @@ error:
 
 static int tg3_test_nvram(struct tg3 *tp)
 {
-	u32 csum, magic;
+	u32 csum, magic, len;
 	__be32 *buf;
 	int i, j, k, err = 0, size;
-	unsigned int len;
 
 	if (tg3_flag(tp, NO_NVRAM))
 		return 0;
@@ -13007,10 +13016,33 @@ static int tg3_test_nvram(struct tg3 *tp)
 	if (!buf)
 		return -ENOMEM;
 
-	err = pci_vpd_check_csum(buf, len);
-	/* go on if no checksum found */
-	if (err == 1)
-		err = 0;
+	i = pci_vpd_find_tag((u8 *)buf, len, PCI_VPD_LRDT_RO_DATA);
+	if (i > 0) {
+		j = pci_vpd_lrdt_size(&((u8 *)buf)[i]);
+		if (j < 0)
+			goto out;
+
+		if (i + PCI_VPD_LRDT_TAG_SIZE + j > len)
+			goto out;
+
+		i += PCI_VPD_LRDT_TAG_SIZE;
+		j = pci_vpd_find_info_keyword((u8 *)buf, i, j,
+					      PCI_VPD_RO_KEYWORD_CHKSUM);
+		if (j > 0) {
+			u8 csum8 = 0;
+
+			j += PCI_VPD_INFO_FLD_HDR_SIZE;
+
+			for (i = 0; i <= j; i++)
+				csum8 += ((u8 *)buf)[i];
+
+			if (csum8)
+				goto out;
+		}
+	}
+
+	err = 0;
+
 out:
 	kfree(buf);
 	return err;
@@ -13467,8 +13499,8 @@ static int tg3_run_loopback(struct tg3 *tp, u32 pktsz, bool tso_loopback)
 	for (i = data_off; i < tx_len; i++)
 		tx_data[i] = (u8) (i & 0xff);
 
-	map = dma_map_single(&tp->pdev->dev, skb->data, tx_len, DMA_TO_DEVICE);
-	if (dma_mapping_error(&tp->pdev->dev, map)) {
+	map = pci_map_single(tp->pdev, skb->data, tx_len, PCI_DMA_TODEVICE);
+	if (pci_dma_mapping_error(tp->pdev, map)) {
 		dev_kfree_skb(skb);
 		return -EIO;
 	}
@@ -13566,8 +13598,8 @@ static int tg3_run_loopback(struct tg3 *tp, u32 pktsz, bool tso_loopback)
 		} else
 			goto out;
 
-		dma_sync_single_for_cpu(&tp->pdev->dev, map, rx_len,
-					DMA_FROM_DEVICE);
+		pci_dma_sync_single_for_cpu(tp->pdev, map, rx_len,
+					    PCI_DMA_FROMDEVICE);
 
 		rx_data += TG3_RX_OFFSET(tp);
 		for (i = data_off; i < rx_len; i++, val++) {
@@ -14008,10 +14040,7 @@ static int tg3_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	return -EOPNOTSUPP;
 }
 
-static int tg3_get_coalesce(struct net_device *dev,
-			    struct ethtool_coalesce *ec,
-			    struct kernel_ethtool_coalesce *kernel_coal,
-			    struct netlink_ext_ack *extack)
+static int tg3_get_coalesce(struct net_device *dev, struct ethtool_coalesce *ec)
 {
 	struct tg3 *tp = netdev_priv(dev);
 
@@ -14019,10 +14048,7 @@ static int tg3_get_coalesce(struct net_device *dev,
 	return 0;
 }
 
-static int tg3_set_coalesce(struct net_device *dev,
-			    struct ethtool_coalesce *ec,
-			    struct kernel_ethtool_coalesce *kernel_coal,
-			    struct netlink_ext_ack *extack)
+static int tg3_set_coalesce(struct net_device *dev, struct ethtool_coalesce *ec)
 {
 	struct tg3 *tp = netdev_priv(dev);
 	u32 max_rxcoal_tick_int = 0, max_txcoal_tick_int = 0;
@@ -14264,7 +14290,7 @@ static const struct net_device_ops tg3_netdev_ops = {
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_set_rx_mode	= tg3_set_rx_mode,
 	.ndo_set_mac_address	= tg3_set_mac_addr,
-	.ndo_eth_ioctl		= tg3_ioctl,
+	.ndo_do_ioctl		= tg3_ioctl,
 	.ndo_tx_timeout		= tg3_tx_timeout,
 	.ndo_change_mtu		= tg3_change_mtu,
 	.ndo_fix_features	= tg3_fix_features,
@@ -15595,36 +15621,64 @@ skip_phy_reset:
 static void tg3_read_vpd(struct tg3 *tp)
 {
 	u8 *vpd_data;
-	unsigned int len, vpdlen;
-	int i;
+	unsigned int block_end, rosize, len;
+	u32 vpdlen;
+	int j, i = 0;
 
 	vpd_data = (u8 *)tg3_vpd_readblock(tp, &vpdlen);
 	if (!vpd_data)
 		goto out_no_vpd;
 
-	i = pci_vpd_find_ro_info_keyword(vpd_data, vpdlen,
-					 PCI_VPD_RO_KEYWORD_MFR_ID, &len);
-	if (i < 0)
-		goto partno;
-
-	if (len != 4 || memcmp(vpd_data + i, "1028", 4))
-		goto partno;
-
-	i = pci_vpd_find_ro_info_keyword(vpd_data, vpdlen,
-					 PCI_VPD_RO_KEYWORD_VENDOR0, &len);
-	if (i < 0)
-		goto partno;
-
-	memset(tp->fw_ver, 0, sizeof(tp->fw_ver));
-	snprintf(tp->fw_ver, sizeof(tp->fw_ver), "%.*s bc ", len, vpd_data + i);
-
-partno:
-	i = pci_vpd_find_ro_info_keyword(vpd_data, vpdlen,
-					 PCI_VPD_RO_KEYWORD_PARTNO, &len);
+	i = pci_vpd_find_tag(vpd_data, vpdlen, PCI_VPD_LRDT_RO_DATA);
 	if (i < 0)
 		goto out_not_found;
 
-	if (len > TG3_BPN_SIZE)
+	rosize = pci_vpd_lrdt_size(&vpd_data[i]);
+	block_end = i + PCI_VPD_LRDT_TAG_SIZE + rosize;
+	i += PCI_VPD_LRDT_TAG_SIZE;
+
+	if (block_end > vpdlen)
+		goto out_not_found;
+
+	j = pci_vpd_find_info_keyword(vpd_data, i, rosize,
+				      PCI_VPD_RO_KEYWORD_MFR_ID);
+	if (j > 0) {
+		len = pci_vpd_info_field_size(&vpd_data[j]);
+
+		j += PCI_VPD_INFO_FLD_HDR_SIZE;
+		if (j + len > block_end || len != 4 ||
+		    memcmp(&vpd_data[j], "1028", 4))
+			goto partno;
+
+		j = pci_vpd_find_info_keyword(vpd_data, i, rosize,
+					      PCI_VPD_RO_KEYWORD_VENDOR0);
+		if (j < 0)
+			goto partno;
+
+		len = pci_vpd_info_field_size(&vpd_data[j]);
+
+		j += PCI_VPD_INFO_FLD_HDR_SIZE;
+		if (j + len > block_end)
+			goto partno;
+
+		if (len >= sizeof(tp->fw_ver))
+			len = sizeof(tp->fw_ver) - 1;
+		memset(tp->fw_ver, 0, sizeof(tp->fw_ver));
+		snprintf(tp->fw_ver, sizeof(tp->fw_ver), "%.*s bc ", len,
+			 &vpd_data[j]);
+	}
+
+partno:
+	i = pci_vpd_find_info_keyword(vpd_data, i, rosize,
+				      PCI_VPD_RO_KEYWORD_PARTNO);
+	if (i < 0)
+		goto out_not_found;
+
+	len = pci_vpd_info_field_size(&vpd_data[i]);
+
+	i += PCI_VPD_INFO_FLD_HDR_SIZE;
+	if (len > TG3_BPN_SIZE ||
+	    (len + i) > vpdlen)
 		goto out_not_found;
 
 	memcpy(tp->board_part_number, &vpd_data[i], len);
@@ -17701,11 +17755,11 @@ static int tg3_init_one(struct pci_dev *pdev,
 
 	/* Configure DMA attributes. */
 	if (dma_mask > DMA_BIT_MASK(32)) {
-		err = dma_set_mask(&pdev->dev, dma_mask);
+		err = pci_set_dma_mask(pdev, dma_mask);
 		if (!err) {
 			features |= NETIF_F_HIGHDMA;
-			err = dma_set_coherent_mask(&pdev->dev,
-						    persist_dma_mask);
+			err = pci_set_consistent_dma_mask(pdev,
+							  persist_dma_mask);
 			if (err < 0) {
 				dev_err(&pdev->dev, "Unable to obtain 64 bit "
 					"DMA for consistent allocations\n");
@@ -17714,7 +17768,7 @@ static int tg3_init_one(struct pci_dev *pdev,
 		}
 	}
 	if (err || dma_mask == DMA_BIT_MASK(32)) {
-		err = dma_set_mask(&pdev->dev, DMA_BIT_MASK(32));
+		err = pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
 		if (err) {
 			dev_err(&pdev->dev,
 				"No usable DMA configuration, aborting\n");

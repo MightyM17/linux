@@ -17,7 +17,7 @@
  * - scnprintf and vscnprintf
  */
 
-#include <linux/stdarg.h>
+#include <stdarg.h>
 #include <linux/build_bug.h>
 #include <linux/clk.h>
 #include <linux/clk-provider.h>
@@ -53,31 +53,6 @@
 #include <linux/string_helpers.h>
 #include "kstrtox.h"
 
-static unsigned long long simple_strntoull(const char *startp, size_t max_chars,
-					   char **endp, unsigned int base)
-{
-	const char *cp;
-	unsigned long long result = 0ULL;
-	size_t prefix_chars;
-	unsigned int rv;
-
-	cp = _parse_integer_fixup_radix(startp, &base);
-	prefix_chars = cp - startp;
-	if (prefix_chars < max_chars) {
-		rv = _parse_integer_limit(cp, base, &result, max_chars - prefix_chars);
-		/* FIXME */
-		cp += (rv & ~KSTRTOX_OVERFLOW);
-	} else {
-		/* Field too short for prefix + digit, skip over without converting */
-		cp = startp + max_chars;
-	}
-
-	if (endp)
-		*endp = (char *)cp;
-
-	return result;
-}
-
 /**
  * simple_strtoull - convert a string to an unsigned long long
  * @cp: The start of the string
@@ -86,10 +61,20 @@ static unsigned long long simple_strntoull(const char *startp, size_t max_chars,
  *
  * This function has caveats. Please use kstrtoull instead.
  */
-noinline
 unsigned long long simple_strtoull(const char *cp, char **endp, unsigned int base)
 {
-	return simple_strntoull(cp, INT_MAX, endp, base);
+	unsigned long long result;
+	unsigned int rv;
+
+	cp = _parse_integer_fixup_radix(cp, &base);
+	rv = _parse_integer(cp, base, &result);
+	/* FIXME */
+	cp += (rv & ~KSTRTOX_OVERFLOW);
+
+	if (endp)
+		*endp = (char *)cp;
+
+	return result;
 }
 EXPORT_SYMBOL(simple_strtoull);
 
@@ -124,21 +109,6 @@ long simple_strtol(const char *cp, char **endp, unsigned int base)
 }
 EXPORT_SYMBOL(simple_strtol);
 
-static long long simple_strntoll(const char *cp, size_t max_chars, char **endp,
-				 unsigned int base)
-{
-	/*
-	 * simple_strntoull() safely handles receiving max_chars==0 in the
-	 * case cp[0] == '-' && max_chars == 1.
-	 * If max_chars == 0 we can drop through and pass it to simple_strntoull()
-	 * and the content of *cp is irrelevant.
-	 */
-	if (*cp == '-' && max_chars > 0)
-		return -simple_strntoull(cp + 1, max_chars - 1, endp, base);
-
-	return simple_strntoull(cp, max_chars, endp, base);
-}
-
 /**
  * simple_strtoll - convert a string to a signed long long
  * @cp: The start of the string
@@ -149,7 +119,10 @@ static long long simple_strntoll(const char *cp, size_t max_chars, char **endp,
  */
 long long simple_strtoll(const char *cp, char **endp, unsigned int base)
 {
-	return simple_strntoll(cp, INT_MAX, endp, base);
+	if (*cp == '-')
+		return -simple_strtoull(cp + 1, endp, base);
+
+	return simple_strtoull(cp, endp, base);
 }
 EXPORT_SYMBOL(simple_strtoll);
 
@@ -993,12 +966,8 @@ char *symbol_string(char *buf, char *end, void *ptr,
 	value = (unsigned long)ptr;
 
 #ifdef CONFIG_KALLSYMS
-	if (*fmt == 'B' && fmt[1] == 'b')
-		sprint_backtrace_build_id(sym, value);
-	else if (*fmt == 'B')
+	if (*fmt == 'B')
 		sprint_backtrace(sym, value);
-	else if (*fmt == 'S' && (fmt[1] == 'b' || (fmt[1] == 'R' && fmt[2] == 'b')))
-		sprint_symbol_build_id(sym, value);
 	else if (*fmt != 's')
 		sprint_symbol(sym, value);
 	else
@@ -1865,8 +1834,7 @@ char *rtc_str(char *buf, char *end, const struct rtc_time *tm,
 	      struct printf_spec spec, const char *fmt)
 {
 	bool have_t = true, have_d = true;
-	bool raw = false, iso8601_separator = true;
-	bool found = true;
+	bool raw = false;
 	int count = 2;
 
 	if (check_pointer(&buf, end, tm, spec))
@@ -1883,25 +1851,14 @@ char *rtc_str(char *buf, char *end, const struct rtc_time *tm,
 		break;
 	}
 
-	do {
-		switch (fmt[count++]) {
-		case 'r':
-			raw = true;
-			break;
-		case 's':
-			iso8601_separator = false;
-			break;
-		default:
-			found = false;
-			break;
-		}
-	} while (found);
+	raw = fmt[count] == 'r';
 
 	if (have_d)
 		buf = date_str(buf, end, tm, raw);
 	if (have_d && have_t) {
+		/* Respect ISO 8601 */
 		if (buf < end)
-			*buf = iso8601_separator ? 'T' : ' ';
+			*buf = 'T';
 		buf++;
 	}
 	if (have_t)
@@ -2019,7 +1976,7 @@ static const struct page_flags_fields pff[] = {
 static
 char *format_page_flags(char *buf, char *end, unsigned long flags)
 {
-	unsigned long main_flags = flags & PAGEFLAGS_MASK;
+	unsigned long main_flags = flags & (BIT(NR_PAGEFLAGS) - 1);
 	bool append = false;
 	int i;
 
@@ -2229,7 +2186,7 @@ char *fwnode_string(char *buf, char *end, struct fwnode_handle *fwnode,
 bool no_hash_pointers __ro_after_init;
 EXPORT_SYMBOL_GPL(no_hash_pointers);
 
-int __init no_hash_pointers_enable(char *str)
+static int __init no_hash_pointers_enable(char *str)
 {
 	if (no_hash_pointers)
 		return 0;
@@ -2267,11 +2224,9 @@ early_param("no_hash_pointers", no_hash_pointers_enable);
  * - 'S' For symbolic direct pointers (or function descriptors) with offset
  * - 's' For symbolic direct pointers (or function descriptors) without offset
  * - '[Ss]R' as above with __builtin_extract_return_addr() translation
- * - 'S[R]b' as above with module build ID (for use in backtraces)
  * - '[Ff]' %pf and %pF were obsoleted and later removed in favor of
  *	    %ps and %pS. Be careful when re-using these specifiers.
  * - 'B' For backtraced symbolic direct pointers with offset
- * - 'Bb' as above with module build ID (for use in backtraces)
  * - 'R' For decoded struct resource, e.g., [mem 0x0-0x1f 64bit pref]
  * - 'r' For raw struct resource, e.g., [mem 0x0-0x1f flags 0x201]
  * - 'b[l]' For a bitmap, the number of bits is determined by the field
@@ -2343,7 +2298,7 @@ early_param("no_hash_pointers", no_hash_pointers_enable);
  * - 'd[234]' For a dentry name (optionally 2-4 last components)
  * - 'D[234]' Same as 'd' but for a struct file
  * - 'g' For block_device name (gendisk + partition number)
- * - 't[RT][dt][r][s]' For time and date as represented by:
+ * - 't[RT][dt][r]' For time and date as represented by:
  *      R    struct rtc_time
  *      T    time64_t
  * - 'C' For a clock, it prints the name (Common Clock Framework) or address
@@ -3423,7 +3378,7 @@ int vsscanf(const char *buf, const char *fmt, va_list args)
 
 	while (*fmt) {
 		/* skip any white space in format */
-		/* white space in format matches any amount of
+		/* white space in format matchs any amount of
 		 * white space, including none, in the input.
 		 */
 		if (isspace(*fmt)) {
@@ -3610,12 +3565,8 @@ int vsscanf(const char *buf, const char *fmt, va_list args)
 		str = skip_spaces(str);
 
 		digit = *str;
-		if (is_sign && digit == '-') {
-			if (field_width == 1)
-				break;
-
+		if (is_sign && digit == '-')
 			digit = *(str + 1);
-		}
 
 		if (!digit
 		    || (base == 16 && !isxdigit(digit))
@@ -3625,13 +3576,25 @@ int vsscanf(const char *buf, const char *fmt, va_list args)
 			break;
 
 		if (is_sign)
-			val.s = simple_strntoll(str,
-						field_width >= 0 ? field_width : INT_MAX,
-						&next, base);
+			val.s = qualifier != 'L' ?
+				simple_strtol(str, &next, base) :
+				simple_strtoll(str, &next, base);
 		else
-			val.u = simple_strntoull(str,
-						 field_width >= 0 ? field_width : INT_MAX,
-						 &next, base);
+			val.u = qualifier != 'L' ?
+				simple_strtoul(str, &next, base) :
+				simple_strtoull(str, &next, base);
+
+		if (field_width > 0 && next - str > field_width) {
+			if (base == 0)
+				_parse_integer_fixup_radix(str, &base);
+			while (next - str > field_width) {
+				if (is_sign)
+					val.s = div_s64(val.s, base);
+				else
+					val.u = div_u64(val.u, base);
+				--next;
+			}
+		}
 
 		switch (qualifier) {
 		case 'H':	/* that's 'hh' in format */

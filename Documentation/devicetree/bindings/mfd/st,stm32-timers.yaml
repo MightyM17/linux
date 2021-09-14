@@ -119,6 +119,8 @@ patternProperties:
       - compatible
 
 required:
+  - "#address-cells"
+  - "#size-cells"
   - compatible
   - reg
   - clocks

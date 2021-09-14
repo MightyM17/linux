@@ -239,21 +239,21 @@ static const struct xchk_meta_ops meta_scrub_ops[] = {
 		.type	= ST_PERAG,
 		.setup	= xchk_setup_ag_iallocbt,
 		.scrub	= xchk_finobt,
-		.has	= xfs_has_finobt,
+		.has	= xfs_sb_version_hasfinobt,
 		.repair	= xrep_notsupported,
 	},
 	[XFS_SCRUB_TYPE_RMAPBT] = {	/* rmapbt */
 		.type	= ST_PERAG,
 		.setup	= xchk_setup_ag_rmapbt,
 		.scrub	= xchk_rmapbt,
-		.has	= xfs_has_rmapbt,
+		.has	= xfs_sb_version_hasrmapbt,
 		.repair	= xrep_notsupported,
 	},
 	[XFS_SCRUB_TYPE_REFCNTBT] = {	/* refcountbt */
 		.type	= ST_PERAG,
 		.setup	= xchk_setup_ag_refcountbt,
 		.scrub	= xchk_refcountbt,
-		.has	= xfs_has_reflink,
+		.has	= xfs_sb_version_hasreflink,
 		.repair	= xrep_notsupported,
 	},
 	[XFS_SCRUB_TYPE_INODE] = {	/* inode record */
@@ -308,14 +308,14 @@ static const struct xchk_meta_ops meta_scrub_ops[] = {
 		.type	= ST_FS,
 		.setup	= xchk_setup_rt,
 		.scrub	= xchk_rtbitmap,
-		.has	= xfs_has_realtime,
+		.has	= xfs_sb_version_hasrealtime,
 		.repair	= xrep_notsupported,
 	},
 	[XFS_SCRUB_TYPE_RTSUM] = {	/* realtime summary */
 		.type	= ST_FS,
 		.setup	= xchk_setup_rt,
 		.scrub	= xchk_rtsummary,
-		.has	= xfs_has_realtime,
+		.has	= xfs_sb_version_hasrealtime,
 		.repair	= xrep_notsupported,
 	},
 	[XFS_SCRUB_TYPE_UQUOTA] = {	/* user quota */
@@ -383,7 +383,7 @@ xchk_validate_inputs(
 	if (ops->setup == NULL || ops->scrub == NULL)
 		goto out;
 	/* Does this fs even support this type of metadata? */
-	if (ops->has && !ops->has(mp))
+	if (ops->has && !ops->has(&mp->m_sb))
 		goto out;
 
 	error = -EINVAL;
@@ -415,11 +415,11 @@ xchk_validate_inputs(
 	 */
 	if (sm->sm_flags & XFS_SCRUB_IFLAG_REPAIR) {
 		error = -EOPNOTSUPP;
-		if (!xfs_has_crc(mp))
+		if (!xfs_sb_version_hascrc(&mp->m_sb))
 			goto out;
 
 		error = -EROFS;
-		if (xfs_is_readonly(mp))
+		if (mp->m_flags & XFS_MOUNT_RDONLY)
 			goto out;
 	}
 
@@ -464,6 +464,9 @@ xfs_scrub_metadata(
 	struct xfs_scrub		sc = {
 		.file			= file,
 		.sm			= sm,
+		.sa			= {
+			.agno		= NULLAGNUMBER,
+		},
 	};
 	struct xfs_mount		*mp = XFS_I(file_inode(file))->i_mount;
 	int				error = 0;
@@ -477,10 +480,10 @@ xfs_scrub_metadata(
 
 	/* Forbidden if we are shut down or mounted norecovery. */
 	error = -ESHUTDOWN;
-	if (xfs_is_shutdown(mp))
+	if (XFS_FORCED_SHUTDOWN(mp))
 		goto out;
 	error = -ENOTRECOVERABLE;
-	if (xfs_has_norecovery(mp))
+	if (mp->m_flags & XFS_MOUNT_NORECOVERY)
 		goto out;
 
 	error = xchk_validate_inputs(mp, sm);

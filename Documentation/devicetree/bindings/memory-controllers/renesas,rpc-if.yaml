@@ -61,22 +61,11 @@ patternProperties:
     type: object
     properties:
       compatible:
-        contains:
-          enum:
-            - cfi-flash
-            - jedec,spi-nor
+        enum:
+          - cfi-flash
+          - jedec,spi-nor
 
 unevaluatedProperties: false
-
-required:
-  - compatible
-  - reg
-  - reg-names
-  - clocks
-  - power-domains
-  - resets
-  - '#address-cells'
-  - '#size-cells'
 
 examples:
   - |

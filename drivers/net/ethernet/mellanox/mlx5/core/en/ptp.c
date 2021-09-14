@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 OR Linux-OpenIB
 // Copyright (c) 2020 Mellanox Technologies
 
+#include <linux/ptp_classify.h>
 #include "en/ptp.h"
 #include "en/txrx.h"
 #include "en/params.h"
@@ -326,14 +327,13 @@ static int mlx5e_ptp_open_txqsqs(struct mlx5e_ptp *c,
 				 struct mlx5e_ptp_params *cparams)
 {
 	struct mlx5e_params *params = &cparams->params;
-	u8 num_tc = mlx5e_get_dcb_num_tc(params);
 	int ix_base;
 	int err;
 	int tc;
 
-	ix_base = num_tc * params->num_channels;
+	ix_base = params->num_tc * params->num_channels;
 
-	for (tc = 0; tc < num_tc; tc++) {
+	for (tc = 0; tc < params->num_tc; tc++) {
 		int txq_ix = ix_base + tc;
 
 		err = mlx5e_ptp_open_txqsq(c, c->priv->tisn[c->lag_port][tc], txq_ix,
@@ -366,11 +366,8 @@ static int mlx5e_ptp_open_tx_cqs(struct mlx5e_ptp *c,
 	struct mlx5e_create_cq_param ccp = {};
 	struct dim_cq_moder ptp_moder = {};
 	struct mlx5e_cq_param *cq_param;
-	u8 num_tc;
 	int err;
 	int tc;
-
-	num_tc = mlx5e_get_dcb_num_tc(params);
 
 	ccp.node     = dev_to_node(mlx5_core_dma_dev(c->mdev));
 	ccp.ch_stats = c->stats;
@@ -379,7 +376,7 @@ static int mlx5e_ptp_open_tx_cqs(struct mlx5e_ptp *c,
 
 	cq_param = &cparams->txq_sq_param.cqp;
 
-	for (tc = 0; tc < num_tc; tc++) {
+	for (tc = 0; tc < params->num_tc; tc++) {
 		struct mlx5e_cq *cq = &c->ptpsq[tc].txqsq.cq;
 
 		err = mlx5e_open_cq(c->priv, ptp_moder, cq_param, &ccp, cq);
@@ -387,7 +384,7 @@ static int mlx5e_ptp_open_tx_cqs(struct mlx5e_ptp *c,
 			goto out_err_txqsq_cq;
 	}
 
-	for (tc = 0; tc < num_tc; tc++) {
+	for (tc = 0; tc < params->num_tc; tc++) {
 		struct mlx5e_cq *cq = &c->ptpsq[tc].ts_cq;
 		struct mlx5e_ptpsq *ptpsq = &c->ptpsq[tc];
 
@@ -403,7 +400,7 @@ static int mlx5e_ptp_open_tx_cqs(struct mlx5e_ptp *c,
 out_err_ts_cq:
 	for (--tc; tc >= 0; tc--)
 		mlx5e_close_cq(&c->ptpsq[tc].ts_cq);
-	tc = num_tc;
+	tc = params->num_tc;
 out_err_txqsq_cq:
 	for (--tc; tc >= 0; tc--)
 		mlx5e_close_cq(&c->ptpsq[tc].txqsq.cq);
@@ -479,18 +476,15 @@ static void mlx5e_ptp_build_params(struct mlx5e_ptp *c,
 	params->num_channels = orig->num_channels;
 	params->hard_mtu = orig->hard_mtu;
 	params->sw_mtu = orig->sw_mtu;
-	params->mqprio = orig->mqprio;
+	params->num_tc = orig->num_tc;
 
 	/* SQ */
 	if (test_bit(MLX5E_PTP_STATE_TX, c->state)) {
 		params->log_sq_size = orig->log_sq_size;
 		mlx5e_ptp_build_sq_param(c->mdev, params, &cparams->txq_sq_param);
 	}
-	/* RQ */
-	if (test_bit(MLX5E_PTP_STATE_RX, c->state)) {
-		params->vlan_strip_disable = orig->vlan_strip_disable;
+	if (test_bit(MLX5E_PTP_STATE_RX, c->state))
 		mlx5e_ptp_build_rq_param(c->mdev, c->netdev, c->priv->q_counter, cparams);
-	}
 }
 
 static int mlx5e_init_ptp_rq(struct mlx5e_ptp *c, struct mlx5e_params *params,
@@ -501,7 +495,7 @@ static int mlx5e_init_ptp_rq(struct mlx5e_ptp *c, struct mlx5e_params *params,
 	int err;
 
 	rq->wq_type      = params->rq_wq_type;
-	rq->pdev         = c->pdev;
+	rq->pdev         = mdev->device;
 	rq->netdev       = priv->netdev;
 	rq->priv         = priv;
 	rq->clock        = &mdev->clock;
@@ -609,9 +603,9 @@ static void mlx5e_ptp_rx_unset_fs(struct mlx5e_priv *priv)
 
 static int mlx5e_ptp_rx_set_fs(struct mlx5e_priv *priv)
 {
-	u32 tirn = mlx5e_rx_res_get_tirn_ptp(priv->rx_res);
 	struct mlx5e_ptp_fs *ptp_fs = priv->fs.ptp_fs;
 	struct mlx5_flow_handle *rule;
+	u32 tirn = priv->ptp_tir.tirn;
 	int err;
 
 	if (ptp_fs->valid)
@@ -621,7 +615,7 @@ static int mlx5e_ptp_rx_set_fs(struct mlx5e_priv *priv)
 	if (err)
 		goto out_free;
 
-	rule = mlx5e_fs_tt_redirect_udp_add_rule(priv, MLX5_TT_IPV4_UDP,
+	rule = mlx5e_fs_tt_redirect_udp_add_rule(priv, MLX5E_TT_IPV4_UDP,
 						 tirn, PTP_EV_PORT);
 	if (IS_ERR(rule)) {
 		err = PTR_ERR(rule);
@@ -629,7 +623,7 @@ static int mlx5e_ptp_rx_set_fs(struct mlx5e_priv *priv)
 	}
 	ptp_fs->udp_v4_rule = rule;
 
-	rule = mlx5e_fs_tt_redirect_udp_add_rule(priv, MLX5_TT_IPV6_UDP,
+	rule = mlx5e_fs_tt_redirect_udp_add_rule(priv, MLX5E_TT_IPV6_UDP,
 						 tirn, PTP_EV_PORT);
 	if (IS_ERR(rule)) {
 		err = PTR_ERR(rule);
@@ -684,7 +678,7 @@ int mlx5e_ptp_open(struct mlx5e_priv *priv, struct mlx5e_params *params,
 	c->pdev     = mlx5_core_dma_dev(priv->mdev);
 	c->netdev   = priv->netdev;
 	c->mkey_be  = cpu_to_be32(priv->mdev->mlx5e_res.hw_objs.mkey.key);
-	c->num_tc   = mlx5e_get_dcb_num_tc(params);
+	c->num_tc   = params->num_tc;
 	c->stats    = &priv->ptp_stats.ch;
 	c->lag_port = lag_port;
 

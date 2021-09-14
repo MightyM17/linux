@@ -339,15 +339,16 @@
 	};
 };
 
-&mac_sw {
+&mac {
 	pinctrl-names = "default", "sleep";
 	pinctrl-0 = <&cpsw_default>;
 	pinctrl-1 = <&cpsw_sleep>;
+	dual_emac = <1>;
 
 	status = "okay";
 };
 
-&davinci_mdio_sw {
+&davinci_mdio {
 	status = "okay";
 	pinctrl-names = "default", "sleep";
 	pinctrl-0 = <&davinci_mdio_default>;
@@ -392,10 +393,10 @@
 	status = "okay";
 };
 
-&gpio0_target {
+&gpio0 {
 	ti,no-reset-on-init;
 };
 
-&gpio3_target {
+&gpio3 {
 	ti,no-reset-on-init;
 };

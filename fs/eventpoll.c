@@ -723,7 +723,7 @@ static int ep_remove(struct eventpoll *ep, struct epitem *epi)
 	 */
 	call_rcu(&epi->rcu, epi_rcu_free);
 
-	percpu_counter_dec(&ep->user->epoll_watches);
+	atomic_long_dec(&ep->user->epoll_watches);
 
 	return 0;
 }
@@ -1439,6 +1439,7 @@ static int ep_insert(struct eventpoll *ep, const struct epoll_event *event,
 {
 	int error, pwake = 0;
 	__poll_t revents;
+	long user_watches;
 	struct epitem *epi;
 	struct ep_pqueue epq;
 	struct eventpoll *tep = NULL;
@@ -1448,15 +1449,11 @@ static int ep_insert(struct eventpoll *ep, const struct epoll_event *event,
 
 	lockdep_assert_irqs_enabled();
 
-	if (unlikely(percpu_counter_compare(&ep->user->epoll_watches,
-					    max_user_watches) >= 0))
+	user_watches = atomic_long_read(&ep->user->epoll_watches);
+	if (unlikely(user_watches >= max_user_watches))
 		return -ENOSPC;
-	percpu_counter_inc(&ep->user->epoll_watches);
-
-	if (!(epi = kmem_cache_zalloc(epi_cache, GFP_KERNEL))) {
-		percpu_counter_dec(&ep->user->epoll_watches);
+	if (!(epi = kmem_cache_zalloc(epi_cache, GFP_KERNEL)))
 		return -ENOMEM;
-	}
 
 	/* Item initialization follow here ... */
 	INIT_LIST_HEAD(&epi->rdllink);
@@ -1469,15 +1466,16 @@ static int ep_insert(struct eventpoll *ep, const struct epoll_event *event,
 		mutex_lock_nested(&tep->mtx, 1);
 	/* Add the current item to the list of active epoll hook for this file */
 	if (unlikely(attach_epitem(tfile, epi) < 0)) {
+		kmem_cache_free(epi_cache, epi);
 		if (tep)
 			mutex_unlock(&tep->mtx);
-		kmem_cache_free(epi_cache, epi);
-		percpu_counter_dec(&ep->user->epoll_watches);
 		return -ENOMEM;
 	}
 
 	if (full_check && !tep)
 		list_file(tfile);
+
+	atomic_long_inc(&ep->user->epoll_watches);
 
 	/*
 	 * Add the current item to the RB tree. All RB tree operations are
@@ -1686,8 +1684,8 @@ static int ep_send_events(struct eventpoll *ep,
 		if (!revents)
 			continue;
 
-		events = epoll_put_uevent(revents, epi->event.data, events);
-		if (!events) {
+		if (__put_user(revents, &events->events) ||
+		    __put_user(epi->event.data, &events->data)) {
 			list_add(&epi->rdllink, &txlist);
 			ep_pm_stay_awake(epi);
 			if (!res)
@@ -1695,6 +1693,7 @@ static int ep_send_events(struct eventpoll *ep,
 			break;
 		}
 		res++;
+		events++;
 		if (epi->event.events & EPOLLONESHOT)
 			epi->event.events &= EP_PRIVATE_BITS;
 		else if (!(epi->event.events & EPOLLET)) {

@@ -109,9 +109,7 @@ enum clock_change_support {
 };
 
 enum output_standard {
-	dm_std_uninitialized = 0,
-	dm_std_cvtr2,
-	dm_std_cvt
+	dm_std_uninitialized = 0, dm_std_cvtr2, dm_std_cvt
 };
 
 enum mpc_combine_affinity {

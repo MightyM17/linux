@@ -67,7 +67,9 @@ properties:
     maxItems: 1
 
   clock-names:
-    const: fck
+    maxItems: 1
+    items:
+      - const: fck
 
   resets:
     maxItems: 1
@@ -78,6 +80,7 @@ properties:
 
   dma-names:
     minItems: 1
+    maxItems: 2
     items:
       - const: rx
       - const: rx
@@ -96,25 +99,31 @@ properties:
       Indicates that the channel acts as primary among the bonded channels.
 
   port:
-    $ref: /schemas/graph.yaml#/$defs/port-base
-    unevaluatedProperties: false
+    type: object
     description:
-      Child port node corresponding to the data input. The port node must
-      contain at least one endpoint.
+      Child port node corresponding to the data input, in accordance with the
+      video interface bindings defined in
+      Documentation/devicetree/bindings/media/video-interfaces.txt.
+      The port node must contain at least one endpoint.
 
     properties:
       endpoint:
-        $ref: /schemas/graph.yaml#/$defs/endpoint-base
-        unevaluatedProperties: false
+        type: object
 
         properties:
+          remote-endpoint:
+            description:
+              A phandle to the remote tuner endpoint subnode in remote node
+              port.
+
           sync-active:
-            $ref: /schemas/types.yaml#/definitions/uint32
             enum: [0, 1]
             description:
               Indicates sync signal polarity, 0/1 for low/high respectively.
               This property maps to SYNCAC bit in the hardware manual. The
               default is 1 (active high).
+
+        additionalProperties: false
 
 required:
   - compatible
@@ -242,6 +251,7 @@ examples:
                     power-domains = <&sysc R8A7795_PD_ALWAYS_ON>;
                     resets = <&cpg 513>;
                     renesas,bonding = <&drif11>;
+                    status = "disabled";
             };
 
             drif11: rif@e6f70000 {

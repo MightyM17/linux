@@ -1125,7 +1125,7 @@ struct dec_data {
 };
 
 /**
- * Decompression function that runs in its own thread.
+ * Deompression function that runs in its own thread.
  */
 static int lzo_decompress_threadfn(void *data)
 {

@@ -8,7 +8,7 @@ struct S {
 	int v;
 };
 
-struct S global_variable = {};
+static volatile struct S global_variable;
 
 struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);

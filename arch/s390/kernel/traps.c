@@ -36,7 +36,7 @@ static inline void __user *get_trap_ip(struct pt_regs *regs)
 	unsigned long address;
 
 	if (regs->int_code & 0x200)
-		address = current->thread.trap_tdb.data[3];
+		address = *(unsigned long *)(current->thread.trap_tdb + 24);
 	else
 		address = regs->psw.addr;
 	return (void __user *) (address - (regs->int_code >> 16));
@@ -277,8 +277,6 @@ static void __init test_monitor_call(void)
 {
 	int val = 1;
 
-	if (!IS_ENABLED(CONFIG_BUG))
-		return;
 	asm volatile(
 		"	mc	0,0\n"
 		"0:	xgr	%0,%0\n"
@@ -291,7 +289,7 @@ static void __init test_monitor_call(void)
 
 void __init trap_init(void)
 {
-	sort_extable(__start_amode31_ex_table, __stop_amode31_ex_table);
+	sort_extable(__start_dma_ex_table, __stop_dma_ex_table);
 	local_mcck_enable();
 	test_monitor_call();
 }
@@ -301,9 +299,10 @@ static void (*pgm_check_table[128])(struct pt_regs *regs);
 void noinstr __do_pgm_check(struct pt_regs *regs)
 {
 	unsigned long last_break = S390_lowcore.breaking_event_addr;
-	unsigned int trapnr;
+	unsigned int trapnr, syscall_redirect = 0;
 	irqentry_state_t state;
 
+	add_random_kstack_offset();
 	regs->int_code = *(u32 *)&S390_lowcore.pgm_ilc;
 	regs->int_parm_long = S390_lowcore.trans_exc_code;
 
@@ -319,7 +318,7 @@ void noinstr __do_pgm_check(struct pt_regs *regs)
 
 	if (S390_lowcore.pgm_code & 0x0200) {
 		/* transaction abort */
-		current->thread.trap_tdb = S390_lowcore.pgm_tdb;
+		memcpy(&current->thread.trap_tdb, &S390_lowcore.pgm_tdb, 256);
 	}
 
 	if (S390_lowcore.pgm_code & PGM_INT_CODE_PER) {
@@ -345,9 +344,18 @@ void noinstr __do_pgm_check(struct pt_regs *regs)
 	trapnr = regs->int_code & PGM_INT_CODE_MASK;
 	if (trapnr)
 		pgm_check_table[trapnr](regs);
+	syscall_redirect = user_mode(regs) && test_pt_regs_flag(regs, PIF_SYSCALL);
 out:
 	local_irq_disable();
 	irqentry_exit(regs, state);
+
+	if (syscall_redirect) {
+		enter_from_user_mode(regs);
+		local_irq_enable();
+		regs->orig_gpr2 = regs->gprs[2];
+		do_syscall(regs);
+		exit_to_user_mode();
+	}
 }
 
 /*

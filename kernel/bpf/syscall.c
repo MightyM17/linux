@@ -50,8 +50,7 @@ static DEFINE_SPINLOCK(map_idr_lock);
 static DEFINE_IDR(link_idr);
 static DEFINE_SPINLOCK(link_idr_lock);
 
-int sysctl_unprivileged_bpf_disabled __read_mostly =
-	IS_BUILTIN(CONFIG_BPF_UNPRIV_DEFAULT_OFF) ? 2 : 0;
+int sysctl_unprivileged_bpf_disabled __read_mostly;
 
 static const struct bpf_map_ops * const bpf_map_types[] = {
 #define BPF_PROG_TYPE(_id, _name, prog_ctx_type, kern_ctx_type)
@@ -73,10 +72,11 @@ static const struct bpf_map_ops * const bpf_map_types[] = {
  * copy_from_user() call. However, this is not a concern since this function is
  * meant to be a future-proofing of bits.
  */
-int bpf_check_uarg_tail_zero(bpfptr_t uaddr,
+int bpf_check_uarg_tail_zero(void __user *uaddr,
 			     size_t expected_size,
 			     size_t actual_size)
 {
+	unsigned char __user *addr = uaddr + expected_size;
 	int res;
 
 	if (unlikely(actual_size > PAGE_SIZE))	/* silly large */
@@ -85,12 +85,7 @@ int bpf_check_uarg_tail_zero(bpfptr_t uaddr,
 	if (actual_size <= expected_size)
 		return 0;
 
-	if (uaddr.is_kernel)
-		res = memchr_inv(uaddr.kernel + expected_size, 0,
-				 actual_size - expected_size) == NULL;
-	else
-		res = check_zeroed_user(uaddr.user + expected_size,
-					actual_size - expected_size);
+	res = check_zeroed_user(addr, actual_size - expected_size);
 	if (res < 0)
 		return res;
 	return res ? 0 : -E2BIG;
@@ -260,8 +255,8 @@ static int bpf_map_copy_value(struct bpf_map *map, void *key, void *value,
 				copy_map_value_locked(map, value, ptr, true);
 			else
 				copy_map_value(map, value, ptr);
-			/* mask lock and timer, since value wasn't zero inited */
-			check_and_init_map_value(map, value);
+			/* mask lock, since value wasn't zero inited */
+			check_and_init_map_lock(map, value);
 		}
 		rcu_read_unlock();
 	}
@@ -623,8 +618,7 @@ static int bpf_map_mmap(struct file *filp, struct vm_area_struct *vma)
 	struct bpf_map *map = filp->private_data;
 	int err;
 
-	if (!map->ops->map_mmap || map_value_has_spin_lock(map) ||
-	    map_value_has_timer(map))
+	if (!map->ops->map_mmap || map_value_has_spin_lock(map))
 		return -ENOTSUPP;
 
 	if (!(vma->vm_flags & VM_SHARED))
@@ -794,16 +788,6 @@ static int map_check_btf(struct bpf_map *map, const struct btf *btf,
 		}
 	}
 
-	map->timer_off = btf_find_timer(btf, value_type);
-	if (map_value_has_timer(map)) {
-		if (map->map_flags & BPF_F_RDONLY_PROG)
-			return -EACCES;
-		if (map->map_type != BPF_MAP_TYPE_HASH &&
-		    map->map_type != BPF_MAP_TYPE_LRU_HASH &&
-		    map->map_type != BPF_MAP_TYPE_ARRAY)
-			return -EOPNOTSUPP;
-	}
-
 	if (map->ops->map_check_btf)
 		ret = map->ops->map_check_btf(map, btf, key_type, value_type);
 
@@ -855,7 +839,6 @@ static int map_create(union bpf_attr *attr)
 	mutex_init(&map->freeze_mutex);
 
 	map->spin_lock_off = -EINVAL;
-	map->timer_off = -EINVAL;
 	if (attr->btf_key_type_id || attr->btf_value_type_id ||
 	    /* Even the map's value is a kernel's struct,
 	     * the bpf_prog.o must have BTF to begin with
@@ -1013,20 +996,9 @@ int __weak bpf_stackmap_copy(struct bpf_map *map, void *key, void *value)
 static void *__bpf_copy_key(void __user *ukey, u64 key_size)
 {
 	if (key_size)
-		return vmemdup_user(ukey, key_size);
+		return memdup_user(ukey, key_size);
 
 	if (ukey)
-		return ERR_PTR(-EINVAL);
-
-	return NULL;
-}
-
-static void *___bpf_copy_key(bpfptr_t ukey, u64 key_size)
-{
-	if (key_size)
-		return kvmemdup_bpfptr(ukey, key_size);
-
-	if (!bpfptr_is_null(ukey))
 		return ERR_PTR(-EINVAL);
 
 	return NULL;
@@ -1076,7 +1048,7 @@ static int map_lookup_elem(union bpf_attr *attr)
 	value_size = bpf_map_value_size(map);
 
 	err = -ENOMEM;
-	value = kvmalloc(value_size, GFP_USER | __GFP_NOWARN);
+	value = kmalloc(value_size, GFP_USER | __GFP_NOWARN);
 	if (!value)
 		goto free_key;
 
@@ -1091,9 +1063,9 @@ static int map_lookup_elem(union bpf_attr *attr)
 	err = 0;
 
 free_value:
-	kvfree(value);
+	kfree(value);
 free_key:
-	kvfree(key);
+	kfree(key);
 err_put:
 	fdput(f);
 	return err;
@@ -1102,10 +1074,10 @@ err_put:
 
 #define BPF_MAP_UPDATE_ELEM_LAST_FIELD flags
 
-static int map_update_elem(union bpf_attr *attr, bpfptr_t uattr)
+static int map_update_elem(union bpf_attr *attr)
 {
-	bpfptr_t ukey = make_bpfptr(attr->key, uattr.is_kernel);
-	bpfptr_t uvalue = make_bpfptr(attr->value, uattr.is_kernel);
+	void __user *ukey = u64_to_user_ptr(attr->key);
+	void __user *uvalue = u64_to_user_ptr(attr->value);
 	int ufd = attr->map_fd;
 	struct bpf_map *map;
 	void *key, *value;
@@ -1131,29 +1103,35 @@ static int map_update_elem(union bpf_attr *attr, bpfptr_t uattr)
 		goto err_put;
 	}
 
-	key = ___bpf_copy_key(ukey, map->key_size);
+	key = __bpf_copy_key(ukey, map->key_size);
 	if (IS_ERR(key)) {
 		err = PTR_ERR(key);
 		goto err_put;
 	}
 
-	value_size = bpf_map_value_size(map);
+	if (map->map_type == BPF_MAP_TYPE_PERCPU_HASH ||
+	    map->map_type == BPF_MAP_TYPE_LRU_PERCPU_HASH ||
+	    map->map_type == BPF_MAP_TYPE_PERCPU_ARRAY ||
+	    map->map_type == BPF_MAP_TYPE_PERCPU_CGROUP_STORAGE)
+		value_size = round_up(map->value_size, 8) * num_possible_cpus();
+	else
+		value_size = map->value_size;
 
 	err = -ENOMEM;
-	value = kvmalloc(value_size, GFP_USER | __GFP_NOWARN);
+	value = kmalloc(value_size, GFP_USER | __GFP_NOWARN);
 	if (!value)
 		goto free_key;
 
 	err = -EFAULT;
-	if (copy_from_bpfptr(value, uvalue, value_size) != 0)
+	if (copy_from_user(value, uvalue, value_size) != 0)
 		goto free_value;
 
 	err = bpf_map_update_value(map, f, key, value, attr->flags);
 
 free_value:
-	kvfree(value);
+	kfree(value);
 free_key:
-	kvfree(key);
+	kfree(key);
 err_put:
 	fdput(f);
 	return err;
@@ -1205,7 +1183,7 @@ static int map_delete_elem(union bpf_attr *attr)
 	bpf_enable_instrumentation();
 	maybe_wait_bpf_programs(map);
 out:
-	kvfree(key);
+	kfree(key);
 err_put:
 	fdput(f);
 	return err;
@@ -1247,7 +1225,7 @@ static int map_get_next_key(union bpf_attr *attr)
 	}
 
 	err = -ENOMEM;
-	next_key = kvmalloc(map->key_size, GFP_USER);
+	next_key = kmalloc(map->key_size, GFP_USER);
 	if (!next_key)
 		goto free_key;
 
@@ -1270,9 +1248,9 @@ out:
 	err = 0;
 
 free_next_key:
-	kvfree(next_key);
+	kfree(next_key);
 free_key:
-	kvfree(key);
+	kfree(key);
 err_put:
 	fdput(f);
 	return err;
@@ -1299,7 +1277,7 @@ int generic_map_delete_batch(struct bpf_map *map,
 	if (!max_count)
 		return 0;
 
-	key = kvmalloc(map->key_size, GFP_USER | __GFP_NOWARN);
+	key = kmalloc(map->key_size, GFP_USER | __GFP_NOWARN);
 	if (!key)
 		return -ENOMEM;
 
@@ -1326,7 +1304,7 @@ int generic_map_delete_batch(struct bpf_map *map,
 	if (copy_to_user(&uattr->batch.count, &cp, sizeof(cp)))
 		err = -EFAULT;
 
-	kvfree(key);
+	kfree(key);
 	return err;
 }
 
@@ -1357,13 +1335,13 @@ int generic_map_update_batch(struct bpf_map *map,
 	if (!max_count)
 		return 0;
 
-	key = kvmalloc(map->key_size, GFP_USER | __GFP_NOWARN);
+	key = kmalloc(map->key_size, GFP_USER | __GFP_NOWARN);
 	if (!key)
 		return -ENOMEM;
 
-	value = kvmalloc(value_size, GFP_USER | __GFP_NOWARN);
+	value = kmalloc(value_size, GFP_USER | __GFP_NOWARN);
 	if (!value) {
-		kvfree(key);
+		kfree(key);
 		return -ENOMEM;
 	}
 
@@ -1384,8 +1362,8 @@ int generic_map_update_batch(struct bpf_map *map,
 	if (copy_to_user(&uattr->batch.count, &cp, sizeof(cp)))
 		err = -EFAULT;
 
-	kvfree(value);
-	kvfree(key);
+	kfree(value);
+	kfree(key);
 	return err;
 }
 
@@ -1419,13 +1397,13 @@ int generic_map_lookup_batch(struct bpf_map *map,
 	if (put_user(0, &uattr->batch.count))
 		return -EFAULT;
 
-	buf_prevkey = kvmalloc(map->key_size, GFP_USER | __GFP_NOWARN);
+	buf_prevkey = kmalloc(map->key_size, GFP_USER | __GFP_NOWARN);
 	if (!buf_prevkey)
 		return -ENOMEM;
 
-	buf = kvmalloc(map->key_size + value_size, GFP_USER | __GFP_NOWARN);
+	buf = kmalloc(map->key_size + value_size, GFP_USER | __GFP_NOWARN);
 	if (!buf) {
-		kvfree(buf_prevkey);
+		kfree(buf_prevkey);
 		return -ENOMEM;
 	}
 
@@ -1485,12 +1463,12 @@ int generic_map_lookup_batch(struct bpf_map *map,
 		err = -EFAULT;
 
 free_buf:
-	kvfree(buf_prevkey);
-	kvfree(buf);
+	kfree(buf_prevkey);
+	kfree(buf);
 	return err;
 }
 
-#define BPF_MAP_LOOKUP_AND_DELETE_ELEM_LAST_FIELD flags
+#define BPF_MAP_LOOKUP_AND_DELETE_ELEM_LAST_FIELD value
 
 static int map_lookup_and_delete_elem(union bpf_attr *attr)
 {
@@ -1506,9 +1484,6 @@ static int map_lookup_and_delete_elem(union bpf_attr *attr)
 	if (CHECK_ATTR(BPF_MAP_LOOKUP_AND_DELETE_ELEM))
 		return -EINVAL;
 
-	if (attr->flags & ~BPF_F_LOCK)
-		return -EINVAL;
-
 	f = fdget(ufd);
 	map = __bpf_map_get(f);
 	if (IS_ERR(map))
@@ -1519,47 +1494,24 @@ static int map_lookup_and_delete_elem(union bpf_attr *attr)
 		goto err_put;
 	}
 
-	if (attr->flags &&
-	    (map->map_type == BPF_MAP_TYPE_QUEUE ||
-	     map->map_type == BPF_MAP_TYPE_STACK)) {
-		err = -EINVAL;
-		goto err_put;
-	}
-
-	if ((attr->flags & BPF_F_LOCK) &&
-	    !map_value_has_spin_lock(map)) {
-		err = -EINVAL;
-		goto err_put;
-	}
-
 	key = __bpf_copy_key(ukey, map->key_size);
 	if (IS_ERR(key)) {
 		err = PTR_ERR(key);
 		goto err_put;
 	}
 
-	value_size = bpf_map_value_size(map);
+	value_size = map->value_size;
 
 	err = -ENOMEM;
-	value = kvmalloc(value_size, GFP_USER | __GFP_NOWARN);
+	value = kmalloc(value_size, GFP_USER | __GFP_NOWARN);
 	if (!value)
 		goto free_key;
 
-	err = -ENOTSUPP;
 	if (map->map_type == BPF_MAP_TYPE_QUEUE ||
 	    map->map_type == BPF_MAP_TYPE_STACK) {
 		err = map->ops->map_pop_elem(map, value);
-	} else if (map->map_type == BPF_MAP_TYPE_HASH ||
-		   map->map_type == BPF_MAP_TYPE_PERCPU_HASH ||
-		   map->map_type == BPF_MAP_TYPE_LRU_HASH ||
-		   map->map_type == BPF_MAP_TYPE_LRU_PERCPU_HASH) {
-		if (!bpf_map_is_dev_bound(map)) {
-			bpf_disable_instrumentation();
-			rcu_read_lock();
-			err = map->ops->map_lookup_and_delete_elem(map, key, value, attr->flags);
-			rcu_read_unlock();
-			bpf_enable_instrumentation();
-		}
+	} else {
+		err = -ENOTSUPP;
 	}
 
 	if (err)
@@ -1573,9 +1525,9 @@ static int map_lookup_and_delete_elem(union bpf_attr *attr)
 	err = 0;
 
 free_value:
-	kvfree(value);
+	kfree(value);
 free_key:
-	kvfree(key);
+	kfree(key);
 err_put:
 	fdput(f);
 	return err;
@@ -1597,8 +1549,7 @@ static int map_freeze(const union bpf_attr *attr)
 	if (IS_ERR(map))
 		return PTR_ERR(map);
 
-	if (map->map_type == BPF_MAP_TYPE_STRUCT_OPS ||
-	    map_value_has_timer(map)) {
+	if (map->map_type == BPF_MAP_TYPE_STRUCT_OPS) {
 		fdput(f);
 		return -ENOTSUPP;
 	}
@@ -1706,8 +1657,6 @@ static int bpf_prog_alloc_id(struct bpf_prog *prog)
 
 void bpf_prog_free_id(struct bpf_prog *prog, bool do_idr_lock)
 {
-	unsigned long flags;
-
 	/* cBPF to eBPF migrations are currently not in the idr store.
 	 * Offloaded programs are removed from the store when their device
 	 * disappears - even if someone grabs an fd to them they are unusable,
@@ -1717,7 +1666,7 @@ void bpf_prog_free_id(struct bpf_prog *prog, bool do_idr_lock)
 		return;
 
 	if (do_idr_lock)
-		spin_lock_irqsave(&prog_idr_lock, flags);
+		spin_lock_bh(&prog_idr_lock);
 	else
 		__acquire(&prog_idr_lock);
 
@@ -1725,7 +1674,7 @@ void bpf_prog_free_id(struct bpf_prog *prog, bool do_idr_lock)
 	prog->aux->id = 0;
 
 	if (do_idr_lock)
-		spin_unlock_irqrestore(&prog_idr_lock, flags);
+		spin_unlock_bh(&prog_idr_lock);
 	else
 		__release(&prog_idr_lock);
 }
@@ -1761,32 +1710,14 @@ static void __bpf_prog_put_noref(struct bpf_prog *prog, bool deferred)
 	}
 }
 
-static void bpf_prog_put_deferred(struct work_struct *work)
-{
-	struct bpf_prog_aux *aux;
-	struct bpf_prog *prog;
-
-	aux = container_of(work, struct bpf_prog_aux, work);
-	prog = aux->prog;
-	perf_event_bpf_event(prog, PERF_BPF_EVENT_PROG_UNLOAD, 0);
-	bpf_audit_prog(prog, BPF_AUDIT_UNLOAD);
-	__bpf_prog_put_noref(prog, true);
-}
-
 static void __bpf_prog_put(struct bpf_prog *prog, bool do_idr_lock)
 {
-	struct bpf_prog_aux *aux = prog->aux;
-
-	if (atomic64_dec_and_test(&aux->refcnt)) {
+	if (atomic64_dec_and_test(&prog->aux->refcnt)) {
+		perf_event_bpf_event(prog, PERF_BPF_EVENT_PROG_UNLOAD, 0);
+		bpf_audit_prog(prog, BPF_AUDIT_UNLOAD);
 		/* bpf_prog_free_id() must be called first */
 		bpf_prog_free_id(prog, do_idr_lock);
-
-		if (in_irq() || irqs_disabled()) {
-			INIT_WORK(&aux->work, bpf_prog_put_deferred);
-			schedule_work(&aux->work);
-		} else {
-			bpf_prog_put_deferred(&aux->work);
-		}
+		__bpf_prog_put_noref(prog, true);
 	}
 }
 
@@ -2000,11 +1931,6 @@ static void bpf_prog_load_fixup_attach_type(union bpf_attr *attr)
 			attr->expected_attach_type =
 				BPF_CGROUP_INET_SOCK_CREATE;
 		break;
-	case BPF_PROG_TYPE_SK_REUSEPORT:
-		if (!attr->expected_attach_type)
-			attr->expected_attach_type =
-				BPF_SK_REUSEPORT_SELECT;
-		break;
 	}
 }
 
@@ -2088,15 +2014,6 @@ bpf_prog_load_check_attach(enum bpf_prog_type prog_type,
 		if (expected_attach_type == BPF_SK_LOOKUP)
 			return 0;
 		return -EINVAL;
-	case BPF_PROG_TYPE_SK_REUSEPORT:
-		switch (expected_attach_type) {
-		case BPF_SK_REUSEPORT_SELECT:
-		case BPF_SK_REUSEPORT_SELECT_OR_MIGRATE:
-			return 0;
-		default:
-			return -EINVAL;
-		}
-	case BPF_PROG_TYPE_SYSCALL:
 	case BPF_PROG_TYPE_EXT:
 		if (expected_attach_type)
 			return -EINVAL;
@@ -2156,9 +2073,9 @@ static bool is_perfmon_prog_type(enum bpf_prog_type prog_type)
 }
 
 /* last field in 'union bpf_attr' used by this command */
-#define	BPF_PROG_LOAD_LAST_FIELD fd_array
+#define	BPF_PROG_LOAD_LAST_FIELD attach_prog_fd
 
-static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr)
+static int bpf_prog_load(union bpf_attr *attr, union bpf_attr __user *uattr)
 {
 	enum bpf_prog_type type = attr->prog_type;
 	struct bpf_prog *prog, *dst_prog = NULL;
@@ -2183,9 +2100,8 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr)
 		return -EPERM;
 
 	/* copy eBPF program license from user space */
-	if (strncpy_from_bpfptr(license,
-				make_bpfptr(attr->license, uattr.is_kernel),
-				sizeof(license) - 1) < 0)
+	if (strncpy_from_user(license, u64_to_user_ptr(attr->license),
+			      sizeof(license) - 1) < 0)
 		return -EFAULT;
 	license[sizeof(license) - 1] = 0;
 
@@ -2269,9 +2185,8 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr)
 	prog->len = attr->insn_cnt;
 
 	err = -EFAULT;
-	if (copy_from_bpfptr(prog->insns,
-			     make_bpfptr(attr->insns, uattr.is_kernel),
-			     bpf_prog_insn_size(prog)) != 0)
+	if (copy_from_user(prog->insns, u64_to_user_ptr(attr->insns),
+			   bpf_prog_insn_size(prog)) != 0)
 		goto free_prog_sec;
 
 	prog->orig_prog = NULL;
@@ -2900,79 +2815,6 @@ static const struct bpf_link_ops bpf_raw_tp_link_lops = {
 	.fill_link_info = bpf_raw_tp_link_fill_link_info,
 };
 
-#ifdef CONFIG_PERF_EVENTS
-struct bpf_perf_link {
-	struct bpf_link link;
-	struct file *perf_file;
-};
-
-static void bpf_perf_link_release(struct bpf_link *link)
-{
-	struct bpf_perf_link *perf_link = container_of(link, struct bpf_perf_link, link);
-	struct perf_event *event = perf_link->perf_file->private_data;
-
-	perf_event_free_bpf_prog(event);
-	fput(perf_link->perf_file);
-}
-
-static void bpf_perf_link_dealloc(struct bpf_link *link)
-{
-	struct bpf_perf_link *perf_link = container_of(link, struct bpf_perf_link, link);
-
-	kfree(perf_link);
-}
-
-static const struct bpf_link_ops bpf_perf_link_lops = {
-	.release = bpf_perf_link_release,
-	.dealloc = bpf_perf_link_dealloc,
-};
-
-static int bpf_perf_link_attach(const union bpf_attr *attr, struct bpf_prog *prog)
-{
-	struct bpf_link_primer link_primer;
-	struct bpf_perf_link *link;
-	struct perf_event *event;
-	struct file *perf_file;
-	int err;
-
-	if (attr->link_create.flags)
-		return -EINVAL;
-
-	perf_file = perf_event_get(attr->link_create.target_fd);
-	if (IS_ERR(perf_file))
-		return PTR_ERR(perf_file);
-
-	link = kzalloc(sizeof(*link), GFP_USER);
-	if (!link) {
-		err = -ENOMEM;
-		goto out_put_file;
-	}
-	bpf_link_init(&link->link, BPF_LINK_TYPE_PERF_EVENT, &bpf_perf_link_lops, prog);
-	link->perf_file = perf_file;
-
-	err = bpf_link_prime(&link->link, &link_primer);
-	if (err) {
-		kfree(link);
-		goto out_put_file;
-	}
-
-	event = perf_file->private_data;
-	err = perf_event_set_bpf_prog(event, prog, attr->link_create.perf_event.bpf_cookie);
-	if (err) {
-		bpf_link_cleanup(&link_primer);
-		goto out_put_file;
-	}
-	/* perf_event_set_bpf_prog() doesn't take its own refcnt on prog */
-	bpf_prog_inc(prog);
-
-	return bpf_link_settle(&link_primer);
-
-out_put_file:
-	fput(perf_file);
-	return err;
-}
-#endif /* CONFIG_PERF_EVENTS */
-
 #define BPF_RAW_TRACEPOINT_OPEN_LAST_FIELD raw_tracepoint.prog_fd
 
 static int bpf_raw_tracepoint_open(const union bpf_attr *attr)
@@ -3580,7 +3422,7 @@ static int bpf_prog_get_info_by_fd(struct file *file,
 	u32 ulen;
 	int err;
 
-	err = bpf_check_uarg_tail_zero(USER_BPFPTR(uinfo), sizeof(info), info_len);
+	err = bpf_check_uarg_tail_zero(uinfo, sizeof(info), info_len);
 	if (err)
 		return err;
 	info_len = min_t(u32, sizeof(info), info_len);
@@ -3859,7 +3701,7 @@ static int bpf_map_get_info_by_fd(struct file *file,
 	u32 info_len = attr->info.info_len;
 	int err;
 
-	err = bpf_check_uarg_tail_zero(USER_BPFPTR(uinfo), sizeof(info), info_len);
+	err = bpf_check_uarg_tail_zero(uinfo, sizeof(info), info_len);
 	if (err)
 		return err;
 	info_len = min_t(u32, sizeof(info), info_len);
@@ -3902,7 +3744,7 @@ static int bpf_btf_get_info_by_fd(struct file *file,
 	u32 info_len = attr->info.info_len;
 	int err;
 
-	err = bpf_check_uarg_tail_zero(USER_BPFPTR(uinfo), sizeof(*uinfo), info_len);
+	err = bpf_check_uarg_tail_zero(uinfo, sizeof(*uinfo), info_len);
 	if (err)
 		return err;
 
@@ -3919,7 +3761,7 @@ static int bpf_link_get_info_by_fd(struct file *file,
 	u32 info_len = attr->info.info_len;
 	int err;
 
-	err = bpf_check_uarg_tail_zero(USER_BPFPTR(uinfo), sizeof(info), info_len);
+	err = bpf_check_uarg_tail_zero(uinfo, sizeof(info), info_len);
 	if (err)
 		return err;
 	info_len = min_t(u32, sizeof(info), info_len);
@@ -3982,7 +3824,7 @@ static int bpf_obj_get_info_by_fd(const union bpf_attr *attr,
 
 #define BPF_BTF_LOAD_LAST_FIELD btf_log_level
 
-static int bpf_btf_load(const union bpf_attr *attr, bpfptr_t uattr)
+static int bpf_btf_load(const union bpf_attr *attr)
 {
 	if (CHECK_ATTR(BPF_BTF_LOAD))
 		return -EINVAL;
@@ -3990,7 +3832,7 @@ static int bpf_btf_load(const union bpf_attr *attr, bpfptr_t uattr)
 	if (!bpf_capable())
 		return -EPERM;
 
-	return btf_new_fd(attr, uattr);
+	return btf_new_fd(attr);
 }
 
 #define BPF_BTF_GET_FD_BY_ID_LAST_FIELD btf_id
@@ -4180,14 +4022,13 @@ err_put:
 	return err;
 }
 
-static int tracing_bpf_link_attach(const union bpf_attr *attr, bpfptr_t uattr,
-				   struct bpf_prog *prog)
+static int tracing_bpf_link_attach(const union bpf_attr *attr, struct bpf_prog *prog)
 {
 	if (attr->link_create.attach_type != prog->expected_attach_type)
 		return -EINVAL;
 
 	if (prog->expected_attach_type == BPF_TRACE_ITER)
-		return bpf_iter_link_attach(attr, uattr, prog);
+		return bpf_iter_link_attach(attr, prog);
 	else if (prog->type == BPF_PROG_TYPE_EXT)
 		return bpf_tracing_prog_attach(prog,
 					       attr->link_create.target_fd,
@@ -4196,7 +4037,7 @@ static int tracing_bpf_link_attach(const union bpf_attr *attr, bpfptr_t uattr,
 }
 
 #define BPF_LINK_CREATE_LAST_FIELD link_create.iter_info_len
-static int link_create(union bpf_attr *attr, bpfptr_t uattr)
+static int link_create(union bpf_attr *attr)
 {
 	enum bpf_prog_type ptype;
 	struct bpf_prog *prog;
@@ -4214,26 +4055,15 @@ static int link_create(union bpf_attr *attr, bpfptr_t uattr)
 	if (ret)
 		goto out;
 
-	switch (prog->type) {
-	case BPF_PROG_TYPE_EXT:
-		ret = tracing_bpf_link_attach(attr, uattr, prog);
+	if (prog->type == BPF_PROG_TYPE_EXT) {
+		ret = tracing_bpf_link_attach(attr, prog);
 		goto out;
-	case BPF_PROG_TYPE_PERF_EVENT:
-	case BPF_PROG_TYPE_KPROBE:
-	case BPF_PROG_TYPE_TRACEPOINT:
-		if (attr->link_create.attach_type != BPF_PERF_EVENT) {
-			ret = -EINVAL;
-			goto out;
-		}
-		ptype = prog->type;
-		break;
-	default:
-		ptype = attach_type_to_prog_type(attr->link_create.attach_type);
-		if (ptype == BPF_PROG_TYPE_UNSPEC || ptype != prog->type) {
-			ret = -EINVAL;
-			goto out;
-		}
-		break;
+	}
+
+	ptype = attach_type_to_prog_type(attr->link_create.attach_type);
+	if (ptype == BPF_PROG_TYPE_UNSPEC || ptype != prog->type) {
+		ret = -EINVAL;
+		goto out;
 	}
 
 	switch (ptype) {
@@ -4247,7 +4077,7 @@ static int link_create(union bpf_attr *attr, bpfptr_t uattr)
 		ret = cgroup_bpf_link_attach(attr, prog);
 		break;
 	case BPF_PROG_TYPE_TRACING:
-		ret = tracing_bpf_link_attach(attr, uattr, prog);
+		ret = tracing_bpf_link_attach(attr, prog);
 		break;
 	case BPF_PROG_TYPE_FLOW_DISSECTOR:
 	case BPF_PROG_TYPE_SK_LOOKUP:
@@ -4256,13 +4086,6 @@ static int link_create(union bpf_attr *attr, bpfptr_t uattr)
 #ifdef CONFIG_NET
 	case BPF_PROG_TYPE_XDP:
 		ret = bpf_xdp_link_attach(attr, prog);
-		break;
-#endif
-#ifdef CONFIG_PERF_EVENTS
-	case BPF_PROG_TYPE_PERF_EVENT:
-	case BPF_PROG_TYPE_TRACEPOINT:
-	case BPF_PROG_TYPE_KPROBE:
-		ret = bpf_perf_link_attach(attr, prog);
 		break;
 #endif
 	default:
@@ -4542,7 +4365,7 @@ out_prog_put:
 	return ret;
 }
 
-static int __sys_bpf(int cmd, bpfptr_t uattr, unsigned int size)
+SYSCALL_DEFINE3(bpf, int, cmd, union bpf_attr __user *, uattr, unsigned int, size)
 {
 	union bpf_attr attr;
 	int err;
@@ -4557,7 +4380,7 @@ static int __sys_bpf(int cmd, bpfptr_t uattr, unsigned int size)
 
 	/* copy attributes from user space, may be less than sizeof(bpf_attr) */
 	memset(&attr, 0, sizeof(attr));
-	if (copy_from_bpfptr(&attr, uattr, size) != 0)
+	if (copy_from_user(&attr, uattr, size) != 0)
 		return -EFAULT;
 
 	err = security_bpf(cmd, &attr, size);
@@ -4572,7 +4395,7 @@ static int __sys_bpf(int cmd, bpfptr_t uattr, unsigned int size)
 		err = map_lookup_elem(&attr);
 		break;
 	case BPF_MAP_UPDATE_ELEM:
-		err = map_update_elem(&attr, uattr);
+		err = map_update_elem(&attr);
 		break;
 	case BPF_MAP_DELETE_ELEM:
 		err = map_delete_elem(&attr);
@@ -4599,21 +4422,21 @@ static int __sys_bpf(int cmd, bpfptr_t uattr, unsigned int size)
 		err = bpf_prog_detach(&attr);
 		break;
 	case BPF_PROG_QUERY:
-		err = bpf_prog_query(&attr, uattr.user);
+		err = bpf_prog_query(&attr, uattr);
 		break;
 	case BPF_PROG_TEST_RUN:
-		err = bpf_prog_test_run(&attr, uattr.user);
+		err = bpf_prog_test_run(&attr, uattr);
 		break;
 	case BPF_PROG_GET_NEXT_ID:
-		err = bpf_obj_get_next_id(&attr, uattr.user,
+		err = bpf_obj_get_next_id(&attr, uattr,
 					  &prog_idr, &prog_idr_lock);
 		break;
 	case BPF_MAP_GET_NEXT_ID:
-		err = bpf_obj_get_next_id(&attr, uattr.user,
+		err = bpf_obj_get_next_id(&attr, uattr,
 					  &map_idr, &map_idr_lock);
 		break;
 	case BPF_BTF_GET_NEXT_ID:
-		err = bpf_obj_get_next_id(&attr, uattr.user,
+		err = bpf_obj_get_next_id(&attr, uattr,
 					  &btf_idr, &btf_idr_lock);
 		break;
 	case BPF_PROG_GET_FD_BY_ID:
@@ -4623,38 +4446,38 @@ static int __sys_bpf(int cmd, bpfptr_t uattr, unsigned int size)
 		err = bpf_map_get_fd_by_id(&attr);
 		break;
 	case BPF_OBJ_GET_INFO_BY_FD:
-		err = bpf_obj_get_info_by_fd(&attr, uattr.user);
+		err = bpf_obj_get_info_by_fd(&attr, uattr);
 		break;
 	case BPF_RAW_TRACEPOINT_OPEN:
 		err = bpf_raw_tracepoint_open(&attr);
 		break;
 	case BPF_BTF_LOAD:
-		err = bpf_btf_load(&attr, uattr);
+		err = bpf_btf_load(&attr);
 		break;
 	case BPF_BTF_GET_FD_BY_ID:
 		err = bpf_btf_get_fd_by_id(&attr);
 		break;
 	case BPF_TASK_FD_QUERY:
-		err = bpf_task_fd_query(&attr, uattr.user);
+		err = bpf_task_fd_query(&attr, uattr);
 		break;
 	case BPF_MAP_LOOKUP_AND_DELETE_ELEM:
 		err = map_lookup_and_delete_elem(&attr);
 		break;
 	case BPF_MAP_LOOKUP_BATCH:
-		err = bpf_map_do_batch(&attr, uattr.user, BPF_MAP_LOOKUP_BATCH);
+		err = bpf_map_do_batch(&attr, uattr, BPF_MAP_LOOKUP_BATCH);
 		break;
 	case BPF_MAP_LOOKUP_AND_DELETE_BATCH:
-		err = bpf_map_do_batch(&attr, uattr.user,
+		err = bpf_map_do_batch(&attr, uattr,
 				       BPF_MAP_LOOKUP_AND_DELETE_BATCH);
 		break;
 	case BPF_MAP_UPDATE_BATCH:
-		err = bpf_map_do_batch(&attr, uattr.user, BPF_MAP_UPDATE_BATCH);
+		err = bpf_map_do_batch(&attr, uattr, BPF_MAP_UPDATE_BATCH);
 		break;
 	case BPF_MAP_DELETE_BATCH:
-		err = bpf_map_do_batch(&attr, uattr.user, BPF_MAP_DELETE_BATCH);
+		err = bpf_map_do_batch(&attr, uattr, BPF_MAP_DELETE_BATCH);
 		break;
 	case BPF_LINK_CREATE:
-		err = link_create(&attr, uattr);
+		err = link_create(&attr);
 		break;
 	case BPF_LINK_UPDATE:
 		err = link_update(&attr);
@@ -4663,7 +4486,7 @@ static int __sys_bpf(int cmd, bpfptr_t uattr, unsigned int size)
 		err = bpf_link_get_fd_by_id(&attr);
 		break;
 	case BPF_LINK_GET_NEXT_ID:
-		err = bpf_obj_get_next_id(&attr, uattr.user,
+		err = bpf_obj_get_next_id(&attr, uattr,
 					  &link_idr, &link_idr_lock);
 		break;
 	case BPF_ENABLE_STATS:
@@ -4685,94 +4508,3 @@ static int __sys_bpf(int cmd, bpfptr_t uattr, unsigned int size)
 
 	return err;
 }
-
-SYSCALL_DEFINE3(bpf, int, cmd, union bpf_attr __user *, uattr, unsigned int, size)
-{
-	return __sys_bpf(cmd, USER_BPFPTR(uattr), size);
-}
-
-static bool syscall_prog_is_valid_access(int off, int size,
-					 enum bpf_access_type type,
-					 const struct bpf_prog *prog,
-					 struct bpf_insn_access_aux *info)
-{
-	if (off < 0 || off >= U16_MAX)
-		return false;
-	if (off % size != 0)
-		return false;
-	return true;
-}
-
-BPF_CALL_3(bpf_sys_bpf, int, cmd, void *, attr, u32, attr_size)
-{
-	switch (cmd) {
-	case BPF_MAP_CREATE:
-	case BPF_MAP_UPDATE_ELEM:
-	case BPF_MAP_FREEZE:
-	case BPF_PROG_LOAD:
-	case BPF_BTF_LOAD:
-		break;
-	/* case BPF_PROG_TEST_RUN:
-	 * is not part of this list to prevent recursive test_run
-	 */
-	default:
-		return -EINVAL;
-	}
-	return __sys_bpf(cmd, KERNEL_BPFPTR(attr), attr_size);
-}
-
-static const struct bpf_func_proto bpf_sys_bpf_proto = {
-	.func		= bpf_sys_bpf,
-	.gpl_only	= false,
-	.ret_type	= RET_INTEGER,
-	.arg1_type	= ARG_ANYTHING,
-	.arg2_type	= ARG_PTR_TO_MEM,
-	.arg3_type	= ARG_CONST_SIZE,
-};
-
-const struct bpf_func_proto * __weak
-tracing_prog_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
-{
-	return bpf_base_func_proto(func_id);
-}
-
-BPF_CALL_1(bpf_sys_close, u32, fd)
-{
-	/* When bpf program calls this helper there should not be
-	 * an fdget() without matching completed fdput().
-	 * This helper is allowed in the following callchain only:
-	 * sys_bpf->prog_test_run->bpf_prog->bpf_sys_close
-	 */
-	return close_fd(fd);
-}
-
-static const struct bpf_func_proto bpf_sys_close_proto = {
-	.func		= bpf_sys_close,
-	.gpl_only	= false,
-	.ret_type	= RET_INTEGER,
-	.arg1_type	= ARG_ANYTHING,
-};
-
-static const struct bpf_func_proto *
-syscall_prog_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
-{
-	switch (func_id) {
-	case BPF_FUNC_sys_bpf:
-		return &bpf_sys_bpf_proto;
-	case BPF_FUNC_btf_find_by_name_kind:
-		return &bpf_btf_find_by_name_kind_proto;
-	case BPF_FUNC_sys_close:
-		return &bpf_sys_close_proto;
-	default:
-		return tracing_prog_func_proto(func_id, prog);
-	}
-}
-
-const struct bpf_verifier_ops bpf_syscall_verifier_ops = {
-	.get_func_proto  = syscall_prog_func_proto,
-	.is_valid_access = syscall_prog_is_valid_access,
-};
-
-const struct bpf_prog_ops bpf_syscall_prog_ops = {
-	.test_run = bpf_prog_test_run_syscall,
-};

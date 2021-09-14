@@ -36,6 +36,7 @@ properties:
       - description: AHB/slave interface clock (only required if GPU can gate
           slave interface independently)
     minItems: 1
+    maxItems: 4
 
   clock-names:
     items:

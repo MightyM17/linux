@@ -126,8 +126,6 @@ struct dpu_hw_pingpong_ops {
 			struct dpu_hw_dither_cfg *cfg);
 };
 
-struct dpu_hw_merge_3d;
-
 struct dpu_hw_pingpong {
 	struct dpu_hw_blk base;
 	struct dpu_hw_blk_reg_map hw;
@@ -135,7 +133,7 @@ struct dpu_hw_pingpong {
 	/* pingpong */
 	enum dpu_pingpong idx;
 	const struct dpu_pingpong_cfg *caps;
-	struct dpu_hw_merge_3d *merge_3d;
+	struct dpu_hw_blk *merge_3d;
 
 	/* ops */
 	struct dpu_hw_pingpong_ops ops;

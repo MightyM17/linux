@@ -299,9 +299,6 @@ int amdgpu_discovery_reg_base_init(struct amdgpu_device *adev)
 				  ip->major, ip->minor,
 				  ip->revision);
 
-			if (le16_to_cpu(ip->hw_id) == VCN_HWID)
-				adev->vcn.num_vcn_inst++;
-
 			for (k = 0; k < num_base_address; k++) {
 				/*
 				 * convert the endianness of base addresses in place,
@@ -328,7 +325,7 @@ int amdgpu_discovery_reg_base_init(struct amdgpu_device *adev)
 	return 0;
 }
 
-int amdgpu_discovery_get_ip_version(struct amdgpu_device *adev, int hw_id, int number_instance,
+int amdgpu_discovery_get_ip_version(struct amdgpu_device *adev, int hw_id,
 				    int *major, int *minor, int *revision)
 {
 	struct binary_header *bhdr;
@@ -360,7 +357,7 @@ int amdgpu_discovery_get_ip_version(struct amdgpu_device *adev, int hw_id, int n
 		for (j = 0; j < num_ips; j++) {
 			ip = (struct ip *)(adev->mman.discovery_bin + ip_offset);
 
-			if ((le16_to_cpu(ip->hw_id) == hw_id) && (ip->number_instance == number_instance)) {
+			if (le16_to_cpu(ip->hw_id) == hw_id) {
 				if (major)
 					*major = ip->major;
 				if (minor)
@@ -376,19 +373,11 @@ int amdgpu_discovery_get_ip_version(struct amdgpu_device *adev, int hw_id, int n
 	return -EINVAL;
 }
 
-
-int amdgpu_discovery_get_vcn_version(struct amdgpu_device *adev, int vcn_instance,
-				     int *major, int *minor, int *revision)
-{
-	return amdgpu_discovery_get_ip_version(adev, VCN_HWID,
-					       vcn_instance, major, minor, revision);
-}
-
 void amdgpu_discovery_harvest_ip(struct amdgpu_device *adev)
 {
 	struct binary_header *bhdr;
 	struct harvest_table *harvest_info;
-	int i, vcn_harvest_count = 0;
+	int i;
 
 	bhdr = (struct binary_header *)adev->mman.discovery_bin;
 	harvest_info = (struct harvest_table *)(adev->mman.discovery_bin +
@@ -400,7 +389,8 @@ void amdgpu_discovery_harvest_ip(struct amdgpu_device *adev)
 
 		switch (le32_to_cpu(harvest_info->list[i].hw_id)) {
 		case VCN_HWID:
-			vcn_harvest_count++;
+			adev->harvest_ip_mask |= AMD_HARVEST_IP_VCN_MASK;
+			adev->harvest_ip_mask |= AMD_HARVEST_IP_JPEG_MASK;
 			break;
 		case DMU_HWID:
 			adev->harvest_ip_mask |= AMD_HARVEST_IP_DMU_MASK;
@@ -408,10 +398,6 @@ void amdgpu_discovery_harvest_ip(struct amdgpu_device *adev)
 		default:
 			break;
 		}
-	}
-	if (vcn_harvest_count == adev->vcn.num_vcn_inst) {
-		adev->harvest_ip_mask |= AMD_HARVEST_IP_VCN_MASK;
-		adev->harvest_ip_mask |= AMD_HARVEST_IP_JPEG_MASK;
 	}
 }
 

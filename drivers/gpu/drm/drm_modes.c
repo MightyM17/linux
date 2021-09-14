@@ -1176,11 +1176,16 @@ enum drm_mode_status
 drm_mode_validate_ycbcr420(const struct drm_display_mode *mode,
 			   struct drm_connector *connector)
 {
-	if (!connector->ycbcr_420_allowed &&
-	    drm_mode_is_420_only(&connector->display_info, mode))
-		return MODE_NO_420;
+	u8 vic = drm_match_cea_mode(mode);
+	enum drm_mode_status status = MODE_OK;
+	struct drm_hdmi_info *hdmi = &connector->display_info.hdmi;
 
-	return MODE_OK;
+	if (test_bit(vic, hdmi->y420_vdb_modes)) {
+		if (!connector->ycbcr_420_allowed)
+			status = MODE_NO_420;
+	}
+
+	return status;
 }
 EXPORT_SYMBOL(drm_mode_validate_ycbcr420);
 
@@ -1542,7 +1547,7 @@ static int drm_mode_parse_cmdline_int(const char *delim, unsigned int *int_ret)
 
 	/*
 	 * delim must point to the '=', otherwise it is a syntax error and
-	 * if delim points to the terminating zero, then delim + 1 will point
+	 * if delim points to the terminating zero, then delim + 1 wil point
 	 * past the end of the string.
 	 */
 	if (*delim != '=')
@@ -1972,7 +1977,7 @@ int drm_mode_convert_umode(struct drm_device *dev,
 	out->flags = in->flags;
 	/*
 	 * Old xf86-video-vmware (possibly others too) used to
-	 * leave 'type' uninitialized. Just ignore any bits we
+	 * leave 'type' unititialized. Just ignore any bits we
 	 * don't like. It's a just hint after all, and more
 	 * useful for the kernel->userspace direction anyway.
 	 */

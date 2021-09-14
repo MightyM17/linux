@@ -99,13 +99,15 @@ EXPORT_SYMBOL(enetc_ierb_register_pf);
 static int enetc_ierb_probe(struct platform_device *pdev)
 {
 	struct enetc_ierb *ierb;
+	struct resource *res;
 	void __iomem *regs;
 
 	ierb = devm_kzalloc(&pdev->dev, sizeof(*ierb), GFP_KERNEL);
 	if (!ierb)
 		return -ENOMEM;
 
-	regs = devm_platform_get_and_ioremap_resource(pdev, 0, NULL);
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	regs = devm_ioremap_resource(&pdev->dev, res);
 	if (IS_ERR(regs))
 		return PTR_ERR(regs);
 

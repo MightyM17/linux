@@ -296,8 +296,7 @@ static int get_set_conduit_method(struct device_node *np)
 	return 0;
 }
 
-static int psci_sys_reset(struct notifier_block *nb, unsigned long action,
-			  void *data)
+static void psci_sys_reset(enum reboot_mode reboot_mode, const char *cmd)
 {
 	if ((reboot_mode == REBOOT_WARM || reboot_mode == REBOOT_SOFT) &&
 	    psci_system_reset2_supported) {
@@ -310,14 +309,7 @@ static int psci_sys_reset(struct notifier_block *nb, unsigned long action,
 	} else {
 		invoke_psci_fn(PSCI_0_2_FN_SYSTEM_RESET, 0, 0, 0);
 	}
-
-	return NOTIFY_DONE;
 }
-
-static struct notifier_block psci_sys_reset_nb = {
-	.notifier_call = psci_sys_reset,
-	.priority = 129,
-};
 
 static void psci_sys_poweroff(void)
 {
@@ -343,15 +335,10 @@ int psci_cpu_suspend_enter(u32 state)
 {
 	int ret;
 
-	if (!psci_power_state_loses_context(state)) {
-		struct arm_cpuidle_irq_context context;
-
-		arm_cpuidle_save_irq_context(&context);
+	if (!psci_power_state_loses_context(state))
 		ret = psci_ops.cpu_suspend(state, 0);
-		arm_cpuidle_restore_irq_context(&context);
-	} else {
+	else
 		ret = cpu_suspend(state, psci_suspend_finisher);
-	}
 
 	return ret;
 }
@@ -485,7 +472,7 @@ static void __init psci_0_2_set_functions(void)
 		.migrate_info_type = psci_migrate_info_type,
 	};
 
-	register_restart_handler(&psci_sys_reset_nb);
+	arm_pm_restart = psci_sys_reset;
 
 	pm_power_off = psci_sys_poweroff;
 }

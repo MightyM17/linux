@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0+
 /*
+ *  Copyright (C) 2013, Lars-Peter Clausen <lars@metafoo.de>
  *  GDMA4740 DMAC support
  */
 
@@ -913,5 +914,6 @@ static struct platform_driver gdma_dma_driver = {
 };
 module_platform_driver(gdma_dma_driver);
 
+MODULE_AUTHOR("Lars-Peter Clausen <lars@metafoo.de>");
 MODULE_DESCRIPTION("Ralink/MTK DMA driver");
 MODULE_LICENSE("GPL v2");

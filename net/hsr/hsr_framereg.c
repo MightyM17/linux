@@ -397,8 +397,7 @@ void hsr_register_frame_in(struct hsr_node *node, struct hsr_port *port,
 	 * ensures entries of restarted nodes gets pruned so that they can
 	 * re-register and resume communications.
 	 */
-	if (!(port->dev->features & NETIF_F_HW_HSR_TAG_RM) &&
-	    seq_nr_before(sequence_nr, node->seq_out[port->type]))
+	if (seq_nr_before(sequence_nr, node->seq_out[port->type]))
 		return;
 
 	node->time_in[port->type] = jiffies;

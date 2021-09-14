@@ -644,7 +644,9 @@ static int tsl2583_set_pm_runtime_busy(struct tsl2583_chip *chip, bool on)
 	int ret;
 
 	if (on) {
-		ret = pm_runtime_resume_and_get(&chip->client->dev);
+		ret = pm_runtime_get_sync(&chip->client->dev);
+		if (ret < 0)
+			pm_runtime_put_noidle(&chip->client->dev);
 	} else {
 		pm_runtime_mark_last_busy(&chip->client->dev);
 		ret = pm_runtime_put_autosuspend(&chip->client->dev);
@@ -727,10 +729,8 @@ static int tsl2583_read_raw(struct iio_dev *indio_dev,
 read_done:
 	mutex_unlock(&chip->als_mutex);
 
-	if (ret < 0) {
-		tsl2583_set_pm_runtime_busy(chip, false);
+	if (ret < 0)
 		return ret;
-	}
 
 	/*
 	 * Preserve the ret variable if the call to
@@ -791,10 +791,8 @@ static int tsl2583_write_raw(struct iio_dev *indio_dev,
 
 	mutex_unlock(&chip->als_mutex);
 
-	if (ret < 0) {
-		tsl2583_set_pm_runtime_busy(chip, false);
+	if (ret < 0)
 		return ret;
-	}
 
 	ret = tsl2583_set_pm_runtime_busy(chip, false);
 	if (ret < 0)
@@ -882,6 +880,7 @@ static int tsl2583_remove(struct i2c_client *client)
 
 	pm_runtime_disable(&client->dev);
 	pm_runtime_set_suspended(&client->dev);
+	pm_runtime_put_noidle(&client->dev);
 
 	return tsl2583_set_power_state(chip, TSL2583_CNTL_PWR_OFF);
 }

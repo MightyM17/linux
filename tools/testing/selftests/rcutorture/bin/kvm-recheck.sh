@@ -74,10 +74,7 @@ do
 	done
 	if test -f "$rd/kcsan.sum"
 	then
-		if ! test -f $T
-		then
-			:
-		elif grep -q CONFIG_KCSAN=y $T
+		if grep -q CONFIG_KCSAN=y $T
 		then
 			echo "Compiler or architecture does not support KCSAN!"
 			echo Did you forget to switch your compiler with '--kmake-arg CC=<cc-that-supports-kcsan>'?

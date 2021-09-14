@@ -73,19 +73,20 @@ ATTRIBUTE_GROUPS(pvpanic_pci_dev);
 static int pvpanic_pci_probe(struct pci_dev *pdev,
 			     const struct pci_device_id *ent)
 {
+	struct device *dev = &pdev->dev;
 	struct pvpanic_instance *pi;
 	void __iomem *base;
 	int ret;
 
-	ret = pcim_enable_device(pdev);
+	ret = pci_enable_device(pdev);
 	if (ret < 0)
 		return ret;
 
-	base = pcim_iomap(pdev, 0, 0);
+	base = pci_iomap(pdev, 0, 0);
 	if (!base)
 		return -ENOMEM;
 
-	pi = devm_kmalloc(&pdev->dev, sizeof(*pi), GFP_KERNEL);
+	pi = kmalloc(sizeof(*pi), GFP_ATOMIC);
 	if (!pi)
 		return -ENOMEM;
 
@@ -96,18 +97,29 @@ static int pvpanic_pci_probe(struct pci_dev *pdev,
 	pi->capability &= ioread8(base);
 	pi->events = pi->capability;
 
-	return devm_pvpanic_probe(&pdev->dev, pi);
+	dev_set_drvdata(dev, pi);
+
+	return pvpanic_probe(pi);
+}
+
+static void pvpanic_pci_remove(struct pci_dev *pdev)
+{
+	struct pvpanic_instance *pi = dev_get_drvdata(&pdev->dev);
+
+	pvpanic_remove(pi);
+	iounmap(pi->base);
+	kfree(pi);
+	pci_disable_device(pdev);
 }
 
 static struct pci_driver pvpanic_pci_driver = {
 	.name =         "pvpanic-pci",
 	.id_table =     pvpanic_pci_id_tbl,
 	.probe =        pvpanic_pci_probe,
+	.remove =       pvpanic_pci_remove,
 	.driver = {
 		.dev_groups = pvpanic_pci_dev_groups,
 	},
 };
-
-MODULE_DEVICE_TABLE(pci, pvpanic_pci_id_tbl);
 
 module_pci_driver(pvpanic_pci_driver);

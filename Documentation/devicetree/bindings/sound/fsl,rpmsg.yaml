@@ -21,7 +21,6 @@ properties:
       - fsl,imx8mn-rpmsg-audio
       - fsl,imx8mm-rpmsg-audio
       - fsl,imx8mp-rpmsg-audio
-      - fsl,imx8ulp-rpmsg-audio
 
   model:
     $ref: /schemas/types.yaml#/definitions/string
@@ -50,7 +49,7 @@ properties:
     maxItems: 1
 
   memory-region:
-    maxItems: 1
+    $ref: /schemas/types.yaml#/definitions/phandle
     description:
       phandle to a node describing reserved memory (System RAM memory)
       The M core can't access all the DDR memory space on some platform,

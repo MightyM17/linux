@@ -2,11 +2,8 @@
 
 .. include:: ../disclaimer-zh_CN.rst
 
-:Original: Documentation/mips/index.rst
-
-:翻译:
-
- 司延腾 Yanteng Si <siyanteng@loongson.cn>
+:Original: :doc:`../../../mips/index`
+:Translator: Yanteng Si <siyanteng@loongson.cn>
 
 ===========================
 MIPS特性文档

@@ -19,6 +19,19 @@
 /* /sys/fs/<nilfs>/ */
 static struct kset *nilfs_kset;
 
+#define NILFS_SHOW_TIME(time_t_val, buf) ({ \
+		struct tm res; \
+		int count = 0; \
+		time64_to_tm(time_t_val, 0, &res); \
+		res.tm_year += 1900; \
+		res.tm_mon += 1; \
+		count = scnprintf(buf, PAGE_SIZE, \
+				    "%ld-%.2d-%.2d %.2d:%.2d:%.2d\n", \
+				    res.tm_year, res.tm_mon, res.tm_mday, \
+				    res.tm_hour, res.tm_min, res.tm_sec);\
+		count; \
+})
+
 #define NILFS_DEV_INT_GROUP_OPS(name, parent_name) \
 static ssize_t nilfs_##name##_attr_show(struct kobject *kobj, \
 					struct attribute *attr, char *buf) \
@@ -51,9 +64,11 @@ static const struct sysfs_ops nilfs_##name##_attr_ops = { \
 #define NILFS_DEV_INT_GROUP_TYPE(name, parent_name) \
 static void nilfs_##name##_attr_release(struct kobject *kobj) \
 { \
-	struct nilfs_sysfs_##parent_name##_subgroups *subgroups = container_of(kobj, \
-						struct nilfs_sysfs_##parent_name##_subgroups, \
-						sg_##name##_kobj); \
+	struct nilfs_sysfs_##parent_name##_subgroups *subgroups; \
+	struct the_nilfs *nilfs = container_of(kobj->parent, \
+						struct the_nilfs, \
+						ns_##parent_name##_kobj); \
+	subgroups = nilfs->ns_##parent_name##_subgroups; \
 	complete(&subgroups->sg_##name##_kobj_unregister); \
 } \
 static struct kobj_type nilfs_##name##_ktype = { \
@@ -79,12 +94,12 @@ static int nilfs_sysfs_create_##name##_group(struct the_nilfs *nilfs) \
 	err = kobject_init_and_add(kobj, &nilfs_##name##_ktype, parent, \
 				    #name); \
 	if (err) \
-		kobject_put(kobj); \
-	return err; \
+		return err; \
+	return 0; \
 } \
 static void nilfs_sysfs_delete_##name##_group(struct the_nilfs *nilfs) \
 { \
-	kobject_put(&nilfs->ns_##parent_name##_subgroups->sg_##name##_kobj); \
+	kobject_del(&nilfs->ns_##parent_name##_subgroups->sg_##name##_kobj); \
 }
 
 /************************************************************************
@@ -195,14 +210,14 @@ int nilfs_sysfs_create_snapshot_group(struct nilfs_root *root)
 	}
 
 	if (err)
-		kobject_put(&root->snapshot_kobj);
+		return err;
 
-	return err;
+	return 0;
 }
 
 void nilfs_sysfs_delete_snapshot_group(struct nilfs_root *root)
 {
-	kobject_put(&root->snapshot_kobj);
+	kobject_del(&root->snapshot_kobj);
 }
 
 /************************************************************************
@@ -561,7 +576,7 @@ nilfs_segctor_last_seg_write_time_show(struct nilfs_segctor_attr *attr,
 	ctime = nilfs->ns_ctime;
 	up_read(&nilfs->ns_segctor_sem);
 
-	return sysfs_emit(buf, "%ptTs\n", &ctime);
+	return NILFS_SHOW_TIME(ctime, buf);
 }
 
 static ssize_t
@@ -589,7 +604,7 @@ nilfs_segctor_last_nongc_write_time_show(struct nilfs_segctor_attr *attr,
 	nongc_ctime = nilfs->ns_nongc_ctime;
 	up_read(&nilfs->ns_segctor_sem);
 
-	return sysfs_emit(buf, "%ptTs\n", &nongc_ctime);
+	return NILFS_SHOW_TIME(nongc_ctime, buf);
 }
 
 static ssize_t
@@ -709,7 +724,7 @@ nilfs_superblock_sb_write_time_show(struct nilfs_superblock_attr *attr,
 	sbwtime = nilfs->ns_sbwtime;
 	up_read(&nilfs->ns_sem);
 
-	return sysfs_emit(buf, "%ptTs\n", &sbwtime);
+	return NILFS_SHOW_TIME(sbwtime, buf);
 }
 
 static ssize_t
@@ -984,7 +999,7 @@ int nilfs_sysfs_create_device_group(struct super_block *sb)
 	err = kobject_init_and_add(&nilfs->ns_dev_kobj, &nilfs_dev_ktype, NULL,
 				    "%s", sb->s_id);
 	if (err)
-		goto cleanup_dev_kobject;
+		goto free_dev_subgroups;
 
 	err = nilfs_sysfs_create_mounted_snapshots_group(nilfs);
 	if (err)
@@ -1021,7 +1036,9 @@ delete_mounted_snapshots_group:
 	nilfs_sysfs_delete_mounted_snapshots_group(nilfs);
 
 cleanup_dev_kobject:
-	kobject_put(&nilfs->ns_dev_kobj);
+	kobject_del(&nilfs->ns_dev_kobj);
+
+free_dev_subgroups:
 	kfree(nilfs->ns_dev_subgroups);
 
 failed_create_device_group:
@@ -1036,7 +1053,6 @@ void nilfs_sysfs_delete_device_group(struct the_nilfs *nilfs)
 	nilfs_sysfs_delete_superblock_group(nilfs);
 	nilfs_sysfs_delete_segctor_group(nilfs);
 	kobject_del(&nilfs->ns_dev_kobj);
-	kobject_put(&nilfs->ns_dev_kobj);
 	kfree(nilfs->ns_dev_subgroups);
 }
 

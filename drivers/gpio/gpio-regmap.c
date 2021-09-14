@@ -178,6 +178,12 @@ static int gpio_regmap_direction_output(struct gpio_chip *chip,
 	return gpio_regmap_set_direction(chip, offset, true);
 }
 
+void gpio_regmap_set_drvdata(struct gpio_regmap *gpio, void *data)
+{
+	gpio->driver_data = data;
+}
+EXPORT_SYMBOL_GPL(gpio_regmap_set_drvdata);
+
 void *gpio_regmap_get_drvdata(struct gpio_regmap *gpio)
 {
 	return gpio->driver_data;
@@ -220,7 +226,6 @@ struct gpio_regmap *gpio_regmap_register(const struct gpio_regmap_config *config
 		return ERR_PTR(-ENOMEM);
 
 	gpio->parent = config->parent;
-	gpio->driver_data = config->drvdata;
 	gpio->regmap = config->regmap;
 	gpio->ngpio_per_reg = config->ngpio_per_reg;
 	gpio->reg_stride = config->reg_stride;
@@ -306,9 +311,9 @@ void gpio_regmap_unregister(struct gpio_regmap *gpio)
 }
 EXPORT_SYMBOL_GPL(gpio_regmap_unregister);
 
-static void devm_gpio_regmap_unregister(void *res)
+static void devm_gpio_regmap_unregister(struct device *dev, void *res)
 {
-	gpio_regmap_unregister(res);
+	gpio_regmap_unregister(*(struct gpio_regmap **)res);
 }
 
 /**
@@ -325,17 +330,20 @@ static void devm_gpio_regmap_unregister(void *res)
 struct gpio_regmap *devm_gpio_regmap_register(struct device *dev,
 					      const struct gpio_regmap_config *config)
 {
-	struct gpio_regmap *gpio;
-	int ret;
+	struct gpio_regmap **ptr, *gpio;
+
+	ptr = devres_alloc(devm_gpio_regmap_unregister, sizeof(*ptr),
+			   GFP_KERNEL);
+	if (!ptr)
+		return ERR_PTR(-ENOMEM);
 
 	gpio = gpio_regmap_register(config);
-
-	if (IS_ERR(gpio))
-		return gpio;
-
-	ret = devm_add_action_or_reset(dev, devm_gpio_regmap_unregister, gpio);
-	if (ret)
-		return ERR_PTR(ret);
+	if (!IS_ERR(gpio)) {
+		*ptr = gpio;
+		devres_add(dev, ptr);
+	} else {
+		devres_free(ptr);
+	}
 
 	return gpio;
 }

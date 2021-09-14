@@ -32,7 +32,6 @@
 #include "psb_drv.h"
 #include "psb_reg.h"
 #include "psb_intel_reg.h"
-#include "psb_irq.h"
 #include <linux/mutex.h>
 #include <linux/pm_runtime.h>
 

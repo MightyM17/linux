@@ -20,7 +20,7 @@ properties:
     maxItems: 1
 
   phys:
-    maxItems: 1
+    $ref: /schemas/types.yaml#/definitions/phandle
     description: phandle to the USB phy
 
   monitored-battery:

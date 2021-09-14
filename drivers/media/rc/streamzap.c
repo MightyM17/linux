@@ -265,6 +265,8 @@ static void streamzap_callback(struct urb *urb)
 
 	ir_raw_event_handle(sz->rdev);
 	usb_submit_urb(urb, GFP_ATOMIC);
+
+	return;
 }
 
 static struct rc_dev *streamzap_init_rc_dev(struct streamzap_ir *sz)

@@ -10,7 +10,7 @@ maintainers:
   - Paul Cercueil <paul@crapouillou.net>
 
 allOf:
-  - $ref: serial.yaml#
+  - $ref: /schemas/serial.yaml#
 
 properties:
   $nodename:

@@ -20,7 +20,6 @@
 #include "xfs_bmap.h"
 #include "xfs_attr.h"
 #include "xfs_trans.h"
-#include "xfs_log.h"
 #include "xfs_log_priv.h"
 #include "xfs_buf_item.h"
 #include "xfs_quota.h"
@@ -31,9 +30,6 @@
 #include "xfs_fsmap.h"
 #include "xfs_btree_staging.h"
 #include "xfs_icache.h"
-#include "xfs_ag.h"
-#include "xfs_ag_resv.h"
-#include "xfs_error.h"
 
 /*
  * We include this last to have the helpers above available for the trace

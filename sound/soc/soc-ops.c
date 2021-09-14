@@ -407,7 +407,7 @@ int snd_soc_put_volsw_sx(struct snd_kcontrol *kcontrol,
 	int min = mc->min;
 	unsigned int mask = (1U << (fls(min + max) - 1)) - 1;
 	int err = 0;
-	unsigned int val, val_mask;
+	unsigned int val, val_mask, val2;
 
 	val_mask = mask << shift;
 	val = (ucontrol->value.integer.value[0] + min) & mask;
@@ -418,8 +418,6 @@ int snd_soc_put_volsw_sx(struct snd_kcontrol *kcontrol,
 		return err;
 
 	if (snd_soc_volsw_is_stereo(mc)) {
-		unsigned int val2;
-
 		val_mask = mask << rshift;
 		val2 = (ucontrol->value.integer.value[1] + min) & mask;
 		val2 = val2 << rshift;
@@ -575,6 +573,7 @@ int snd_soc_limit_volume(struct snd_soc_card *card,
 	const char *name, int max)
 {
 	struct snd_kcontrol *kctl;
+	struct soc_mixer_control *mc;
 	int ret = -EINVAL;
 
 	/* Sanity check for name and max */
@@ -583,7 +582,7 @@ int snd_soc_limit_volume(struct snd_soc_card *card,
 
 	kctl = snd_soc_card_get_kcontrol(card, name);
 	if (kctl) {
-		struct soc_mixer_control *mc = (struct soc_mixer_control *)kctl->private_value;
+		mc = (struct soc_mixer_control *)kctl->private_value;
 		if (max <= mc->max) {
 			mc->platform_max = max;
 			ret = 0;
@@ -812,10 +811,11 @@ int snd_soc_get_xr_sx(struct snd_kcontrol *kcontrol,
 	long min = mc->min;
 	long max = mc->max;
 	long val = 0;
+	unsigned int regval;
 	unsigned int i;
 
 	for (i = 0; i < regcount; i++) {
-		unsigned int regval = snd_soc_component_read(component, regbase+i);
+		regval = snd_soc_component_read(component, regbase+i);
 		val |= (regval & regwmask) << (regwshift*(regcount-i-1));
 	}
 	val &= mask;
@@ -856,16 +856,17 @@ int snd_soc_put_xr_sx(struct snd_kcontrol *kcontrol,
 	unsigned long mask = (1UL<<mc->nbits)-1;
 	long max = mc->max;
 	long val = ucontrol->value.integer.value[0];
-	unsigned int i;
+	unsigned int i, regval, regmask;
+	int err;
 
 	if (invert)
 		val = max - val;
 	val &= mask;
 	for (i = 0; i < regcount; i++) {
-		unsigned int regval = (val >> (regwshift*(regcount-i-1))) & regwmask;
-		unsigned int regmask = (mask >> (regwshift*(regcount-i-1))) & regwmask;
-		int err = snd_soc_component_update_bits(component, regbase+i,
-							regmask, regval);
+		regval = (val >> (regwshift*(regcount-i-1))) & regwmask;
+		regmask = (mask >> (regwshift*(regcount-i-1))) & regwmask;
+		err = snd_soc_component_update_bits(component, regbase+i,
+				regmask, regval);
 		if (err < 0)
 			return err;
 	}

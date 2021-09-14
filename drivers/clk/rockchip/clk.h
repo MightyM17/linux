@@ -271,24 +271,17 @@ struct rockchip_clk_provider {
 
 struct rockchip_pll_rate_table {
 	unsigned long rate;
-	union {
-		struct {
-			/* for RK3066 */
-			unsigned int nr;
-			unsigned int nf;
-			unsigned int no;
-			unsigned int nb;
-		};
-		struct {
-			/* for RK3036/RK3399 */
-			unsigned int fbdiv;
-			unsigned int postdiv1;
-			unsigned int refdiv;
-			unsigned int postdiv2;
-			unsigned int dsmpd;
-			unsigned int frac;
-		};
-	};
+	unsigned int nr;
+	unsigned int nf;
+	unsigned int no;
+	unsigned int nb;
+	/* for RK3036/RK3399 */
+	unsigned int fbdiv;
+	unsigned int postdiv1;
+	unsigned int refdiv;
+	unsigned int postdiv2;
+	unsigned int dsmpd;
+	unsigned int frac;
 };
 
 /**

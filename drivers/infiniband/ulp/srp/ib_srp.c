@@ -965,52 +965,68 @@ static void srp_disconnect_target(struct srp_target_port *target)
 	}
 }
 
-static int srp_exit_cmd_priv(struct Scsi_Host *shost, struct scsi_cmnd *cmd)
+static void srp_free_req_data(struct srp_target_port *target,
+			      struct srp_rdma_ch *ch)
 {
-	struct srp_target_port *target = host_to_target(shost);
 	struct srp_device *dev = target->srp_host->srp_dev;
 	struct ib_device *ibdev = dev->dev;
-	struct srp_request *req = scsi_cmd_priv(cmd);
+	struct srp_request *req;
+	int i;
 
-	kfree(req->fr_list);
-	if (req->indirect_dma_addr) {
-		ib_dma_unmap_single(ibdev, req->indirect_dma_addr,
-				    target->indirect_size,
-				    DMA_TO_DEVICE);
+	if (!ch->req_ring)
+		return;
+
+	for (i = 0; i < target->req_ring_size; ++i) {
+		req = &ch->req_ring[i];
+		if (dev->use_fast_reg)
+			kfree(req->fr_list);
+		if (req->indirect_dma_addr) {
+			ib_dma_unmap_single(ibdev, req->indirect_dma_addr,
+					    target->indirect_size,
+					    DMA_TO_DEVICE);
+		}
+		kfree(req->indirect_desc);
 	}
-	kfree(req->indirect_desc);
 
-	return 0;
+	kfree(ch->req_ring);
+	ch->req_ring = NULL;
 }
 
-static int srp_init_cmd_priv(struct Scsi_Host *shost, struct scsi_cmnd *cmd)
+static int srp_alloc_req_data(struct srp_rdma_ch *ch)
 {
-	struct srp_target_port *target = host_to_target(shost);
+	struct srp_target_port *target = ch->target;
 	struct srp_device *srp_dev = target->srp_host->srp_dev;
 	struct ib_device *ibdev = srp_dev->dev;
-	struct srp_request *req = scsi_cmd_priv(cmd);
+	struct srp_request *req;
+	void *mr_list;
 	dma_addr_t dma_addr;
-	int ret = -ENOMEM;
+	int i, ret = -ENOMEM;
 
-	if (srp_dev->use_fast_reg) {
-		req->fr_list = kmalloc_array(target->mr_per_cmd, sizeof(void *),
+	ch->req_ring = kcalloc(target->req_ring_size, sizeof(*ch->req_ring),
+			       GFP_KERNEL);
+	if (!ch->req_ring)
+		goto out;
+
+	for (i = 0; i < target->req_ring_size; ++i) {
+		req = &ch->req_ring[i];
+		mr_list = kmalloc_array(target->mr_per_cmd, sizeof(void *),
 					GFP_KERNEL);
-		if (!req->fr_list)
+		if (!mr_list)
 			goto out;
-	}
-	req->indirect_desc = kmalloc(target->indirect_size, GFP_KERNEL);
-	if (!req->indirect_desc)
-		goto out;
+		if (srp_dev->use_fast_reg)
+			req->fr_list = mr_list;
+		req->indirect_desc = kmalloc(target->indirect_size, GFP_KERNEL);
+		if (!req->indirect_desc)
+			goto out;
 
-	dma_addr = ib_dma_map_single(ibdev, req->indirect_desc,
-				     target->indirect_size,
-				     DMA_TO_DEVICE);
-	if (ib_dma_mapping_error(ibdev, dma_addr)) {
-		srp_exit_cmd_priv(shost, cmd);
-		goto out;
-	}
+		dma_addr = ib_dma_map_single(ibdev, req->indirect_desc,
+					     target->indirect_size,
+					     DMA_TO_DEVICE);
+		if (ib_dma_mapping_error(ibdev, dma_addr))
+			goto out;
 
-	req->indirect_dma_addr = dma_addr;
+		req->indirect_dma_addr = dma_addr;
+	}
 	ret = 0;
 
 out:
@@ -1052,6 +1068,10 @@ static void srp_remove_target(struct srp_target_port *target)
 	}
 	cancel_work_sync(&target->tl_err_work);
 	srp_rport_put(target->rport);
+	for (i = 0; i < target->ch_count; i++) {
+		ch = &target->ch[i];
+		srp_free_req_data(target, ch);
+	}
 	kfree(target->ch);
 	target->ch = NULL;
 
@@ -1270,32 +1290,22 @@ static void srp_finish_req(struct srp_rdma_ch *ch, struct srp_request *req,
 	}
 }
 
-struct srp_terminate_context {
-	struct srp_target_port *srp_target;
-	int scsi_result;
-};
-
-static bool srp_terminate_cmd(struct scsi_cmnd *scmnd, void *context_ptr,
-			      bool reserved)
-{
-	struct srp_terminate_context *context = context_ptr;
-	struct srp_target_port *target = context->srp_target;
-	u32 tag = blk_mq_unique_tag(scsi_cmd_to_rq(scmnd));
-	struct srp_rdma_ch *ch = &target->ch[blk_mq_unique_tag_to_hwq(tag)];
-	struct srp_request *req = scsi_cmd_priv(scmnd);
-
-	srp_finish_req(ch, req, NULL, context->scsi_result);
-
-	return true;
-}
-
 static void srp_terminate_io(struct srp_rport *rport)
 {
 	struct srp_target_port *target = rport->lld_data;
-	struct srp_terminate_context context = { .srp_target = target,
-		.scsi_result = DID_TRANSPORT_FAILFAST << 16 };
+	struct srp_rdma_ch *ch;
+	int i, j;
 
-	scsi_host_busy_iter(target->scsi_host, srp_terminate_cmd, &context);
+	for (i = 0; i < target->ch_count; i++) {
+		ch = &target->ch[i];
+
+		for (j = 0; j < target->req_ring_size; ++j) {
+			struct srp_request *req = &ch->req_ring[j];
+
+			srp_finish_req(ch, req, NULL,
+				       DID_TRANSPORT_FAILFAST << 16);
+		}
+	}
 }
 
 /* Calculate maximum initiator to target information unit length. */
@@ -1351,12 +1361,13 @@ static int srp_rport_reconnect(struct srp_rport *rport)
 		ch = &target->ch[i];
 		ret += srp_new_cm_id(ch);
 	}
-	{
-		struct srp_terminate_context context = {
-			.srp_target = target, .scsi_result = DID_RESET << 16};
+	for (i = 0; i < target->ch_count; i++) {
+		ch = &target->ch[i];
+		for (j = 0; j < target->req_ring_size; ++j) {
+			struct srp_request *req = &ch->req_ring[j];
 
-		scsi_host_busy_iter(target->scsi_host, srp_terminate_cmd,
-				    &context);
+			srp_finish_req(ch, req, NULL, DID_RESET << 16);
+		}
 	}
 	for (i = 0; i < target->ch_count; i++) {
 		ch = &target->ch[i];
@@ -1952,10 +1963,13 @@ static void srp_process_rsp(struct srp_rdma_ch *ch, struct srp_rsp *rsp)
 		spin_unlock_irqrestore(&ch->lock, flags);
 	} else {
 		scmnd = scsi_host_find_tag(target->scsi_host, rsp->tag);
-		if (scmnd) {
-			req = scsi_cmd_priv(scmnd);
+		if (scmnd && scmnd->host_scribble) {
+			req = (void *)scmnd->host_scribble;
 			scmnd = srp_claim_req(ch, req, NULL, scmnd);
 		} else {
+			scmnd = NULL;
+		}
+		if (!scmnd) {
 			shost_printk(KERN_ERR, target->scsi_host,
 				     "Null scmnd for RSP w/tag %#016llx received on ch %td / QP %#x\n",
 				     rsp->tag, ch - target->ch, ch->qp->qp_num);
@@ -1987,6 +2001,7 @@ static void srp_process_rsp(struct srp_rdma_ch *ch, struct srp_rsp *rsp)
 		srp_free_req(ch, req, scmnd,
 			     be32_to_cpu(rsp->req_lim_delta));
 
+		scmnd->host_scribble = NULL;
 		scmnd->scsi_done(scmnd);
 	}
 }
@@ -2152,24 +2167,28 @@ static void srp_handle_qp_err(struct ib_cq *cq, struct ib_wc *wc,
 
 static int srp_queuecommand(struct Scsi_Host *shost, struct scsi_cmnd *scmnd)
 {
-	struct request *rq = scsi_cmd_to_rq(scmnd);
 	struct srp_target_port *target = host_to_target(shost);
 	struct srp_rdma_ch *ch;
-	struct srp_request *req = scsi_cmd_priv(scmnd);
+	struct srp_request *req;
 	struct srp_iu *iu;
 	struct srp_cmd *cmd;
 	struct ib_device *dev;
 	unsigned long flags;
 	u32 tag;
+	u16 idx;
 	int len, ret;
 
 	scmnd->result = srp_chkready(target->rport);
 	if (unlikely(scmnd->result))
 		goto err;
 
-	WARN_ON_ONCE(rq->tag < 0);
-	tag = blk_mq_unique_tag(rq);
+	WARN_ON_ONCE(scmnd->request->tag < 0);
+	tag = blk_mq_unique_tag(scmnd->request);
 	ch = &target->ch[blk_mq_unique_tag_to_hwq(tag)];
+	idx = blk_mq_unique_tag_to_tag(tag);
+	WARN_ONCE(idx >= target->req_ring_size, "%s: tag %#x: idx %d >= %d\n",
+		  dev_name(&shost->shost_gendev), tag, idx,
+		  target->req_ring_size);
 
 	spin_lock_irqsave(&ch->lock, flags);
 	iu = __srp_get_tx_iu(ch, SRP_IU_CMD);
@@ -2178,9 +2197,12 @@ static int srp_queuecommand(struct Scsi_Host *shost, struct scsi_cmnd *scmnd)
 	if (!iu)
 		goto err;
 
+	req = &ch->req_ring[idx];
 	dev = target->srp_host->srp_dev->dev;
 	ib_dma_sync_single_for_cpu(dev, iu->dma, ch->max_it_iu_len,
 				   DMA_TO_DEVICE);
+
+	scmnd->host_scribble = (void *) req;
 
 	cmd = iu->buf;
 	memset(cmd, 0, sizeof *cmd);
@@ -2210,7 +2232,7 @@ static int srp_queuecommand(struct Scsi_Host *shost, struct scsi_cmnd *scmnd)
 		 * to reduce queue depth temporarily.
 		 */
 		scmnd->result = len == -ENOMEM ?
-			DID_OK << 16 | SAM_STAT_TASK_SET_FULL : DID_ERROR << 16;
+			DID_OK << 16 | QUEUE_FULL << 1 : DID_ERROR << 16;
 		goto err_iu;
 	}
 
@@ -2792,7 +2814,7 @@ static int srp_abort(struct scsi_cmnd *scmnd)
 
 	if (!req)
 		return SUCCESS;
-	tag = blk_mq_unique_tag(scsi_cmd_to_rq(scmnd));
+	tag = blk_mq_unique_tag(scmnd->request);
 	ch_idx = blk_mq_unique_tag_to_hwq(tag);
 	if (WARN_ON_ONCE(ch_idx >= target->ch_count))
 		return SUCCESS;
@@ -2869,7 +2891,7 @@ static int srp_slave_configure(struct scsi_device *sdev)
 	return 0;
 }
 
-static ssize_t id_ext_show(struct device *dev, struct device_attribute *attr,
+static ssize_t show_id_ext(struct device *dev, struct device_attribute *attr,
 			   char *buf)
 {
 	struct srp_target_port *target = host_to_target(class_to_shost(dev));
@@ -2877,9 +2899,7 @@ static ssize_t id_ext_show(struct device *dev, struct device_attribute *attr,
 	return sysfs_emit(buf, "0x%016llx\n", be64_to_cpu(target->id_ext));
 }
 
-static DEVICE_ATTR_RO(id_ext);
-
-static ssize_t ioc_guid_show(struct device *dev, struct device_attribute *attr,
+static ssize_t show_ioc_guid(struct device *dev, struct device_attribute *attr,
 			     char *buf)
 {
 	struct srp_target_port *target = host_to_target(class_to_shost(dev));
@@ -2887,9 +2907,7 @@ static ssize_t ioc_guid_show(struct device *dev, struct device_attribute *attr,
 	return sysfs_emit(buf, "0x%016llx\n", be64_to_cpu(target->ioc_guid));
 }
 
-static DEVICE_ATTR_RO(ioc_guid);
-
-static ssize_t service_id_show(struct device *dev,
+static ssize_t show_service_id(struct device *dev,
 			       struct device_attribute *attr, char *buf)
 {
 	struct srp_target_port *target = host_to_target(class_to_shost(dev));
@@ -2900,9 +2918,7 @@ static ssize_t service_id_show(struct device *dev,
 			  be64_to_cpu(target->ib_cm.service_id));
 }
 
-static DEVICE_ATTR_RO(service_id);
-
-static ssize_t pkey_show(struct device *dev, struct device_attribute *attr,
+static ssize_t show_pkey(struct device *dev, struct device_attribute *attr,
 			 char *buf)
 {
 	struct srp_target_port *target = host_to_target(class_to_shost(dev));
@@ -2913,9 +2929,7 @@ static ssize_t pkey_show(struct device *dev, struct device_attribute *attr,
 	return sysfs_emit(buf, "0x%04x\n", be16_to_cpu(target->ib_cm.pkey));
 }
 
-static DEVICE_ATTR_RO(pkey);
-
-static ssize_t sgid_show(struct device *dev, struct device_attribute *attr,
+static ssize_t show_sgid(struct device *dev, struct device_attribute *attr,
 			 char *buf)
 {
 	struct srp_target_port *target = host_to_target(class_to_shost(dev));
@@ -2923,9 +2937,7 @@ static ssize_t sgid_show(struct device *dev, struct device_attribute *attr,
 	return sysfs_emit(buf, "%pI6\n", target->sgid.raw);
 }
 
-static DEVICE_ATTR_RO(sgid);
-
-static ssize_t dgid_show(struct device *dev, struct device_attribute *attr,
+static ssize_t show_dgid(struct device *dev, struct device_attribute *attr,
 			 char *buf)
 {
 	struct srp_target_port *target = host_to_target(class_to_shost(dev));
@@ -2937,10 +2949,8 @@ static ssize_t dgid_show(struct device *dev, struct device_attribute *attr,
 	return sysfs_emit(buf, "%pI6\n", ch->ib_cm.path.dgid.raw);
 }
 
-static DEVICE_ATTR_RO(dgid);
-
-static ssize_t orig_dgid_show(struct device *dev, struct device_attribute *attr,
-			      char *buf)
+static ssize_t show_orig_dgid(struct device *dev,
+			      struct device_attribute *attr, char *buf)
 {
 	struct srp_target_port *target = host_to_target(class_to_shost(dev));
 
@@ -2950,10 +2960,8 @@ static ssize_t orig_dgid_show(struct device *dev, struct device_attribute *attr,
 	return sysfs_emit(buf, "%pI6\n", target->ib_cm.orig_dgid.raw);
 }
 
-static DEVICE_ATTR_RO(orig_dgid);
-
-static ssize_t req_lim_show(struct device *dev, struct device_attribute *attr,
-			    char *buf)
+static ssize_t show_req_lim(struct device *dev,
+			    struct device_attribute *attr, char *buf)
 {
 	struct srp_target_port *target = host_to_target(class_to_shost(dev));
 	struct srp_rdma_ch *ch;
@@ -2967,9 +2975,7 @@ static ssize_t req_lim_show(struct device *dev, struct device_attribute *attr,
 	return sysfs_emit(buf, "%d\n", req_lim);
 }
 
-static DEVICE_ATTR_RO(req_lim);
-
-static ssize_t zero_req_lim_show(struct device *dev,
+static ssize_t show_zero_req_lim(struct device *dev,
 				 struct device_attribute *attr, char *buf)
 {
 	struct srp_target_port *target = host_to_target(class_to_shost(dev));
@@ -2977,9 +2983,7 @@ static ssize_t zero_req_lim_show(struct device *dev,
 	return sysfs_emit(buf, "%d\n", target->zero_req_lim);
 }
 
-static DEVICE_ATTR_RO(zero_req_lim);
-
-static ssize_t local_ib_port_show(struct device *dev,
+static ssize_t show_local_ib_port(struct device *dev,
 				  struct device_attribute *attr, char *buf)
 {
 	struct srp_target_port *target = host_to_target(class_to_shost(dev));
@@ -2987,9 +2991,7 @@ static ssize_t local_ib_port_show(struct device *dev,
 	return sysfs_emit(buf, "%d\n", target->srp_host->port);
 }
 
-static DEVICE_ATTR_RO(local_ib_port);
-
-static ssize_t local_ib_device_show(struct device *dev,
+static ssize_t show_local_ib_device(struct device *dev,
 				    struct device_attribute *attr, char *buf)
 {
 	struct srp_target_port *target = host_to_target(class_to_shost(dev));
@@ -2998,9 +3000,7 @@ static ssize_t local_ib_device_show(struct device *dev,
 			  dev_name(&target->srp_host->srp_dev->dev->dev));
 }
 
-static DEVICE_ATTR_RO(local_ib_device);
-
-static ssize_t ch_count_show(struct device *dev, struct device_attribute *attr,
+static ssize_t show_ch_count(struct device *dev, struct device_attribute *attr,
 			     char *buf)
 {
 	struct srp_target_port *target = host_to_target(class_to_shost(dev));
@@ -3008,9 +3008,7 @@ static ssize_t ch_count_show(struct device *dev, struct device_attribute *attr,
 	return sysfs_emit(buf, "%d\n", target->ch_count);
 }
 
-static DEVICE_ATTR_RO(ch_count);
-
-static ssize_t comp_vector_show(struct device *dev,
+static ssize_t show_comp_vector(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
 	struct srp_target_port *target = host_to_target(class_to_shost(dev));
@@ -3018,9 +3016,7 @@ static ssize_t comp_vector_show(struct device *dev,
 	return sysfs_emit(buf, "%d\n", target->comp_vector);
 }
 
-static DEVICE_ATTR_RO(comp_vector);
-
-static ssize_t tl_retry_count_show(struct device *dev,
+static ssize_t show_tl_retry_count(struct device *dev,
 				   struct device_attribute *attr, char *buf)
 {
 	struct srp_target_port *target = host_to_target(class_to_shost(dev));
@@ -3028,9 +3024,7 @@ static ssize_t tl_retry_count_show(struct device *dev,
 	return sysfs_emit(buf, "%d\n", target->tl_retry_count);
 }
 
-static DEVICE_ATTR_RO(tl_retry_count);
-
-static ssize_t cmd_sg_entries_show(struct device *dev,
+static ssize_t show_cmd_sg_entries(struct device *dev,
 				   struct device_attribute *attr, char *buf)
 {
 	struct srp_target_port *target = host_to_target(class_to_shost(dev));
@@ -3038,9 +3032,7 @@ static ssize_t cmd_sg_entries_show(struct device *dev,
 	return sysfs_emit(buf, "%u\n", target->cmd_sg_cnt);
 }
 
-static DEVICE_ATTR_RO(cmd_sg_entries);
-
-static ssize_t allow_ext_sg_show(struct device *dev,
+static ssize_t show_allow_ext_sg(struct device *dev,
 				 struct device_attribute *attr, char *buf)
 {
 	struct srp_target_port *target = host_to_target(class_to_shost(dev));
@@ -3048,7 +3040,22 @@ static ssize_t allow_ext_sg_show(struct device *dev,
 	return sysfs_emit(buf, "%s\n", target->allow_ext_sg ? "true" : "false");
 }
 
-static DEVICE_ATTR_RO(allow_ext_sg);
+static DEVICE_ATTR(id_ext,	    S_IRUGO, show_id_ext,	   NULL);
+static DEVICE_ATTR(ioc_guid,	    S_IRUGO, show_ioc_guid,	   NULL);
+static DEVICE_ATTR(service_id,	    S_IRUGO, show_service_id,	   NULL);
+static DEVICE_ATTR(pkey,	    S_IRUGO, show_pkey,		   NULL);
+static DEVICE_ATTR(sgid,	    S_IRUGO, show_sgid,		   NULL);
+static DEVICE_ATTR(dgid,	    S_IRUGO, show_dgid,		   NULL);
+static DEVICE_ATTR(orig_dgid,	    S_IRUGO, show_orig_dgid,	   NULL);
+static DEVICE_ATTR(req_lim,         S_IRUGO, show_req_lim,         NULL);
+static DEVICE_ATTR(zero_req_lim,    S_IRUGO, show_zero_req_lim,	   NULL);
+static DEVICE_ATTR(local_ib_port,   S_IRUGO, show_local_ib_port,   NULL);
+static DEVICE_ATTR(local_ib_device, S_IRUGO, show_local_ib_device, NULL);
+static DEVICE_ATTR(ch_count,        S_IRUGO, show_ch_count,        NULL);
+static DEVICE_ATTR(comp_vector,     S_IRUGO, show_comp_vector,     NULL);
+static DEVICE_ATTR(tl_retry_count,  S_IRUGO, show_tl_retry_count,  NULL);
+static DEVICE_ATTR(cmd_sg_entries,  S_IRUGO, show_cmd_sg_entries,  NULL);
+static DEVICE_ATTR(allow_ext_sg,    S_IRUGO, show_allow_ext_sg,    NULL);
 
 static struct device_attribute *srp_host_attrs[] = {
 	&dev_attr_id_ext,
@@ -3077,8 +3084,6 @@ static struct scsi_host_template srp_template = {
 	.target_alloc			= srp_target_alloc,
 	.slave_configure		= srp_slave_configure,
 	.info				= srp_target_info,
-	.init_cmd_priv			= srp_init_cmd_priv,
-	.exit_cmd_priv			= srp_exit_cmd_priv,
 	.queuecommand			= srp_queuecommand,
 	.change_queue_depth             = srp_change_queue_depth,
 	.eh_timed_out			= srp_timed_out,
@@ -3092,7 +3097,6 @@ static struct scsi_host_template srp_template = {
 	.cmd_per_lun			= SRP_DEFAULT_CMD_SQ_SIZE,
 	.shost_attrs			= srp_host_attrs,
 	.track_queue_depth		= 1,
-	.cmd_size			= sizeof(struct srp_request),
 };
 
 static int srp_sdev_count(struct Scsi_Host *host)
@@ -3613,9 +3617,9 @@ out:
 	return ret;
 }
 
-static ssize_t add_target_store(struct device *dev,
-				struct device_attribute *attr, const char *buf,
-				size_t count)
+static ssize_t srp_create_target(struct device *dev,
+				 struct device_attribute *attr,
+				 const char *buf, size_t count)
 {
 	struct srp_host *host =
 		container_of(dev, struct srp_host, dev);
@@ -3671,6 +3675,8 @@ static ssize_t add_target_store(struct device *dev,
 	ret = srp_parse_options(target->net, buf, target);
 	if (ret)
 		goto out;
+
+	target->req_ring_size = target->queue_size - SRP_TSK_MGMT_SQ_SIZE;
 
 	if (!srp_conn_unique(target->srp_host, target)) {
 		if (target->using_rdma_cm) {
@@ -3774,6 +3780,10 @@ static ssize_t add_target_store(struct device *dev,
 		if (ret)
 			goto err_disconnect;
 
+		ret = srp_alloc_req_data(ch);
+		if (ret)
+			goto err_disconnect;
+
 		ret = srp_connect_ch(ch, max_iu_len, multich);
 		if (ret) {
 			char dst[64];
@@ -3792,6 +3802,7 @@ static ssize_t add_target_store(struct device *dev,
 				goto free_ch;
 			} else {
 				srp_free_ch_ib(target, ch);
+				srp_free_req_data(target, ch);
 				target->ch_count = ch - target->ch;
 				goto connected;
 			}
@@ -3852,15 +3863,16 @@ free_ch:
 	for (i = 0; i < target->ch_count; i++) {
 		ch = &target->ch[i];
 		srp_free_ch_ib(target, ch);
+		srp_free_req_data(target, ch);
 	}
 
 	kfree(target->ch);
 	goto out;
 }
 
-static DEVICE_ATTR_WO(add_target);
+static DEVICE_ATTR(add_target, S_IWUSR, NULL, srp_create_target);
 
-static ssize_t ibdev_show(struct device *dev, struct device_attribute *attr,
+static ssize_t show_ibdev(struct device *dev, struct device_attribute *attr,
 			  char *buf)
 {
 	struct srp_host *host = container_of(dev, struct srp_host, dev);
@@ -3868,9 +3880,9 @@ static ssize_t ibdev_show(struct device *dev, struct device_attribute *attr,
 	return sysfs_emit(buf, "%s\n", dev_name(&host->srp_dev->dev->dev));
 }
 
-static DEVICE_ATTR_RO(ibdev);
+static DEVICE_ATTR(ibdev, S_IRUGO, show_ibdev, NULL);
 
-static ssize_t port_show(struct device *dev, struct device_attribute *attr,
+static ssize_t show_port(struct device *dev, struct device_attribute *attr,
 			 char *buf)
 {
 	struct srp_host *host = container_of(dev, struct srp_host, dev);
@@ -3878,7 +3890,7 @@ static ssize_t port_show(struct device *dev, struct device_attribute *attr,
 	return sysfs_emit(buf, "%d\n", host->port);
 }
 
-static DEVICE_ATTR_RO(port);
+static DEVICE_ATTR(port, S_IRUGO, show_port, NULL);
 
 static struct srp_host *srp_add_port(struct srp_device *device, u8 port)
 {
@@ -4066,13 +4078,10 @@ static int __init srp_init_module(void)
 {
 	int ret;
 
-	BUILD_BUG_ON(sizeof(struct srp_aer_req) != 36);
-	BUILD_BUG_ON(sizeof(struct srp_cmd) != 48);
 	BUILD_BUG_ON(sizeof(struct srp_imm_buf) != 4);
-	BUILD_BUG_ON(sizeof(struct srp_indirect_buf) != 20);
 	BUILD_BUG_ON(sizeof(struct srp_login_req) != 64);
 	BUILD_BUG_ON(sizeof(struct srp_login_req_rdma) != 56);
-	BUILD_BUG_ON(sizeof(struct srp_rsp) != 36);
+	BUILD_BUG_ON(sizeof(struct srp_cmd) != 48);
 
 	if (srp_sg_tablesize) {
 		pr_warn("srp_sg_tablesize is deprecated, please use cmd_sg_entries\n");

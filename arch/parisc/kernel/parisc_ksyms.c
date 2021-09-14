@@ -17,6 +17,10 @@
 
 #include <linux/string.h>
 EXPORT_SYMBOL(memset);
+EXPORT_SYMBOL(strlen);
+EXPORT_SYMBOL(strcpy);
+EXPORT_SYMBOL(strncpy);
+EXPORT_SYMBOL(strcat);
 
 #include <linux/atomic.h>
 EXPORT_SYMBOL(__xchg8);
@@ -32,6 +36,7 @@ EXPORT_SYMBOL(__xchg64);
 
 #include <linux/uaccess.h>
 EXPORT_SYMBOL(lclear_user);
+EXPORT_SYMBOL(lstrnlen_user);
 
 #ifndef CONFIG_64BIT
 /* Needed so insmod can set dp value */

@@ -116,9 +116,9 @@ static int kernfs_getlink(struct inode *inode, char *path)
 	struct kernfs_node *target = kn->symlink.target_kn;
 	int error;
 
-	down_read(&kernfs_rwsem);
+	mutex_lock(&kernfs_mutex);
 	error = kernfs_get_target_path(parent, target, path);
-	up_read(&kernfs_rwsem);
+	mutex_unlock(&kernfs_mutex);
 
 	return error;
 }

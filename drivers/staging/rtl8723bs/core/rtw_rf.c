@@ -4,6 +4,7 @@
  * Copyright(c) 2007 - 2011 Realtek Corporation. All rights reserved.
  *
  ******************************************************************************/
+#define _RTW_RF_C_
 
 #include <drv_types.h>
 #include <linux/kernel.h>

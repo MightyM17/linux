@@ -9,7 +9,7 @@
  * Authors:	Alexey Kuznetsov, <kuznet@ms2.inr.ac.ru>
  *
  *	Fixes:
- *	Vitaly E. Lavrov		RTA_OK arithmetic was wrong.
+ *	Vitaly E. Lavrov		RTA_OK arithmetics was wrong.
  */
 
 #include <linux/bitops.h>
@@ -234,7 +234,7 @@ unlock:
  * @msgtype: rtnetlink message type
  * @doit: Function pointer called for each request message
  * @dumpit: Function pointer called for each dump request (NLM_F_DUMP) message
- * @flags: rtnl_link_flags to modify behaviour of doit/dumpit functions
+ * @flags: rtnl_link_flags to modifiy behaviour of doit/dumpit functions
  *
  * Like rtnl_register, but for use by removable modules.
  */
@@ -254,7 +254,7 @@ EXPORT_SYMBOL_GPL(rtnl_register_module);
  * @msgtype: rtnetlink message type
  * @doit: Function pointer called for each request message
  * @dumpit: Function pointer called for each dump request (NLM_F_DUMP) message
- * @flags: rtnl_link_flags to modify behaviour of doit/dumpit functions
+ * @flags: rtnl_link_flags to modifiy behaviour of doit/dumpit functions
  *
  * Registers the specified function pointers (at least one of them has
  * to be non-NULL) to be called whenever a request message for the
@@ -376,12 +376,12 @@ int __rtnl_link_register(struct rtnl_link_ops *ops)
 	if (rtnl_link_ops_get(ops->kind))
 		return -EEXIST;
 
-	/* The check for alloc/setup is here because if ops
+	/* The check for setup is here because if ops
 	 * does not have that filled up, it is not possible
 	 * to use the ops for creating device. So do not
 	 * fill up dellink as well. That disables rtnl_dellink.
 	 */
-	if ((ops->alloc || ops->setup) && !ops->dellink)
+	if (ops->setup && !ops->dellink)
 		ops->dellink = unregister_netdevice_queue;
 
 	list_add_tail(&ops->list, &link_ops);
@@ -543,9 +543,7 @@ static const struct rtnl_af_ops *rtnl_af_lookup(const int family)
 {
 	const struct rtnl_af_ops *ops;
 
-	ASSERT_RTNL();
-
-	list_for_each_entry(ops, &rtnl_af_ops, list) {
+	list_for_each_entry_rcu(ops, &rtnl_af_ops, list) {
 		if (ops->family == family)
 			return ops;
 	}
@@ -710,8 +708,15 @@ out:
 int rtnetlink_send(struct sk_buff *skb, struct net *net, u32 pid, unsigned int group, int echo)
 {
 	struct sock *rtnl = net->rtnl;
+	int err = 0;
 
-	return nlmsg_notify(rtnl, skb, pid, group, echo, GFP_KERNEL);
+	NETLINK_CB(skb).dst_group = group;
+	if (echo)
+		refcount_inc(&skb->users);
+	netlink_broadcast(rtnl, skb, pid, group, GFP_KERNEL);
+	if (echo)
+		err = netlink_unicast(rtnl, skb, pid, MSG_DONTWAIT);
+	return err;
 }
 
 int rtnl_unicast(struct sk_buff *skb, struct net *net, u32 pid)
@@ -726,8 +731,12 @@ void rtnl_notify(struct sk_buff *skb, struct net *net, u32 pid, u32 group,
 		 struct nlmsghdr *nlh, gfp_t flags)
 {
 	struct sock *rtnl = net->rtnl;
+	int report = 0;
 
-	nlmsg_notify(rtnl, skb, pid, group, nlmsg_report(nlh), flags);
+	if (nlh)
+		report = nlmsg_report(nlh);
+
+	nlmsg_notify(rtnl, skb, pid, group, report, flags);
 }
 EXPORT_SYMBOL(rtnl_notify);
 
@@ -1810,16 +1819,6 @@ static int rtnl_fill_ifinfo(struct sk_buff *skb,
 	if (rtnl_fill_prop_list(skb, dev))
 		goto nla_put_failure;
 
-	if (dev->dev.parent &&
-	    nla_put_string(skb, IFLA_PARENT_DEV_NAME,
-			   dev_name(dev->dev.parent)))
-		goto nla_put_failure;
-
-	if (dev->dev.parent && dev->dev.parent->bus &&
-	    nla_put_string(skb, IFLA_PARENT_DEV_BUS_NAME,
-			   dev->dev.parent->bus->name))
-		goto nla_put_failure;
-
 	nlmsg_end(skb, nlh);
 	return 0;
 
@@ -1879,7 +1878,6 @@ static const struct nla_policy ifla_policy[IFLA_MAX+1] = {
 	[IFLA_PERM_ADDRESS]	= { .type = NLA_REJECT },
 	[IFLA_PROTO_DOWN_REASON] = { .type = NLA_NESTED },
 	[IFLA_NEW_IFINDEX]	= NLA_POLICY_MIN(NLA_S32, 1),
-	[IFLA_PARENT_DEV_NAME]	= { .type = NLA_NUL_STRING },
 };
 
 static const struct nla_policy ifla_info_policy[IFLA_INFO_MAX+1] = {
@@ -1959,13 +1957,6 @@ static bool link_master_filtered(struct net_device *dev, int master_idx)
 		return false;
 
 	master = netdev_master_upper_dev_get(dev);
-
-	/* 0 is already used to denote IFLA_MASTER wasn't passed, therefore need
-	 * another invalid value for ifindex to denote "no master".
-	 */
-	if (master_idx == -1)
-		return !!master;
-
 	if (!master || master->ifindex != master_idx)
 		return true;
 
@@ -2264,8 +2255,7 @@ invalid_attr:
 	return -EINVAL;
 }
 
-static int validate_linkmsg(struct net_device *dev, struct nlattr *tb[],
-			    struct netlink_ext_ack *extack)
+static int validate_linkmsg(struct net_device *dev, struct nlattr *tb[])
 {
 	if (dev) {
 		if (tb[IFLA_ADDRESS] &&
@@ -2284,18 +2274,27 @@ static int validate_linkmsg(struct net_device *dev, struct nlattr *tb[],
 		nla_for_each_nested(af, tb[IFLA_AF_SPEC], rem) {
 			const struct rtnl_af_ops *af_ops;
 
+			rcu_read_lock();
 			af_ops = rtnl_af_lookup(nla_type(af));
-			if (!af_ops)
+			if (!af_ops) {
+				rcu_read_unlock();
 				return -EAFNOSUPPORT;
+			}
 
-			if (!af_ops->set_link_af)
+			if (!af_ops->set_link_af) {
+				rcu_read_unlock();
 				return -EOPNOTSUPP;
+			}
 
 			if (af_ops->validate_link_af) {
-				err = af_ops->validate_link_af(dev, af, extack);
-				if (err < 0)
+				err = af_ops->validate_link_af(dev, af);
+				if (err < 0) {
+					rcu_read_unlock();
 					return err;
+				}
 			}
+
+			rcu_read_unlock();
 		}
 	}
 
@@ -2575,7 +2574,7 @@ static int do_set_proto_down(struct net_device *dev,
 	if (nl_proto_down) {
 		proto_down = nla_get_u8(nl_proto_down);
 
-		/* Don't turn off protodown if there are active reasons */
+		/* Dont turn off protodown if there are active reasons */
 		if (!proto_down && dev->proto_down_reason) {
 			NL_SET_ERR_MSG(extack, "Cannot clear protodown, active reasons");
 			return -EBUSY;
@@ -2600,12 +2599,11 @@ static int do_setlink(const struct sk_buff *skb,
 	const struct net_device_ops *ops = dev->netdev_ops;
 	int err;
 
-	err = validate_linkmsg(dev, tb, extack);
+	err = validate_linkmsg(dev, tb);
 	if (err < 0)
 		return err;
 
 	if (tb[IFLA_NET_NS_PID] || tb[IFLA_NET_NS_FD] || tb[IFLA_TARGET_NETNSID]) {
-		const char *pat = ifname && ifname[0] ? ifname : NULL;
 		struct net *net;
 		int new_ifindex;
 
@@ -2621,7 +2619,7 @@ static int do_setlink(const struct sk_buff *skb,
 		else
 			new_ifindex = 0;
 
-		err = __dev_change_net_namespace(dev, net, pat, new_ifindex);
+		err = __dev_change_net_namespace(dev, net, ifname, new_ifindex);
 		put_net(net);
 		if (err)
 			goto errout;
@@ -2870,12 +2868,17 @@ static int do_setlink(const struct sk_buff *skb,
 		nla_for_each_nested(af, tb[IFLA_AF_SPEC], rem) {
 			const struct rtnl_af_ops *af_ops;
 
+			rcu_read_lock();
+
 			BUG_ON(!(af_ops = rtnl_af_lookup(nla_type(af))));
 
 			err = af_ops->set_link_af(dev, af, extack);
-			if (err < 0)
+			if (err < 0) {
+				rcu_read_unlock();
 				goto errout;
+			}
 
+			rcu_read_unlock();
 			status |= DO_SETLINK_NOTIFY;
 		}
 	}
@@ -3174,17 +3177,8 @@ struct net_device *rtnl_create_link(struct net *net, const char *ifname,
 		return ERR_PTR(-EINVAL);
 	}
 
-	if (ops->alloc) {
-		dev = ops->alloc(tb, ifname, name_assign_type,
-				 num_tx_queues, num_rx_queues);
-		if (IS_ERR(dev))
-			return dev;
-	} else {
-		dev = alloc_netdev_mqs(ops->priv_size, ifname,
-				       name_assign_type, ops->setup,
-				       num_tx_queues, num_rx_queues);
-	}
-
+	dev = alloc_netdev_mqs(ops->priv_size, ifname, name_assign_type,
+			       ops->setup, num_tx_queues, num_rx_queues);
 	if (!dev)
 		return ERR_PTR(-ENOMEM);
 
@@ -3299,7 +3293,7 @@ replay:
 			m_ops = master_dev->rtnl_link_ops;
 	}
 
-	err = validate_linkmsg(dev, tb, extack);
+	err = validate_linkmsg(dev, tb);
 	if (err < 0)
 		return err;
 
@@ -3417,7 +3411,7 @@ replay:
 		return -EOPNOTSUPP;
 	}
 
-	if (!ops->alloc && !ops->setup)
+	if (!ops->setup)
 		return -EOPNOTSUPP;
 
 	if (!ifname[0]) {
@@ -3945,12 +3939,12 @@ int ndo_dflt_fdb_add(struct ndmsg *ndm,
 	 * implement its own handler for this.
 	 */
 	if (ndm->ndm_state && !(ndm->ndm_state & NUD_PERMANENT)) {
-		netdev_info(dev, "default FDB implementation only supports local addresses\n");
+		pr_info("%s: FDB only supports static addresses\n", dev->name);
 		return err;
 	}
 
 	if (vid) {
-		netdev_info(dev, "vlans aren't supported yet for dev_uc|mc_add()\n");
+		pr_info("%s: vlans aren't supported yet for dev_uc|mc_add()\n", dev->name);
 		return err;
 	}
 
@@ -4084,7 +4078,7 @@ int ndo_dflt_fdb_del(struct ndmsg *ndm,
 	 * implement its own handler for this.
 	 */
 	if (!(ndm->ndm_state & NUD_PERMANENT)) {
-		netdev_info(dev, "default FDB implementation only supports local addresses\n");
+		pr_info("%s: FDB only supports static addresses\n", dev->name);
 		return err;
 	}
 
@@ -4848,10 +4842,6 @@ static int rtnl_bridge_notify(struct net_device *dev)
 	if (err < 0)
 		goto errout;
 
-	/* Notification info is only filled for bridge ports, not the bridge
-	 * device itself. Therefore, a zero notification length is valid and
-	 * should not result in an error.
-	 */
 	if (!skb->len)
 		goto errout;
 

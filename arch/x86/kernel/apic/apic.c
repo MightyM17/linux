@@ -38,7 +38,6 @@
 
 #include <asm/trace/irq_vectors.h>
 #include <asm/irq_remapping.h>
-#include <asm/pc-conf-reg.h>
 #include <asm/perf_event.h>
 #include <asm/x86_init.h>
 #include <linux/atomic.h>
@@ -133,14 +132,18 @@ static int enabled_via_apicbase __ro_after_init;
  */
 static inline void imcr_pic_to_apic(void)
 {
+	/* select IMCR register */
+	outb(0x70, 0x22);
 	/* NMI and 8259 INTR go through APIC */
-	pc_conf_set(PC_CONF_MPS_IMCR, 0x01);
+	outb(0x01, 0x23);
 }
 
 static inline void imcr_apic_to_pic(void)
 {
+	/* select IMCR register */
+	outb(0x70, 0x22);
 	/* NMI and 8259 INTR go directly to BSP */
-	pc_conf_set(PC_CONF_MPS_IMCR, 0x00);
+	outb(0x00, 0x23);
 }
 #endif
 
@@ -2601,7 +2604,6 @@ static void __init apic_bsp_setup(bool upmode)
 	end_local_APIC_setup();
 	irq_remap_enable_fault_handling();
 	setup_IO_APIC();
-	lapic_update_legacy_vectors();
 }
 
 #ifdef CONFIG_UP_LATE_INIT

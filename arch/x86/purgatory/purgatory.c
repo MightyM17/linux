@@ -9,8 +9,6 @@
  */
 
 #include <linux/bug.h>
-#include <linux/kernel.h>
-#include <linux/types.h>
 #include <crypto/sha2.h>
 #include <asm/purgatory.h>
 

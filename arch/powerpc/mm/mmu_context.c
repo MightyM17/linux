@@ -83,7 +83,9 @@ void switch_mm_irqs_off(struct mm_struct *prev, struct mm_struct *next,
 	if (cpu_has_feature(CPU_FTR_ALTIVEC))
 		asm volatile ("dssall");
 
-	if (!new_on_cpu)
+	if (new_on_cpu)
+		radix_kvm_prefetch_workaround(next);
+	else
 		membarrier_arch_switch_mm(prev, next, tsk);
 
 	/*

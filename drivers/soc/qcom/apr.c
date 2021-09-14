@@ -217,7 +217,7 @@ static int apr_device_probe(struct device *dev)
 	return adrv->probe(adev);
 }
 
-static void apr_device_remove(struct device *dev)
+static int apr_device_remove(struct device *dev)
 {
 	struct apr_device *adev = to_apr_device(dev);
 	struct apr_driver *adrv;
@@ -231,6 +231,8 @@ static void apr_device_remove(struct device *dev)
 		idr_remove(&apr->svcs_idr, adev->svc_id);
 		spin_unlock(&apr->svcs_lock);
 	}
+
+	return 0;
 }
 
 static int apr_uevent(struct device *dev, struct kobj_uevent_env *env)

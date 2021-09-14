@@ -346,12 +346,14 @@ bool fixup_umip_exception(struct pt_regs *regs)
 	if (!regs)
 		return false;
 
-	/*
-	 * Give up on emulation if fetching the instruction failed. Should a
-	 * page fault or a #GP be issued?
-	 */
 	nr_copied = insn_fetch_from_user(regs, buf);
-	if (nr_copied <= 0)
+
+	/*
+	 * The insn_fetch_from_user above could have failed if user code
+	 * is protected by a memory protection key. Give up on emulation
+	 * in such a case.  Should we issue a page fault?
+	 */
+	if (!nr_copied)
 		return false;
 
 	if (!insn_decode_from_regs(&insn, regs, buf, nr_copied))

@@ -17,7 +17,6 @@ properties:
       - items:
           - enum:
               - linksys,nslu2
-              - welltech,epbx100
           - const: intel,ixp42x
       - items:
           - enum:

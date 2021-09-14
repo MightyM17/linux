@@ -843,8 +843,7 @@ static int ina2xx_buffer_enable(struct iio_dev *indio_dev)
 		chip->allow_async_readout);
 
 	task = kthread_create(ina2xx_capture_thread, (void *)indio_dev,
-			      "%s:%d-%uus", indio_dev->name,
-			      iio_device_id(indio_dev),
+			      "%s:%d-%uus", indio_dev->name, indio_dev->id,
 			      sampling_us);
 	if (IS_ERR(task))
 		return PTR_ERR(task);

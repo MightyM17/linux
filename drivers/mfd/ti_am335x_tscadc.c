@@ -175,9 +175,10 @@ static	int ti_tscadc_probe(struct platform_device *pdev)
 	tscadc->dev = &pdev->dev;
 
 	err = platform_get_irq(pdev, 0);
-	if (err < 0)
+	if (err < 0) {
+		dev_err(&pdev->dev, "no irq ID is specified.\n");
 		goto ret;
-	else
+	} else
 		tscadc->irq = err;
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);

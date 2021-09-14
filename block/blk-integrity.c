@@ -431,15 +431,13 @@ void blk_integrity_unregister(struct gendisk *disk)
 }
 EXPORT_SYMBOL(blk_integrity_unregister);
 
-int blk_integrity_add(struct gendisk *disk)
+void blk_integrity_add(struct gendisk *disk)
 {
-	int ret;
+	if (kobject_init_and_add(&disk->integrity_kobj, &integrity_ktype,
+				 &disk_to_dev(disk)->kobj, "%s", "integrity"))
+		return;
 
-	ret = kobject_init_and_add(&disk->integrity_kobj, &integrity_ktype,
-				   &disk_to_dev(disk)->kobj, "%s", "integrity");
-	if (!ret)
-		kobject_uevent(&disk->integrity_kobj, KOBJ_ADD);
-	return ret;
+	kobject_uevent(&disk->integrity_kobj, KOBJ_ADD);
 }
 
 void blk_integrity_del(struct gendisk *disk)

@@ -12,7 +12,6 @@
 #include <asm/types.h>
 #include <asm/cio.h>
 #include <asm/setup.h>
-#include <asm/page.h>
 #include <uapi/asm/ipl.h>
 
 struct ipl_parameter_block {

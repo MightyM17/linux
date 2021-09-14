@@ -527,10 +527,6 @@ static void dust_status(struct dm_target *ti, status_type_t type,
 		DMEMIT("%s %llu %u", dd->dev->name,
 		       (unsigned long long)dd->start, dd->blksz);
 		break;
-
-	case STATUSTYPE_IMA:
-		*result = '\0';
-		break;
 	}
 }
 

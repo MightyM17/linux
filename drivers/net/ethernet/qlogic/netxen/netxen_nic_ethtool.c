@@ -731,9 +731,7 @@ netxen_nic_set_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
  * firmware coalescing to default.
  */
 static int netxen_set_intr_coalesce(struct net_device *netdev,
-				    struct ethtool_coalesce *ethcoal,
-				    struct kernel_ethtool_coalesce *kernel_coal,
-				    struct netlink_ext_ack *extack)
+			struct ethtool_coalesce *ethcoal)
 {
 	struct netxen_adapter *adapter = netdev_priv(netdev);
 
@@ -777,9 +775,7 @@ static int netxen_set_intr_coalesce(struct net_device *netdev,
 }
 
 static int netxen_get_intr_coalesce(struct net_device *netdev,
-				    struct ethtool_coalesce *ethcoal,
-				    struct kernel_ethtool_coalesce *kernel_coal,
-				    struct netlink_ext_ack *extack)
+			struct ethtool_coalesce *ethcoal)
 {
 	struct netxen_adapter *adapter = netdev_priv(netdev);
 

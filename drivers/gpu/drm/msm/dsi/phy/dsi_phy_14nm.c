@@ -9,7 +9,6 @@
 
 #include "dsi_phy.h"
 #include "dsi.xml.h"
-#include "dsi_phy_14nm.xml.h"
 
 #define PHY_14NM_CKLN_IDX	4
 
@@ -86,7 +85,7 @@ struct dsi_pll_14nm {
 /*
  * Private struct for N1/N2 post-divider clocks. These clocks are similar to
  * the generic clk_divider class of clocks. The only difference is that it
- * also sets the slave DSI PLL's post-dividers if in bonded DSI mode
+ * also sets the slave DSI PLL's post-dividers if in Dual DSI mode
  */
 struct dsi_pll_14nm_postdiv {
 	struct clk_hw hw;
@@ -102,7 +101,7 @@ struct dsi_pll_14nm_postdiv {
 #define to_pll_14nm_postdiv(_hw) container_of(_hw, struct dsi_pll_14nm_postdiv, hw)
 
 /*
- * Global list of private DSI PLL struct pointers. We need this for bonded DSI
+ * Global list of private DSI PLL struct pointers. We need this for Dual DSI
  * mode, where the master PLL's clk_ops needs access the slave's private data
  */
 static struct dsi_pll_14nm *pll_14nm_list[DSI_MAX];
@@ -658,7 +657,7 @@ static int dsi_pll_14nm_postdiv_set_rate(struct clk_hw *hw, unsigned long rate,
 	val |= value << shift;
 	dsi_phy_write(base + REG_DSI_14nm_PHY_CMN_CLK_CFG0, val);
 
-	/* If we're master in bonded DSI mode, then the slave PLL's post-dividers
+	/* If we're master in dual DSI mode, then the slave PLL's post-dividers
 	 * follow the master's post dividers
 	 */
 	if (pll_14nm->phy->usecase == MSM_DSI_PHY_MASTER) {
@@ -1050,7 +1049,7 @@ const struct msm_dsi_phy_cfg dsi_phy_14nm_660_cfgs = {
 	.reg_cfg = {
 		.num = 1,
 		.regs = {
-			{"vcca", 73400, 32},
+			{"vcca", 17000, 32},
 		},
 	},
 	.ops = {

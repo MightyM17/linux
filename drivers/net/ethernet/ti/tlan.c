@@ -313,8 +313,9 @@ static void tlan_remove_one(struct pci_dev *pdev)
 	pci_release_regions(pdev);
 #endif
 
-	cancel_work_sync(&priv->tlan_tqueue);
 	free_netdev(dev);
+
+	cancel_work_sync(&priv->tlan_tqueue);
 }
 
 static void tlan_start(struct net_device *dev)
@@ -749,7 +750,7 @@ static const struct net_device_ops tlan_netdev_ops = {
 	.ndo_tx_timeout		= tlan_tx_timeout,
 	.ndo_get_stats		= tlan_get_stats,
 	.ndo_set_rx_mode	= tlan_set_multicast_list,
-	.ndo_eth_ioctl		= tlan_ioctl,
+	.ndo_do_ioctl		= tlan_ioctl,
 	.ndo_set_mac_address	= eth_mac_addr,
 	.ndo_validate_addr	= eth_validate_addr,
 #ifdef CONFIG_NET_POLL_CONTROLLER

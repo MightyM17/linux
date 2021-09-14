@@ -31,11 +31,18 @@ void mmc_crypto_prepare_req(struct mmc_queue_req *mqrq)
 	struct request *req = mmc_queue_req_to_req(mqrq);
 	struct mmc_request *mrq = &mqrq->brq.mrq;
 
-	if (!req->crypt_ctx)
+	if (!req->crypt_keyslot)
 		return;
 
-	mrq->crypto_ctx = req->crypt_ctx;
-	if (req->crypt_keyslot)
-		mrq->crypto_key_slot = blk_ksm_get_slot_idx(req->crypt_keyslot);
+	mrq->crypto_enabled = true;
+	mrq->crypto_key_slot = blk_ksm_get_slot_idx(req->crypt_keyslot);
+
+	/*
+	 * For now we assume that all MMC drivers set max_dun_bytes_supported=4,
+	 * which is the limit for CQHCI crypto.  So all DUNs should be 32-bit.
+	 */
+	WARN_ON_ONCE(req->crypt_ctx->bc_dun[0] > U32_MAX);
+
+	mrq->data_unit_num = req->crypt_ctx->bc_dun[0];
 }
 EXPORT_SYMBOL_GPL(mmc_crypto_prepare_req);

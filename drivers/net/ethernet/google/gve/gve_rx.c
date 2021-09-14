@@ -1,13 +1,20 @@
 // SPDX-License-Identifier: (GPL-2.0 OR MIT)
 /* Google virtual Ethernet (gve) driver
  *
- * Copyright (C) 2015-2021 Google, Inc.
+ * Copyright (C) 2015-2019 Google, Inc.
  */
 
 #include "gve.h"
 #include "gve_adminq.h"
-#include "gve_utils.h"
 #include <linux/etherdevice.h>
+
+static void gve_rx_remove_from_block(struct gve_priv *priv, int queue_idx)
+{
+	struct gve_notify_block *block =
+			&priv->ntfy_blocks[gve_rx_idx_to_ntfy(priv, queue_idx)];
+
+	block->rx = NULL;
+}
 
 static void gve_rx_free_buffer(struct device *dev,
 			       struct gve_rx_slot_page_info *page_info,
@@ -130,6 +137,16 @@ alloc_err:
 	return err;
 }
 
+static void gve_rx_add_to_block(struct gve_priv *priv, int queue_idx)
+{
+	u32 ntfy_idx = gve_rx_idx_to_ntfy(priv, queue_idx);
+	struct gve_notify_block *block = &priv->ntfy_blocks[ntfy_idx];
+	struct gve_rx_ring *rx = &priv->rx[queue_idx];
+
+	block->rx = rx;
+	rx->ntfy_id = ntfy_idx;
+}
+
 static int gve_rx_alloc_ring(struct gve_priv *priv, int idx)
 {
 	struct gve_rx_ring *rx = &priv->rx[idx];
@@ -148,7 +165,7 @@ static int gve_rx_alloc_ring(struct gve_priv *priv, int idx)
 
 	slots = priv->rx_data_slot_cnt;
 	rx->mask = slots - 1;
-	rx->data.raw_addressing = priv->queue_format == GVE_GQI_RDA_FORMAT;
+	rx->data.raw_addressing = priv->raw_addressing;
 
 	/* alloc rx data ring */
 	bytes = sizeof(*rx->data.data_ring) * slots;
@@ -238,7 +255,7 @@ int gve_rx_alloc_rings(struct gve_priv *priv)
 	return err;
 }
 
-void gve_rx_free_rings_gqi(struct gve_priv *priv)
+void gve_rx_free_rings(struct gve_priv *priv)
 {
 	int i;
 
@@ -262,6 +279,27 @@ static enum pkt_hash_types gve_rss_type(__be16 pkt_flags)
 	return PKT_HASH_TYPE_L2;
 }
 
+static struct sk_buff *gve_rx_copy(struct net_device *dev,
+				   struct napi_struct *napi,
+				   struct gve_rx_slot_page_info *page_info,
+				   u16 len)
+{
+	struct sk_buff *skb = napi_alloc_skb(napi, len);
+	void *va = page_info->page_address + GVE_RX_PAD +
+		   (page_info->page_offset ? PAGE_SIZE / 2 : 0);
+
+	if (unlikely(!skb))
+		return NULL;
+
+	__skb_put(skb, len);
+
+	skb_copy_to_linear_data(skb, va, len);
+
+	skb->protocol = eth_type_trans(skb, dev);
+
+	return skb;
+}
+
 static struct sk_buff *gve_rx_add_frags(struct napi_struct *napi,
 					struct gve_rx_slot_page_info *page_info,
 					u16 len)
@@ -272,7 +310,7 @@ static struct sk_buff *gve_rx_add_frags(struct napi_struct *napi,
 		return NULL;
 
 	skb_add_rx_frag(skb, 0, page_info->page,
-			page_info->page_offset +
+			(page_info->page_offset ? PAGE_SIZE / 2 : 0) +
 			GVE_RX_PAD, len, PAGE_SIZE / 2);
 
 	return skb;
@@ -283,7 +321,7 @@ static void gve_rx_flip_buff(struct gve_rx_slot_page_info *page_info, __be64 *sl
 	const __be64 offset = cpu_to_be64(PAGE_SIZE / 2);
 
 	/* "flip" to other packet buffer on this page */
-	page_info->page_offset ^= PAGE_SIZE / 2;
+	page_info->page_offset ^= 0x1;
 	*(slot_addr) ^= offset;
 }
 
@@ -350,7 +388,7 @@ gve_rx_qpl(struct device *dev, struct net_device *netdev,
 			gve_rx_flip_buff(page_info, &data_slot->qpl_offset);
 		}
 	} else {
-		skb = gve_rx_copy(netdev, napi, page_info, len, GVE_RX_PAD);
+		skb = gve_rx_copy(netdev, napi, page_info, len);
 		if (skb) {
 			u64_stats_update_begin(&rx->statss);
 			rx->rx_copied_pkt++;
@@ -392,7 +430,7 @@ static bool gve_rx(struct gve_rx_ring *rx, struct gve_rx_desc *rx_desc,
 
 	if (len <= priv->rx_copybreak) {
 		/* Just copy small packets */
-		skb = gve_rx_copy(dev, napi, page_info, len, GVE_RX_PAD);
+		skb = gve_rx_copy(dev, napi, page_info, len);
 		u64_stats_update_begin(&rx->statss);
 		rx->rx_copied_pkt++;
 		rx->rx_copybreak_pkt++;

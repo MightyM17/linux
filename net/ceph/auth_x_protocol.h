@@ -87,7 +87,7 @@ struct ceph_x_authorize_reply {
 
 
 /*
- * encryption bundle
+ * encyption bundle
  */
 #define CEPHX_ENC_MAGIC 0xff009cad8826aa55ull
 

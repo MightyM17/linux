@@ -56,6 +56,7 @@ properties:
 
   reg-names:
     minItems: 1
+    maxItems: 5
     items:
       - const: mspi
       - const: bspi
@@ -70,6 +71,7 @@ properties:
   interrupt-names:
     oneOf:
       - minItems: 1
+        maxItems: 7
         items:
           - const: mspi_done
           - const: mspi_halted

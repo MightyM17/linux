@@ -49,7 +49,6 @@ struct dmcu_iram_parameters {
 bool dmcu_load_iram(struct dmcu *dmcu,
 		struct dmcu_iram_parameters params);
 bool dmub_init_abm_config(struct resource_pool *res_pool,
-		struct dmcu_iram_parameters params,
-		unsigned int inst);
+		struct dmcu_iram_parameters params);
 
 #endif /* MODULES_POWER_POWER_HELPERS_H_ */

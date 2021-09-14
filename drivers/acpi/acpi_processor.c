@@ -182,7 +182,7 @@ static int acpi_processor_hotadd_init(struct acpi_processor *pr)
 		return -ENODEV;
 
 	cpu_maps_update_begin();
-	cpus_write_lock();
+	cpu_hotplug_begin();
 
 	ret = acpi_map_cpu(pr->handle, pr->phys_id, pr->acpi_id, &pr->id);
 	if (ret)
@@ -203,7 +203,7 @@ static int acpi_processor_hotadd_init(struct acpi_processor *pr)
 	pr->flags.need_hotplug_init = 1;
 
 out:
-	cpus_write_unlock();
+	cpu_hotplug_done();
 	cpu_maps_update_done();
 	return ret;
 }
@@ -454,13 +454,13 @@ static void acpi_processor_remove(struct acpi_device *device)
 	per_cpu(processors, pr->id) = NULL;
 
 	cpu_maps_update_begin();
-	cpus_write_lock();
+	cpu_hotplug_begin();
 
 	/* Remove the CPU. */
 	arch_unregister_cpu(pr->id);
 	acpi_unmap_cpu(pr->id);
 
-	cpus_write_unlock();
+	cpu_hotplug_done();
 	cpu_maps_update_done();
 
 	try_offline_node(cpu_to_node(pr->id));

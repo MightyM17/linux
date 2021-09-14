@@ -99,9 +99,6 @@ struct vc4_hdmi_variant {
 
 	/* Callback to get channel map */
 	u32 (*channel_map)(struct vc4_hdmi *vc4_hdmi, u32 channel_mask);
-
-	/* Enables HDR metadata */
-	bool supports_hdr;
 };
 
 /* HDMI audio information */
@@ -111,8 +108,11 @@ struct vc4_hdmi_audio {
 	struct snd_soc_dai_link_component cpu;
 	struct snd_soc_dai_link_component codec;
 	struct snd_soc_dai_link_component platform;
+	int samplerate;
+	int channels;
 	struct snd_dmaengine_dai_dma_data dma_data;
-	struct hdmi_audio_infoframe infoframe;
+	struct snd_pcm_substream *substream;
+
 	bool streaming;
 };
 
@@ -125,8 +125,6 @@ struct vc4_hdmi {
 
 	struct vc4_hdmi_encoder encoder;
 	struct drm_connector connector;
-
-	struct delayed_work scrambling_work;
 
 	struct i2c_adapter *ddc;
 	void __iomem *hdmicore_regs;
@@ -145,7 +143,8 @@ struct vc4_hdmi {
 	/* VC5 Only */
 	void __iomem *rm_regs;
 
-	struct gpio_desc *hpd_gpio;
+	int hpd_gpio;
+	bool hpd_active_low;
 
 	/*
 	 * On some systems (like the RPi4), some modes are in the same
@@ -154,14 +153,6 @@ struct vc4_hdmi {
 	 * has a wifi adapter?
 	 */
 	bool disable_wifi_frequencies;
-
-	/*
-	 * Even if HDMI0 on the RPi4 can output modes requiring a pixel
-	 * rate higher than 297MHz, it needs some adjustments in the
-	 * config.txt file to be able to do so and thus won't always be
-	 * available.
-	 */
-	bool disable_4kp60;
 
 	struct cec_adapter *cec_adap;
 	struct cec_msg cec_rx_msg;

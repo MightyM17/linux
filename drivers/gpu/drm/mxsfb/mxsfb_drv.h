@@ -22,7 +22,6 @@ struct mxsfb_devdata {
 	unsigned int	hs_wdth_mask;
 	unsigned int	hs_wdth_shift;
 	bool		has_overlay;
-	bool		has_ctrl2;
 };
 
 struct mxsfb_drm_private {
@@ -32,8 +31,6 @@ struct mxsfb_drm_private {
 	struct clk			*clk;
 	struct clk			*clk_axi;
 	struct clk			*clk_disp_axi;
-
-	unsigned int			irq;
 
 	struct drm_device		*drm;
 	struct {

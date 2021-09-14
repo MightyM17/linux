@@ -662,7 +662,7 @@ unsigned long get_wchan(struct task_struct *task)
 	unsigned long ra = 0;
 #endif
 
-	if (!task || task == current || task_is_running(task))
+	if (!task || task == current || task->state == TASK_RUNNING)
 		goto out;
 	if (!task_stack_page(task))
 		goto out;
@@ -859,10 +859,10 @@ int mips_set_process_fp_mode(struct task_struct *task, unsigned int value)
 	 * scheduled in then it will already have picked up the new FP mode
 	 * whilst doing so.
 	 */
-	cpus_read_lock();
+	get_online_cpus();
 	for_each_cpu_and(cpu, &process_cpus, cpu_online_mask)
 		work_on_cpu(cpu, prepare_for_fp_mode_switch, NULL);
-	cpus_read_unlock();
+	put_online_cpus();
 
 	return 0;
 }

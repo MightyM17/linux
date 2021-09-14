@@ -95,8 +95,9 @@ err_pm:
 		memcpy(data, d, max);
 		err = max;
 	}
+	memzero_explicit(d, todo);
 err_dst:
-	kfree_sensitive(d);
+	kfree(d);
 	return err;
 }
 

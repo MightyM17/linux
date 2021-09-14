@@ -18,7 +18,8 @@ ifeq ($(CONFIG_ARC_TUNE_MCPU),"")
 cflags-y				+= $(tune-mcpu-def-y)
 else
 tune-mcpu				:= $(shell echo $(CONFIG_ARC_TUNE_MCPU))
-ifneq ($(call cc-option,$(tune-mcpu)),)
+tune-mcpu-ok 				:= $(call cc-option-yn, $(tune-mcpu))
+ifeq ($(tune-mcpu-ok),y)
 cflags-y				+= $(tune-mcpu)
 else
 # The flag provided by 'CONFIG_ARC_TUNE_MCPU' option isn't known by this compiler
@@ -83,6 +84,9 @@ KBUILD_AFLAGS	+= $(KBUILD_CFLAGS)
 KBUILD_LDFLAGS	+= $(ldflags-y)
 
 head-y		:= arch/arc/kernel/head.o
+
+# See arch/arc/Kbuild for content of core part of the kernel
+core-y		+= arch/arc/
 
 # w/o this dtb won't embed into kernel binary
 core-y		+= arch/arc/boot/dts/

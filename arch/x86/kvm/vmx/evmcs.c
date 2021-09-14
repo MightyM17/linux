@@ -14,6 +14,7 @@ DEFINE_STATIC_KEY_FALSE(enable_evmcs);
 
 #if IS_ENABLED(CONFIG_HYPERV)
 
+#define ROL16(val, n) ((u16)(((u16)(val) << (n)) | ((u16)(val) >> (16 - (n)))))
 #define EVMCS1_OFFSET(x) offsetof(struct hv_enlightened_vmcs, x)
 #define EVMCS1_FIELD(number, name, clean_field)[ROL16(number, 6)] = \
 		{EVMCS1_OFFSET(name), clean_field}
@@ -316,9 +317,6 @@ bool nested_enlightened_vmentry(struct kvm_vcpu *vcpu, u64 *evmcs_gpa)
 		return false;
 
 	if (unlikely(!assist_page.enlighten_vmentry))
-		return false;
-
-	if (unlikely(!evmptr_is_valid(assist_page.current_nested_vmcs)))
 		return false;
 
 	*evmcs_gpa = assist_page.current_nested_vmcs;

@@ -1440,17 +1440,16 @@ static int iocg_wake_fn(struct wait_queue_entry *wq_entry, unsigned mode,
 		return -1;
 
 	iocg_commit_bio(ctx->iocg, wait->bio, wait->abs_cost, cost);
-	wait->committed = true;
 
 	/*
 	 * autoremove_wake_function() removes the wait entry only when it
-	 * actually changed the task state. We want the wait always removed.
-	 * Remove explicitly and use default_wake_function(). Note that the
-	 * order of operations is important as finish_wait() tests whether
-	 * @wq_entry is removed without grabbing the lock.
+	 * actually changed the task state.  We want the wait always
+	 * removed.  Remove explicitly and use default_wake_function().
 	 */
+	list_del_init(&wq_entry->entry);
+	wait->committed = true;
+
 	default_wake_function(wq_entry, mode, flags, key);
-	list_del_init_careful(&wq_entry->entry);
 	return 0;
 }
 
@@ -2988,29 +2987,34 @@ static void ioc_pd_free(struct blkg_policy_data *pd)
 	kfree(iocg);
 }
 
-static bool ioc_pd_stat(struct blkg_policy_data *pd, struct seq_file *s)
+static size_t ioc_pd_stat(struct blkg_policy_data *pd, char *buf, size_t size)
 {
 	struct ioc_gq *iocg = pd_to_iocg(pd);
 	struct ioc *ioc = iocg->ioc;
+	size_t pos = 0;
 
 	if (!ioc->enabled)
-		return false;
+		return 0;
 
 	if (iocg->level == 0) {
 		unsigned vp10k = DIV64_U64_ROUND_CLOSEST(
 			ioc->vtime_base_rate * 10000,
 			VTIME_PER_USEC);
-		seq_printf(s, " cost.vrate=%u.%02u", vp10k / 100, vp10k % 100);
+		pos += scnprintf(buf + pos, size - pos, " cost.vrate=%u.%02u",
+				  vp10k / 100, vp10k % 100);
 	}
 
-	seq_printf(s, " cost.usage=%llu", iocg->last_stat.usage_us);
+	pos += scnprintf(buf + pos, size - pos, " cost.usage=%llu",
+			 iocg->last_stat.usage_us);
 
 	if (blkcg_debug_stats)
-		seq_printf(s, " cost.wait=%llu cost.indebt=%llu cost.indelay=%llu",
-			iocg->last_stat.wait_us,
-			iocg->last_stat.indebt_us,
-			iocg->last_stat.indelay_us);
-	return true;
+		pos += scnprintf(buf + pos, size - pos,
+				 " cost.wait=%llu cost.indebt=%llu cost.indelay=%llu",
+				 iocg->last_stat.wait_us,
+				 iocg->last_stat.indebt_us,
+				 iocg->last_stat.indelay_us);
+
+	return pos;
 }
 
 static u64 ioc_weight_prfill(struct seq_file *sf, struct blkg_policy_data *pd,
@@ -3056,19 +3060,19 @@ static ssize_t ioc_weight_write(struct kernfs_open_file *of, char *buf,
 		if (v < CGROUP_WEIGHT_MIN || v > CGROUP_WEIGHT_MAX)
 			return -EINVAL;
 
-		spin_lock_irq(&blkcg->lock);
+		spin_lock(&blkcg->lock);
 		iocc->dfl_weight = v * WEIGHT_ONE;
 		hlist_for_each_entry(blkg, &blkcg->blkg_list, blkcg_node) {
 			struct ioc_gq *iocg = blkg_to_iocg(blkg);
 
 			if (iocg) {
-				spin_lock(&iocg->ioc->lock);
+				spin_lock_irq(&iocg->ioc->lock);
 				ioc_now(iocg->ioc, &now);
 				weight_updated(iocg, &now);
-				spin_unlock(&iocg->ioc->lock);
+				spin_unlock_irq(&iocg->ioc->lock);
 			}
 		}
-		spin_unlock_irq(&blkcg->lock);
+		spin_unlock(&blkcg->lock);
 
 		return nbytes;
 	}

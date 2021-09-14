@@ -88,7 +88,7 @@ int dp_power_client_init(struct dp_power *power);
  * return: 0 for success, error for failure.
  *
  * This API will de-initialize the DisplayPort's clocks and regulator
- * modules.
+ * modueles.
  */
 void dp_power_client_deinit(struct dp_power *power);
 
@@ -100,7 +100,7 @@ void dp_power_client_deinit(struct dp_power *power);
  *
  * This API will configure the DisplayPort's power module and provides
  * methods to be called by the client to configure the power related
- * modules.
+ * modueles.
  */
 struct dp_power *dp_power_get(struct device *dev, struct dp_parser *parser);
 

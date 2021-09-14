@@ -246,8 +246,7 @@ static irqreturn_t exynos_eint_gpio_irq(int irq, void *data)
 {
 	struct samsung_pinctrl_drv_data *d = data;
 	struct samsung_pin_bank *bank = d->pin_banks;
-	unsigned int svc, group, pin;
-	int ret;
+	unsigned int svc, group, pin, virq;
 
 	svc = readl(bank->eint_base + EXYNOS_SVC_OFFSET);
 	group = EXYNOS_SVC_GROUP(svc);
@@ -257,10 +256,10 @@ static irqreturn_t exynos_eint_gpio_irq(int irq, void *data)
 		return IRQ_HANDLED;
 	bank += (group - 1);
 
-	ret = generic_handle_domain_irq(bank->irq_domain, pin);
-	if (ret)
+	virq = irq_linear_revmap(bank->irq_domain, pin);
+	if (!virq)
 		return IRQ_NONE;
-
+	generic_handle_irq(virq);
 	return IRQ_HANDLED;
 }
 
@@ -474,10 +473,12 @@ static void exynos_irq_eint0_15(struct irq_desc *desc)
 	struct exynos_weint_data *eintd = irq_desc_get_handler_data(desc);
 	struct samsung_pin_bank *bank = eintd->bank;
 	struct irq_chip *chip = irq_desc_get_chip(desc);
+	int eint_irq;
 
 	chained_irq_enter(chip, desc);
 
-	generic_handle_domain_irq(bank->irq_domain, eintd->irq);
+	eint_irq = irq_linear_revmap(bank->irq_domain, eintd->irq);
+	generic_handle_irq(eint_irq);
 
 	chained_irq_exit(chip, desc);
 }
@@ -489,7 +490,7 @@ static inline void exynos_irq_demux_eint(unsigned int pend,
 
 	while (pend) {
 		irq = fls(pend) - 1;
-		generic_handle_domain_irq(domain, irq);
+		generic_handle_irq(irq_find_mapping(domain, irq));
 		pend &= ~(1 << irq);
 	}
 }

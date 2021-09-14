@@ -56,7 +56,9 @@ if [ -f kernel/kheaders.md5 ] &&
 		exit
 fi
 
-echo "  GEN     $tarfile"
+if [ "${quiet}" != "silent_" ]; then
+       echo "  GEN     $tarfile"
+fi
 
 rm -rf $cpio_dir
 mkdir $cpio_dir

@@ -1,12 +1,10 @@
 .. include:: ../../disclaimer-zh_CN.rst
 
-:Original: Documentation/core-api/irq/irqflags-tracing.rst
-
-:翻译:
-
- 司延腾 Yanteng Si <siyanteng@loongson.cn>
+:Original: :doc:`../../../../core-api/irq/irqflags-tracing`
+:Translator: Yanteng Si <siyanteng@loongson.cn>
 
 .. _cn_irqflags-tracing.rst:
+
 
 =================
 IRQ-flags状态追踪

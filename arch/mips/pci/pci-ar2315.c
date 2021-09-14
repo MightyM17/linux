@@ -337,12 +337,14 @@ static void ar2315_pci_irq_handler(struct irq_desc *desc)
 	struct ar2315_pci_ctrl *apc = irq_desc_get_handler_data(desc);
 	u32 pending = ar2315_pci_reg_read(apc, AR2315_PCI_ISR) &
 		      ar2315_pci_reg_read(apc, AR2315_PCI_IMR);
-	int ret = 0;
+	unsigned pci_irq = 0;
 
 	if (pending)
-		ret = generic_handle_domain_irq(apc->domain, __ffs(pending));
+		pci_irq = irq_find_mapping(apc->domain, __ffs(pending));
 
-	if (!pending || ret)
+	if (pci_irq)
+		generic_handle_irq(pci_irq);
+	else
 		spurious_interrupt();
 }
 

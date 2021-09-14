@@ -17,7 +17,6 @@
 #include "xfs_errortag.h"
 #include "xfs_error.h"
 #include "xfs_log.h"
-#include "xfs_log_priv.h"
 
 #ifdef DEBUG
 /*
@@ -430,12 +429,8 @@ xfsaild_push(
 
 	/*
 	 * If we encountered pinned items or did not finish writing out all
-	 * buffers the last time we ran, force a background CIL push to get the
-	 * items unpinned in the near future. We do not wait on the CIL push as
-	 * that could stall us for seconds if there is enough background IO
-	 * load. Stalling for that long when the tail of the log is pinned and
-	 * needs flushing will hard stop the transaction subsystem when log
-	 * space runs out.
+	 * buffers the last time we ran, force the log first and wait for it
+	 * before pushing again.
 	 */
 	if (ailp->ail_log_flush && ailp->ail_last_pushed_lsn == 0 &&
 	    (!list_empty_careful(&ailp->ail_buf_list) ||
@@ -443,7 +438,7 @@ xfsaild_push(
 		ailp->ail_log_flush = 0;
 
 		XFS_STATS_INC(mp, xs_push_ail_flush);
-		xlog_cil_flush(mp->m_log);
+		xfs_log_force(mp, XFS_LOG_SYNC);
 	}
 
 	spin_lock(&ailp->ail_lock);
@@ -620,7 +615,7 @@ xfsaild(
 			 * opportunity to release such buffers from the queue.
 			 */
 			ASSERT(list_empty(&ailp->ail_buf_list) ||
-			       xfs_is_shutdown(ailp->ail_mount));
+			       XFS_FORCED_SHUTDOWN(ailp->ail_mount));
 			xfs_buf_delwri_cancel(&ailp->ail_buf_list);
 			break;
 		}
@@ -683,7 +678,7 @@ xfs_ail_push(
 	struct xfs_log_item	*lip;
 
 	lip = xfs_ail_min(ailp);
-	if (!lip || xfs_is_shutdown(ailp->ail_mount) ||
+	if (!lip || XFS_FORCED_SHUTDOWN(ailp->ail_mount) ||
 	    XFS_LSN_CMP(threshold_lsn, ailp->ail_target) <= 0)
 		return;
 
@@ -748,7 +743,7 @@ xfs_ail_update_finish(
 		return;
 	}
 
-	if (!xfs_is_shutdown(mp))
+	if (!XFS_FORCED_SHUTDOWN(mp))
 		xlog_assign_tail_lsn_locked(mp);
 
 	if (list_empty(&ailp->ail_head))
@@ -868,7 +863,7 @@ xfs_trans_ail_delete(
 	spin_lock(&ailp->ail_lock);
 	if (!test_bit(XFS_LI_IN_AIL, &lip->li_flags)) {
 		spin_unlock(&ailp->ail_lock);
-		if (shutdown_type && !xfs_is_shutdown(mp)) {
+		if (shutdown_type && !XFS_FORCED_SHUTDOWN(mp)) {
 			xfs_alert_tag(mp, XFS_PTAG_AILDELETE,
 	"%s: attempting to delete a log item that is not in the AIL",
 					__func__);

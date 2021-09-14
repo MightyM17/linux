@@ -47,17 +47,16 @@ static struct sk_buff *rtl4a_tag_xmit(struct sk_buff *skb,
 		   dp->index);
 	skb_push(skb, RTL4_A_HDR_LEN);
 
-	dsa_alloc_etype_header(skb, RTL4_A_HDR_LEN);
-	tag = dsa_etype_header_pos_tx(skb);
+	memmove(skb->data, skb->data + RTL4_A_HDR_LEN, 2 * ETH_ALEN);
+	tag = skb->data + 2 * ETH_ALEN;
 
 	/* Set Ethertype */
 	p = (__be16 *)tag;
 	*p = htons(RTL4_A_ETHERTYPE);
 
-	out = (RTL4_A_PROTOCOL_RTL8366RB << RTL4_A_PROTOCOL_SHIFT) | (2 << 8);
-	/* The lower bits indicate the port number */
-	out |= BIT(dp->index);
-
+	out = (RTL4_A_PROTOCOL_RTL8366RB << 12) | (2 << 8);
+	/* The lower bits is the port number */
+	out |= (u8)dp->index;
 	p = (__be16 *)(tag + 2);
 	*p = htons(out);
 
@@ -65,7 +64,8 @@ static struct sk_buff *rtl4a_tag_xmit(struct sk_buff *skb,
 }
 
 static struct sk_buff *rtl4a_tag_rcv(struct sk_buff *skb,
-				     struct net_device *dev)
+				     struct net_device *dev,
+				     struct packet_type *pt)
 {
 	u16 protport;
 	__be16 *p;
@@ -77,7 +77,12 @@ static struct sk_buff *rtl4a_tag_rcv(struct sk_buff *skb,
 	if (unlikely(!pskb_may_pull(skb, RTL4_A_HDR_LEN)))
 		return NULL;
 
-	tag = dsa_etype_header_pos_rx(skb);
+	/* The RTL4 header has its own custom Ethertype 0x8899 and that
+	 * starts right at the beginning of the packet, after the src
+	 * ethernet addr. Apparently skb->data always points 2 bytes in,
+	 * behind the Ethertype.
+	 */
+	tag = skb->data - 2;
 	p = (__be16 *)tag;
 	etype = ntohs(*p);
 	if (etype != RTL4_A_ETHERTYPE) {
@@ -104,9 +109,12 @@ static struct sk_buff *rtl4a_tag_rcv(struct sk_buff *skb,
 	/* Remove RTL4 tag and recalculate checksum */
 	skb_pull_rcsum(skb, RTL4_A_HDR_LEN);
 
-	dsa_strip_etype_header(skb, RTL4_A_HDR_LEN);
+	/* Move ethernet DA and SA in front of the data */
+	memmove(skb->data - ETH_HLEN,
+		skb->data - ETH_HLEN - RTL4_A_HDR_LEN,
+		2 * ETH_ALEN);
 
-	dsa_default_offload_fwd_mark(skb);
+	skb->offload_fwd_mark = 1;
 
 	return skb;
 }
@@ -116,7 +124,7 @@ static const struct dsa_device_ops rtl4a_netdev_ops = {
 	.proto	= DSA_TAG_PROTO_RTL4_A,
 	.xmit	= rtl4a_tag_xmit,
 	.rcv	= rtl4a_tag_rcv,
-	.needed_headroom = RTL4_A_HDR_LEN,
+	.overhead = RTL4_A_HDR_LEN,
 };
 module_dsa_tag_driver(rtl4a_netdev_ops);
 

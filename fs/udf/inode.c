@@ -235,7 +235,6 @@ static sector_t udf_bmap(struct address_space *mapping, sector_t block)
 }
 
 const struct address_space_operations udf_aops = {
-	.set_page_dirty	= __set_page_dirty_buffers,
 	.readpage	= udf_readpage,
 	.readahead	= udf_readahead,
 	.writepage	= udf_writepage,
@@ -390,7 +389,8 @@ struct buffer_head *udf_expand_dir_adinicb(struct inode *inode,
 		dfibh.eoffset += (sfibh.eoffset - sfibh.soffset);
 		dfi = (struct fileIdentDesc *)(dbh->b_data + dfibh.soffset);
 		if (udf_write_fi(inode, sfi, dfi, &dfibh, sfi->impUse,
-				 udf_get_fi_ident(sfi))) {
+				 sfi->fileIdent +
+					le16_to_cpu(sfi->lengthOfImpUse))) {
 			iinfo->i_alloc_type = ICBTAG_FLAG_AD_IN_ICB;
 			brelse(dbh);
 			return NULL;

@@ -83,7 +83,7 @@ static int iblock_configure_device(struct se_device *dev)
 	struct blk_integrity *bi;
 	fmode_t mode;
 	unsigned int max_write_zeroes_sectors;
-	int ret;
+	int ret = -ENOMEM;
 
 	if (!(ib_dev->ibd_flags & IBDF_HAS_UDEV_PATH)) {
 		pr_err("Missing udev_path= parameters for IBLOCK\n");
@@ -204,11 +204,11 @@ static struct se_dev_plug *iblock_plug_device(struct se_device *se_dev)
 	struct iblock_dev_plug *ib_dev_plug;
 
 	/*
-	 * Each se_device has a per cpu work this can be run from. We
+	 * Each se_device has a per cpu work this can be run from. Wwe
 	 * shouldn't have multiple threads on the same cpu calling this
 	 * at the same time.
 	 */
-	ib_dev_plug = &ib_dev->ibd_plug[raw_smp_processor_id()];
+	ib_dev_plug = &ib_dev->ibd_plug[smp_processor_id()];
 	if (test_and_set_bit(IBD_PLUGF_PLUGGED, &ib_dev_plug->flags))
 		return NULL;
 
@@ -474,7 +474,7 @@ iblock_execute_zero_out(struct block_device *bdev, struct se_cmd *cmd)
 	if (ret)
 		return TCM_LOGICAL_UNIT_COMMUNICATION_FAILURE;
 
-	target_complete_cmd(cmd, SAM_STAT_GOOD);
+	target_complete_cmd(cmd, GOOD);
 	return 0;
 }
 

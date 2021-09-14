@@ -213,10 +213,8 @@ int hns_roce_cmd_use_events(struct hns_roce_dev *hr_dev)
 
 	hr_cmd->context =
 		kcalloc(hr_cmd->max_cmds, sizeof(*hr_cmd->context), GFP_KERNEL);
-	if (!hr_cmd->context) {
-		hr_dev->cmd_mod = 0;
+	if (!hr_cmd->context)
 		return -ENOMEM;
-	}
 
 	for (i = 0; i < hr_cmd->max_cmds; ++i) {
 		hr_cmd->context[i].token = i;
@@ -230,6 +228,7 @@ int hns_roce_cmd_use_events(struct hns_roce_dev *hr_dev)
 	spin_lock_init(&hr_cmd->context_lock);
 
 	hr_cmd->use_events = 1;
+	down(&hr_cmd->poll_sem);
 
 	return 0;
 }
@@ -240,6 +239,8 @@ void hns_roce_cmd_use_polling(struct hns_roce_dev *hr_dev)
 
 	kfree(hr_cmd->context);
 	hr_cmd->use_events = 0;
+
+	up(&hr_cmd->poll_sem);
 }
 
 struct hns_roce_cmd_mailbox *

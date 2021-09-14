@@ -20,7 +20,6 @@
 #include <net/sock.h>
 
 #include "config.h"
-#include "midcomms.h"
 #include "lowcomms.h"
 
 /*
@@ -80,9 +79,6 @@ struct dlm_cluster {
 	unsigned int cl_new_rsb_count;
 	unsigned int cl_recover_callbacks;
 	char cl_cluster_name[DLM_LOCKSPACE_LEN];
-
-	struct dlm_spaces *sps;
-	struct dlm_comms *cms;
 };
 
 static struct dlm_cluster *config_item_to_cluster(struct config_item *i)
@@ -208,7 +204,7 @@ static int dlm_check_zero(unsigned int x)
 
 static int dlm_check_buffer_size(unsigned int x)
 {
-	if (x < DLM_MAX_SOCKET_BUFSIZE)
+	if (x < DEFAULT_BUFFER_SIZE)
 		return -EINVAL;
 
 	return 0;
@@ -413,9 +409,6 @@ static struct config_group *make_cluster(struct config_group *g,
 	if (!cl || !sps || !cms)
 		goto fail;
 
-	cl->sps = sps;
-	cl->cms = cms;
-
 	config_group_init_type_name(&cl->group, name, &cluster_type);
 	config_group_init_type_name(&sps->ss_group, "spaces", &spaces_type);
 	config_group_init_type_name(&cms->cs_group, "comms", &comms_type);
@@ -465,9 +458,6 @@ static void drop_cluster(struct config_group *g, struct config_item *i)
 static void release_cluster(struct config_item *i)
 {
 	struct dlm_cluster *cl = config_item_to_cluster(i);
-
-	kfree(cl->sps);
-	kfree(cl->cms);
 	kfree(cl);
 }
 
@@ -542,7 +532,7 @@ static void drop_comm(struct config_group *g, struct config_item *i)
 	struct dlm_comm *cm = config_item_to_comm(i);
 	if (local_comm == cm)
 		local_comm = NULL;
-	dlm_midcomms_close(cm->nodeid);
+	dlm_lowcomms_close(cm->nodeid);
 	while (cm->addr_count--)
 		kfree(cm->addr[cm->addr_count]);
 	config_item_put(i);
@@ -952,7 +942,7 @@ int dlm_our_addr(struct sockaddr_storage *addr, int num)
 #define DEFAULT_SCAN_SECS          5
 #define DEFAULT_LOG_DEBUG          0
 #define DEFAULT_LOG_INFO           1
-#define DEFAULT_PROTOCOL           DLM_PROTO_TCP
+#define DEFAULT_PROTOCOL           0
 #define DEFAULT_MARK               0
 #define DEFAULT_TIMEWARN_CS      500 /* 5 sec = 500 centiseconds */
 #define DEFAULT_WAITWARN_US	   0
@@ -962,7 +952,7 @@ int dlm_our_addr(struct sockaddr_storage *addr, int num)
 
 struct dlm_config_info dlm_config = {
 	.ci_tcp_port = DEFAULT_TCP_PORT,
-	.ci_buffer_size = DLM_MAX_SOCKET_BUFSIZE,
+	.ci_buffer_size = DEFAULT_BUFFER_SIZE,
 	.ci_rsbtbl_size = DEFAULT_RSBTBL_SIZE,
 	.ci_recover_timer = DEFAULT_RECOVER_TIMER,
 	.ci_toss_secs = DEFAULT_TOSS_SECS,

@@ -594,7 +594,7 @@ void gfs2_log_reserve(struct gfs2_sbd *sdp, struct gfs2_trans *tr,
 {
 	unsigned int blks = tr->tr_reserved;
 	unsigned int revokes = tr->tr_revokes;
-	unsigned int revoke_blks;
+	unsigned int revoke_blks = 0;
 
 	*extra_revokes = 0;
 	if (revokes) {
@@ -926,10 +926,10 @@ static void log_write_header(struct gfs2_sbd *sdp, u32 flags)
 }
 
 /**
- * gfs2_ail_drain - drain the ail lists after a withdraw
+ * ail_drain - drain the ail lists after a withdraw
  * @sdp: Pointer to GFS2 superblock
  */
-void gfs2_ail_drain(struct gfs2_sbd *sdp)
+static void ail_drain(struct gfs2_sbd *sdp)
 {
 	struct gfs2_trans *tr;
 
@@ -956,7 +956,6 @@ void gfs2_ail_drain(struct gfs2_sbd *sdp)
 		list_del(&tr->tr_list);
 		gfs2_trans_free(sdp, tr);
 	}
-	gfs2_drain_revokes(sdp);
 	spin_unlock(&sdp->sd_ail_lock);
 }
 
@@ -1163,6 +1162,7 @@ out_withdraw:
 	if (tr && list_empty(&tr->tr_list))
 		list_add(&tr->tr_list, &sdp->sd_ail1_list);
 	spin_unlock(&sdp->sd_ail_lock);
+	ail_drain(sdp); /* frees all transactions */
 	tr = NULL;
 	goto out_end;
 }

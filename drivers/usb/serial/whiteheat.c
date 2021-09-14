@@ -625,7 +625,14 @@ static void firm_setup_port(struct tty_struct *tty)
 
 	port_settings.port = port->port_number + 1;
 
-	port_settings.bits = tty_get_char_size(cflag);
+	/* get the byte size */
+	switch (cflag & CSIZE) {
+	case CS5:	port_settings.bits = 5;   break;
+	case CS6:	port_settings.bits = 6;   break;
+	case CS7:	port_settings.bits = 7;   break;
+	default:
+	case CS8:	port_settings.bits = 8;   break;
+	}
 	dev_dbg(dev, "%s - data bits = %d\n", __func__, port_settings.bits);
 
 	/* determine the parity */

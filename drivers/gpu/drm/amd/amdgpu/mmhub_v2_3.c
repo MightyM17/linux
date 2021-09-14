@@ -92,7 +92,6 @@ mmhub_v2_3_print_l2_protection_fault_status(struct amdgpu_device *adev,
 		status);
 	switch (adev->asic_type) {
 	case CHIP_VANGOGH:
-	case CHIP_YELLOW_CARP:
 		mmhub_cid = mmhub_client_ids_vangogh[cid][rw];
 		break;
 	default:
@@ -570,9 +569,9 @@ static int mmhub_v2_3_set_clockgating(struct amdgpu_device *adev,
 		return 0;
 
 	mmhub_v2_3_update_medium_grain_clock_gating(adev,
-				state == AMD_CG_STATE_GATE);
+			state == AMD_CG_STATE_GATE ? true : false);
 	mmhub_v2_3_update_medium_grain_light_sleep(adev,
-				state == AMD_CG_STATE_GATE);
+			state == AMD_CG_STATE_GATE ? true : false);
 
 	return 0;
 }

@@ -22,7 +22,6 @@
 #include "symbol.h"
 #include "strbuf.h"
 #include <api/fs/tracing_path.h>
-#include <api/fs/fs.h>
 #include "probe-event.h"
 #include "probe-file.h"
 #include "session.h"
@@ -32,78 +31,44 @@
 /* 4096 - 2 ('\n' + '\0') */
 #define MAX_CMDLEN 4094
 
-static bool print_common_warning(int err, bool readwrite)
-{
-	if (err == -EACCES)
-		pr_warning("No permission to %s tracefs.\nPlease %s\n",
-			   readwrite ? "write" : "read",
-			   readwrite ? "run this command again with sudo." :
-				       "try 'sudo mount -o remount,mode=755 /sys/kernel/tracing/'");
-	else
-		return false;
-
-	return true;
-}
-
-static bool print_configure_probe_event(int kerr, int uerr)
-{
-	const char *config, *file;
-
-	if (kerr == -ENOENT && uerr == -ENOENT) {
-		file = "{k,u}probe_events";
-		config = "CONFIG_KPROBE_EVENTS=y and CONFIG_UPROBE_EVENTS=y";
-	} else if (kerr == -ENOENT) {
-		file = "kprobe_events";
-		config = "CONFIG_KPROBE_EVENTS=y";
-	} else if (uerr == -ENOENT) {
-		file = "uprobe_events";
-		config = "CONFIG_UPROBE_EVENTS=y";
-	} else
-		return false;
-
-	if (!debugfs__configured() && !tracefs__configured())
-		pr_warning("Debugfs or tracefs is not mounted\n"
-			   "Please try 'sudo mount -t tracefs nodev /sys/kernel/tracing/'\n");
-	else
-		pr_warning("%s/%s does not exist.\nPlease rebuild kernel with %s.\n",
-			   tracing_path_mount(), file, config);
-
-	return true;
-}
-
-static void print_open_warning(int err, bool uprobe, bool readwrite)
+static void print_open_warning(int err, bool uprobe)
 {
 	char sbuf[STRERR_BUFSIZE];
 
-	if (print_common_warning(err, readwrite))
-		return;
+	if (err == -ENOENT) {
+		const char *config;
 
-	if (print_configure_probe_event(uprobe ? 0 : err, uprobe ? err : 0))
-		return;
+		if (uprobe)
+			config = "CONFIG_UPROBE_EVENTS";
+		else
+			config = "CONFIG_KPROBE_EVENTS";
 
-	pr_warning("Failed to open %s/%cprobe_events: %s\n",
-		   tracing_path_mount(), uprobe ? 'u' : 'k',
-		   str_error_r(-err, sbuf, sizeof(sbuf)));
+		pr_warning("%cprobe_events file does not exist"
+			   " - please rebuild kernel with %s.\n",
+			   uprobe ? 'u' : 'k', config);
+	} else if (err == -ENOTSUP)
+		pr_warning("Tracefs or debugfs is not mounted.\n");
+	else
+		pr_warning("Failed to open %cprobe_events: %s\n",
+			   uprobe ? 'u' : 'k',
+			   str_error_r(-err, sbuf, sizeof(sbuf)));
 }
 
-static void print_both_open_warning(int kerr, int uerr, bool readwrite)
+static void print_both_open_warning(int kerr, int uerr)
 {
-	char sbuf[STRERR_BUFSIZE];
-
-	if (kerr == uerr && print_common_warning(kerr, readwrite))
-		return;
-
-	if (print_configure_probe_event(kerr, uerr))
-		return;
-
-	if (kerr < 0)
-		pr_warning("Failed to open %s/kprobe_events: %s.\n",
-			   tracing_path_mount(),
+	/* Both kprobes and uprobes are disabled, warn it. */
+	if (kerr == -ENOTSUP && uerr == -ENOTSUP)
+		pr_warning("Tracefs or debugfs is not mounted.\n");
+	else if (kerr == -ENOENT && uerr == -ENOENT)
+		pr_warning("Please rebuild kernel with CONFIG_KPROBE_EVENTS "
+			   "or/and CONFIG_UPROBE_EVENTS.\n");
+	else {
+		char sbuf[STRERR_BUFSIZE];
+		pr_warning("Failed to open kprobe events: %s.\n",
 			   str_error_r(-kerr, sbuf, sizeof(sbuf)));
-	if (uerr < 0)
-		pr_warning("Failed to open %s/uprobe_events: %s.\n",
-			   tracing_path_mount(),
+		pr_warning("Failed to open uprobe events: %s.\n",
 			   str_error_r(-uerr, sbuf, sizeof(sbuf)));
+	}
 }
 
 int open_trace_file(const char *trace_file, bool readwrite)
@@ -144,7 +109,7 @@ int probe_file__open(int flag)
 	else
 		fd = open_kprobe_events(flag & PF_FL_RW);
 	if (fd < 0)
-		print_open_warning(fd, flag & PF_FL_UPROBE, flag & PF_FL_RW);
+		print_open_warning(fd, flag & PF_FL_UPROBE);
 
 	return fd;
 }
@@ -157,7 +122,7 @@ int probe_file__open_both(int *kfd, int *ufd, int flag)
 	*kfd = open_kprobe_events(flag & PF_FL_RW);
 	*ufd = open_uprobe_events(flag & PF_FL_RW);
 	if (*kfd < 0 && *ufd < 0) {
-		print_both_open_warning(*kfd, *ufd, flag & PF_FL_RW);
+		print_both_open_warning(*kfd, *ufd);
 		return *kfd;
 	}
 
@@ -377,11 +342,11 @@ int probe_file__del_events(int fd, struct strfilter *filter)
 
 	ret = probe_file__get_events(fd, filter, namelist);
 	if (ret < 0)
-		goto out;
+		return ret;
 
 	ret = probe_file__del_strlist(fd, namelist);
-out:
 	strlist__delete(namelist);
+
 	return ret;
 }
 

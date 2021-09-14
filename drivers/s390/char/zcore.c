@@ -15,7 +15,6 @@
 #include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/debugfs.h>
-#include <linux/panic_notifier.h>
 #include <linux/reboot.h>
 
 #include <asm/asm-offsets.h>
@@ -269,7 +268,7 @@ static int __init zcore_init(void)
 
 	if (!is_ipl_type_dump())
 		return -ENODATA;
-	if (oldmem_data.start)
+	if (OLDMEM_BASE)
 		return -ENODATA;
 
 	zcore_dbf = debug_register("zcore", 4, 1, 4 * sizeof(long));

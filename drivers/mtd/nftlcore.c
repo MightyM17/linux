@@ -619,6 +619,7 @@ static inline u16 NFTL_findwriteunit(struct NFTLrecord *nftl, unsigned block)
 				return BLOCK_NIL;
 			}
 			//printk("Restarting scan\n");
+			lastEUN = BLOCK_NIL;
 			continue;
 		}
 

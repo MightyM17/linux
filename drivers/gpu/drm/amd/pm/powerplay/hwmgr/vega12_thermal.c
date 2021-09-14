@@ -159,8 +159,7 @@ int vega12_thermal_get_temperature(struct pp_hwmgr *hwmgr)
 }
 
 /**
- * vega12_thermal_set_temperature_range - Set the requested temperature range
- *                                        for high and low alert signals
+ * Set the requested temperature range for high and low alert signals
  *
  * @hwmgr: The address of the hardware manager.
  * @range: Temperature range to be programmed for

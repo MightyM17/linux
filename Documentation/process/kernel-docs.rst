@@ -126,17 +126,15 @@ On-line docs
         describes how to write user-mode utilities for communicating with
         Card Services.
 
-    * Title: **The Linux Kernel Module Programming Guide**
+    * Title: **Linux Kernel Module Programming Guide**
 
-      :Author: Peter Jay Salzman, Michael Burian, Ori Pomerantz, Bob Mottram,
-        Jim Huang.
-      :URL: https://sysprog21.github.io/lkmpg/
-      :Date: 2021
+      :Author: Ori Pomerantz.
+      :URL: https://tldp.org/LDP/lkmpg/2.6/html/index.html
+      :Date: 2001
       :Keywords: modules, GPL book, /proc, ioctls, system calls,
         interrupt handlers .
-      :Description: A very nice GPL book on the topic of modules
-        programming. Lots of examples. Currently the new version is being
-        actively maintained at https://github.com/sysprog21/lkmpg.
+      :Description: Very nice 92 pages GPL book on the topic of modules
+        programming. Lots of examples.
 
     * Title: **Global spinlock list and usage**
 

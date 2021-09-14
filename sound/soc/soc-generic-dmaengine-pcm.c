@@ -79,6 +79,7 @@ static int dmaengine_pcm_hw_params(struct snd_soc_component *component,
 			struct snd_pcm_hw_params *params,
 			struct dma_slave_config *slave_config);
 	struct dma_slave_config slave_config;
+	int ret;
 
 	memset(&slave_config, 0, sizeof(slave_config));
 
@@ -88,7 +89,7 @@ static int dmaengine_pcm_hw_params(struct snd_soc_component *component,
 		prepare_slave_config = pcm->config->prepare_slave_config;
 
 	if (prepare_slave_config) {
-		int ret = prepare_slave_config(substream, params, &slave_config);
+		ret = prepare_slave_config(substream, params, &slave_config);
 		if (ret)
 			return ret;
 
@@ -229,6 +230,7 @@ static int dmaengine_pcm_new(struct snd_soc_component *component,
 	struct dmaengine_pcm *pcm = soc_component_to_pcm(component);
 	const struct snd_dmaengine_pcm_config *config = pcm->config;
 	struct device *dev = component->dev;
+	struct snd_pcm_substream *substream;
 	size_t prealloc_buffer_size;
 	size_t max_buffer_size;
 	unsigned int i;
@@ -242,7 +244,7 @@ static int dmaengine_pcm_new(struct snd_soc_component *component,
 	}
 
 	for_each_pcm_streams(i) {
-		struct snd_pcm_substream *substream = rtd->pcm->streams[i].substream;
+		substream = rtd->pcm->streams[i].substream;
 		if (!substream)
 			continue;
 
@@ -305,13 +307,14 @@ static int dmaengine_copy_user(struct snd_soc_component *component,
 	bool is_playback = substream->stream == SNDRV_PCM_STREAM_PLAYBACK;
 	void *dma_ptr = runtime->dma_area + hwoff +
 			channel * (runtime->dma_bytes / runtime->channels);
+	int ret;
 
 	if (is_playback)
 		if (copy_from_user(dma_ptr, buf, bytes))
 			return -EFAULT;
 
 	if (process) {
-		int ret = process(substream, channel, hwoff, (__force void *)buf, bytes);
+		ret = process(substream, channel, hwoff, (__force void *)buf, bytes);
 		if (ret < 0)
 			return ret;
 	}

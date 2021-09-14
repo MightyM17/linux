@@ -544,13 +544,12 @@ int dm_btree_remove(struct dm_btree_info *info, dm_block_t root,
 
 		if (info->value_type.dec)
 			info->value_type.dec(info->value_type.context,
-					     value_ptr(n, index), 1);
+					     value_ptr(n, index));
 
 		delete_at(n, index);
 	}
 
-	if (!r)
-		*new_root = shadow_root(&spine);
+	*new_root = shadow_root(&spine);
 	exit_shadow_spine(&spine);
 
 	return r;
@@ -654,7 +653,7 @@ static int remove_one(struct dm_btree_info *info, dm_block_t root,
 	if (k >= keys[last_level] && k < end_key) {
 		if (info->value_type.dec)
 			info->value_type.dec(info->value_type.context,
-					     value_ptr(n, index), 1);
+					     value_ptr(n, index));
 
 		delete_at(n, index);
 		keys[last_level] = k + 1ull;

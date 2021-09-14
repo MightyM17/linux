@@ -105,6 +105,7 @@
 #define FLAGS_FINAL		1
 #define FLAGS_DMA_ACTIVE	2
 #define FLAGS_OUTPUT_READY	3
+#define FLAGS_INIT		4
 #define FLAGS_CPU		5
 #define FLAGS_DMA_READY		6
 #define FLAGS_AUTO_XOR		7
@@ -365,6 +366,24 @@ static void omap_sham_copy_ready_hash(struct ahash_request *req)
 	else
 		for (i = 0; i < d; i++)
 			hash[i] = le32_to_cpup((__le32 *)in + i);
+}
+
+static int omap_sham_hw_init(struct omap_sham_dev *dd)
+{
+	int err;
+
+	err = pm_runtime_get_sync(dd->dev);
+	if (err < 0) {
+		dev_err(dd->dev, "failed to get sync: %d\n", err);
+		return err;
+	}
+
+	if (!test_bit(FLAGS_INIT, &dd->flags)) {
+		set_bit(FLAGS_INIT, &dd->flags);
+		dd->err = 0;
+	}
+
+	return 0;
 }
 
 static void omap_sham_write_ctrl_omap2(struct omap_sham_dev *dd, size_t length,
@@ -1074,14 +1093,11 @@ static int omap_sham_hash_one_req(struct crypto_engine *engine, void *areq)
 	dev_dbg(dd->dev, "hash-one: op: %u, total: %u, digcnt: %zd, final: %d",
 		ctx->op, ctx->total, ctx->digcnt, final);
 
-	err = pm_runtime_resume_and_get(dd->dev);
-	if (err < 0) {
-		dev_err(dd->dev, "failed to get sync: %d\n", err);
-		return err;
-	}
-
-	dd->err = 0;
 	dd->req = req;
+
+	err = omap_sham_hw_init(dd);
+	if (err)
+		return err;
 
 	if (ctx->digcnt)
 		dd->pdata->copy_hash(req, 0);
@@ -1720,7 +1736,7 @@ static void omap_sham_done_task(unsigned long data)
 		if (test_and_clear_bit(FLAGS_OUTPUT_READY, &dd->flags))
 			goto finish;
 	} else if (test_bit(FLAGS_DMA_READY, &dd->flags)) {
-		if (test_bit(FLAGS_DMA_ACTIVE, &dd->flags)) {
+		if (test_and_clear_bit(FLAGS_DMA_ACTIVE, &dd->flags)) {
 			omap_sham_update_dma_stop(dd);
 			if (dd->err) {
 				err = dd->err;
@@ -2113,6 +2129,7 @@ static int omap_sham_probe(struct platform_device *pdev)
 	dd->fallback_sz = OMAP_SHA_DMA_THRESHOLD;
 
 	pm_runtime_enable(dev);
+	pm_runtime_irq_safe(dev);
 
 	err = pm_runtime_get_sync(dev);
 	if (err < 0) {
@@ -2127,9 +2144,9 @@ static int omap_sham_probe(struct platform_device *pdev)
 		(rev & dd->pdata->major_mask) >> dd->pdata->major_shift,
 		(rev & dd->pdata->minor_mask) >> dd->pdata->minor_shift);
 
-	spin_lock_bh(&sham.lock);
+	spin_lock(&sham.lock);
 	list_add_tail(&dd->list, &sham.dev_list);
-	spin_unlock_bh(&sham.lock);
+	spin_unlock(&sham.lock);
 
 	dd->engine = crypto_engine_alloc_init(dev, 1);
 	if (!dd->engine) {
@@ -2177,11 +2194,10 @@ err_algs:
 err_engine_start:
 	crypto_engine_exit(dd->engine);
 err_engine:
-	spin_lock_bh(&sham.lock);
+	spin_lock(&sham.lock);
 	list_del(&dd->list);
-	spin_unlock_bh(&sham.lock);
+	spin_unlock(&sham.lock);
 err_pm:
-	pm_runtime_dont_use_autosuspend(dev);
 	pm_runtime_disable(dev);
 	if (!dd->polling_mode)
 		dma_release_channel(dd->dma_lch);
@@ -2199,9 +2215,9 @@ static int omap_sham_remove(struct platform_device *pdev)
 	dd = platform_get_drvdata(pdev);
 	if (!dd)
 		return -ENODEV;
-	spin_lock_bh(&sham.lock);
+	spin_lock(&sham.lock);
 	list_del(&dd->list);
-	spin_unlock_bh(&sham.lock);
+	spin_unlock(&sham.lock);
 	for (i = dd->pdata->algs_info_size - 1; i >= 0; i--)
 		for (j = dd->pdata->algs_info[i].registered - 1; j >= 0; j--) {
 			crypto_unregister_ahash(
@@ -2209,7 +2225,6 @@ static int omap_sham_remove(struct platform_device *pdev)
 			dd->pdata->algs_info[i].registered--;
 		}
 	tasklet_kill(&dd->done_task);
-	pm_runtime_dont_use_autosuspend(&pdev->dev);
 	pm_runtime_disable(&pdev->dev);
 
 	if (!dd->polling_mode)
@@ -2220,11 +2235,32 @@ static int omap_sham_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#ifdef CONFIG_PM_SLEEP
+static int omap_sham_suspend(struct device *dev)
+{
+	pm_runtime_put_sync(dev);
+	return 0;
+}
+
+static int omap_sham_resume(struct device *dev)
+{
+	int err = pm_runtime_get_sync(dev);
+	if (err < 0) {
+		dev_err(dev, "failed to get sync: %d\n", err);
+		return err;
+	}
+	return 0;
+}
+#endif
+
+static SIMPLE_DEV_PM_OPS(omap_sham_pm_ops, omap_sham_suspend, omap_sham_resume);
+
 static struct platform_driver omap_sham_driver = {
 	.probe	= omap_sham_probe,
 	.remove	= omap_sham_remove,
 	.driver	= {
 		.name	= "omap-sham",
+		.pm	= &omap_sham_pm_ops,
 		.of_match_table	= omap_sham_of_match,
 	},
 };

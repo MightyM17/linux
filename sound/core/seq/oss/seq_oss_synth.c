@@ -451,8 +451,7 @@ snd_seq_oss_synth_load_patch(struct seq_oss_devinfo *dp, int dev, int fmt,
 
 	if (info->is_midi)
 		return 0;
-	rec = get_synthdev(dp, dev);
-	if (!rec)
+	if ((rec = get_synthdev(dp, dev)) == NULL)
 		return -ENXIO;
 
 	if (rec->oper.load_patch == NULL)
@@ -570,8 +569,7 @@ snd_seq_oss_synth_ioctl(struct seq_oss_devinfo *dp, int dev, unsigned int cmd, u
 	info = get_synthinfo_nospec(dp, dev);
 	if (!info || info->is_midi)
 		return -ENXIO;
-	rec = get_synthdev(dp, dev);
-	if (!rec)
+	if ((rec = get_synthdev(dp, dev)) == NULL)
 		return -ENXIO;
 	if (rec->oper.ioctl == NULL)
 		rc = -ENXIO;
@@ -621,8 +619,7 @@ snd_seq_oss_synth_make_info(struct seq_oss_devinfo *dp, int dev, struct synth_in
 		inf->device = dev;
 		strscpy(inf->name, minf.name, sizeof(inf->name));
 	} else {
-		rec = get_synthdev(dp, dev);
-		if (!rec)
+		if ((rec = get_synthdev(dp, dev)) == NULL)
 			return -ENXIO;
 		inf->synth_type = rec->synth_type;
 		inf->synth_subtype = rec->synth_subtype;

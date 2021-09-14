@@ -465,13 +465,7 @@
 	firmware-name = "qcom/sm8250/cdsp.mbn";
 };
 
-&gmu {
-	status = "okay";
-};
-
 &gpu {
-	status = "okay";
-
 	zap-shader {
 		memory-region = <&gpu_mem>;
 		firmware-name = "qcom/sm8250/a650_zap.mbn";
@@ -696,8 +690,4 @@
 
 	vdda-phy-supply = <&vreg_l9a_1p2>;
 	vdda-pll-supply = <&vreg_l18a_0p9>;
-};
-
-&venus {
-	status = "okay";
 };

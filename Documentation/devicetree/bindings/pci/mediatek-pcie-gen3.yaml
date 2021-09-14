@@ -70,6 +70,7 @@ properties:
 
   reset-names:
     minItems: 1
+    maxItems: 2
     items:
       - const: phy
       - const: mac

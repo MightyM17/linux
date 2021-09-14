@@ -76,7 +76,7 @@ static int siw_try_1seg(struct siw_iwarp_tx *c_tx, void *paddr)
 			if (unlikely(!p))
 				return -EFAULT;
 
-			buffer = kmap_local_page(p);
+			buffer = kmap(p);
 
 			if (likely(PAGE_SIZE - off >= bytes)) {
 				memcpy(paddr, buffer + off, bytes);
@@ -84,7 +84,7 @@ static int siw_try_1seg(struct siw_iwarp_tx *c_tx, void *paddr)
 				unsigned long part = bytes - (PAGE_SIZE - off);
 
 				memcpy(paddr, buffer + off, part);
-				kunmap_local(buffer);
+				kunmap(p);
 
 				if (!mem->is_pbl)
 					p = siw_get_upage(mem->umem,
@@ -96,10 +96,10 @@ static int siw_try_1seg(struct siw_iwarp_tx *c_tx, void *paddr)
 				if (unlikely(!p))
 					return -EFAULT;
 
-				buffer = kmap_local_page(p);
+				buffer = kmap(p);
 				memcpy(paddr + part, buffer, bytes - part);
 			}
-			kunmap_local(buffer);
+			kunmap(p);
 		}
 	}
 	return (int)bytes;
@@ -396,20 +396,13 @@ static int siw_0copy_tx(struct socket *s, struct page **page,
 
 #define MAX_TRAILER (MPA_CRC_SIZE + 4)
 
-static void siw_unmap_pages(struct kvec *iov, unsigned long kmap_mask, int len)
+static void siw_unmap_pages(struct page **pp, unsigned long kmap_mask)
 {
-	int i;
-
-	/*
-	 * Work backwards through the array to honor the kmap_local_page()
-	 * ordering requirements.
-	 */
-	for (i = (len-1); i >= 0; i--) {
-		if (kmap_mask & BIT(i)) {
-			unsigned long addr = (unsigned long)iov[i].iov_base;
-
-			kunmap_local((void *)(addr & PAGE_MASK));
-		}
+	while (kmap_mask) {
+		if (kmap_mask & BIT(0))
+			kunmap(*pp);
+		pp++;
+		kmap_mask >>= 1;
 	}
 }
 
@@ -492,7 +485,6 @@ static int siw_tx_hdt(struct siw_iwarp_tx *c_tx, struct socket *s)
 
 		while (sge_len) {
 			size_t plen = min((int)PAGE_SIZE - fp_off, sge_len);
-			void *kaddr;
 
 			if (!is_kva) {
 				struct page *p;
@@ -505,7 +497,7 @@ static int siw_tx_hdt(struct siw_iwarp_tx *c_tx, struct socket *s)
 					p = siw_get_upage(mem->umem,
 							  sge->laddr + sge_off);
 				if (unlikely(!p)) {
-					siw_unmap_pages(iov, kmap_mask, seg);
+					siw_unmap_pages(page_array, kmap_mask);
 					wqe->processed -= c_tx->bytes_unsent;
 					rv = -EFAULT;
 					goto done_crc;
@@ -513,12 +505,11 @@ static int siw_tx_hdt(struct siw_iwarp_tx *c_tx, struct socket *s)
 				page_array[seg] = p;
 
 				if (!c_tx->use_sendpage) {
-					void *kaddr = kmap_local_page(p);
+					iov[seg].iov_base = kmap(p) + fp_off;
+					iov[seg].iov_len = plen;
 
 					/* Remember for later kunmap() */
 					kmap_mask |= BIT(seg);
-					iov[seg].iov_base = kaddr + fp_off;
-					iov[seg].iov_len = plen;
 
 					if (do_crc)
 						crypto_shash_update(
@@ -526,11 +517,10 @@ static int siw_tx_hdt(struct siw_iwarp_tx *c_tx, struct socket *s)
 							iov[seg].iov_base,
 							plen);
 				} else if (do_crc) {
-					kaddr = kmap_local_page(p);
 					crypto_shash_update(c_tx->mpa_crc_hd,
-							    kaddr + fp_off,
+							    kmap(p) + fp_off,
 							    plen);
-					kunmap_local(kaddr);
+					kunmap(p);
 				}
 			} else {
 				u64 va = sge->laddr + sge_off;
@@ -550,7 +540,7 @@ static int siw_tx_hdt(struct siw_iwarp_tx *c_tx, struct socket *s)
 
 			if (++seg > (int)MAX_ARRAY) {
 				siw_dbg_qp(tx_qp(c_tx), "to many fragments\n");
-				siw_unmap_pages(iov, kmap_mask, seg-1);
+				siw_unmap_pages(page_array, kmap_mask);
 				wqe->processed -= c_tx->bytes_unsent;
 				rv = -EMSGSIZE;
 				goto done_crc;
@@ -601,7 +591,7 @@ sge_done:
 	} else {
 		rv = kernel_sendmsg(s, &msg, iov, seg + 1,
 				    hdr_len + data_len + trl_len);
-		siw_unmap_pages(iov, kmap_mask, seg);
+		siw_unmap_pages(page_array, kmap_mask);
 	}
 	if (rv < (int)hdr_len) {
 		/* Not even complete hdr pushed or negative rv */

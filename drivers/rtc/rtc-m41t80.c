@@ -544,21 +544,9 @@ static struct clk *m41t80_sqw_register_clk(struct m41t80_data *m41t80)
 {
 	struct i2c_client *client = m41t80->client;
 	struct device_node *node = client->dev.of_node;
-	struct device_node *fixed_clock;
 	struct clk *clk;
 	struct clk_init_data init;
 	int ret;
-
-	fixed_clock = of_get_child_by_name(node, "clock");
-	if (fixed_clock) {
-		/*
-		 * skip registering square wave clock when a fixed
-		 * clock has been registered. The fixed clock is
-		 * registered automatically when being referenced.
-		 */
-		of_node_put(fixed_clock);
-		return 0;
-	}
 
 	/* First disable the clock */
 	ret = i2c_smbus_read_byte_data(client, M41T80_REG_ALARM_MON);
@@ -611,8 +599,10 @@ static unsigned long wdt_is_open;
 static int boot_flag;
 
 /**
- *	wdt_ping - Reload counter one with the watchdog timeout.
- *	We don't bother reloading the cascade counter.
+ *	wdt_ping:
+ *
+ *	Reload counter one with the watchdog timeout. We don't bother reloading
+ *	the cascade counter.
  */
 static void wdt_ping(void)
 {
@@ -648,7 +638,9 @@ static void wdt_ping(void)
 }
 
 /**
- *	wdt_disable - disables watchdog.
+ *	wdt_disable:
+ *
+ *	disables watchdog.
  */
 static void wdt_disable(void)
 {
@@ -685,7 +677,7 @@ static void wdt_disable(void)
 }
 
 /**
- *	wdt_write - write to watchdog.
+ *	wdt_write:
  *	@file: file handle to the watchdog
  *	@buf: buffer to write (unused as data does not matter here
  *	@count: count of bytes
@@ -711,7 +703,7 @@ static ssize_t wdt_read(struct file *file, char __user *buf,
 }
 
 /**
- *	wdt_ioctl - ioctl handler to set watchdog.
+ *	wdt_ioctl:
  *	@file: file handle to the device
  *	@cmd: watchdog command
  *	@arg: argument pointer
@@ -786,7 +778,7 @@ static long wdt_unlocked_ioctl(struct file *file, unsigned int cmd,
 }
 
 /**
- *	wdt_open - open a watchdog.
+ *	wdt_open:
  *	@inode: inode of device
  *	@file: file handle to device
  *
@@ -810,7 +802,7 @@ static int wdt_open(struct inode *inode, struct file *file)
 }
 
 /**
- *	wdt_release - release a watchdog.
+ *	wdt_close:
  *	@inode: inode to board
  *	@file: file handle to board
  *
@@ -823,7 +815,7 @@ static int wdt_release(struct inode *inode, struct file *file)
 }
 
 /**
- *	wdt_notify_sys - notify to watchdog.
+ *	notify_sys:
  *	@this: our notifier block
  *	@code: the event being reported
  *	@unused: unused

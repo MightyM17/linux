@@ -16,7 +16,6 @@
 #include <asm/asm_pointer_auth.h>
 #include <asm/assembler.h>
 #include <asm/boot.h>
-#include <asm/bug.h>
 #include <asm/ptrace.h>
 #include <asm/asm-offsets.h>
 #include <asm/cache.h>
@@ -118,8 +117,8 @@ SYM_CODE_START_LOCAL(preserve_boot_args)
 	dmb	sy				// needed before dc ivac with
 						// MMU off
 
-	add	x1, x0, #0x20			// 4 x 8 bytes
-	b	dcache_inval_poc		// tail call
+	mov	x1, #0x20			// 4 x 8 bytes
+	b	__inval_dcache_area		// tail call
 SYM_CODE_END(preserve_boot_args)
 
 /*
@@ -177,7 +176,7 @@ SYM_CODE_END(preserve_boot_args)
  * to be composed of multiple pages. (This effectively scales the end index).
  *
  *	vstart:	virtual address of start of range
- *	vend:	virtual address of end of range - we map [vstart, vend]
+ *	vend:	virtual address of end of range
  *	shift:	shift used to transform virtual address into index
  *	ptrs:	number of entries in page table
  *	istart:	index in table corresponding to vstart
@@ -196,7 +195,7 @@ SYM_CODE_END(preserve_boot_args)
 	and	\iend, \iend, \istart	// iend = (vend >> shift) & (ptrs - 1)
 	mov	\istart, \ptrs
 	mul	\istart, \istart, \count
-	add	\iend, \iend, \istart	// iend += count * ptrs
+	add	\iend, \iend, \istart	// iend += (count - 1) * ptrs
 					// our entries span multiple tables
 
 	lsr	\istart, \vstart, \shift
@@ -214,18 +213,17 @@ SYM_CODE_END(preserve_boot_args)
  *
  *	tbl:	location of page table
  *	rtbl:	address to be used for first level page table entry (typically tbl + PAGE_SIZE)
- *	vstart:	virtual address of start of range
- *	vend:	virtual address of end of range - we map [vstart, vend - 1]
+ *	vstart:	start address to map
+ *	vend:	end address to map - we map [vstart, vend]
  *	flags:	flags to use to map last level entries
  *	phys:	physical address corresponding to vstart - physical memory is contiguous
  *	pgds:	the number of pgd entries
  *
  * Temporaries:	istart, iend, tmp, count, sv - these need to be different registers
- * Preserves:	vstart, flags
- * Corrupts:	tbl, rtbl, vend, istart, iend, tmp, count, sv
+ * Preserves:	vstart, vend, flags
+ * Corrupts:	tbl, rtbl, istart, iend, tmp, count, sv
  */
 	.macro map_memory, tbl, rtbl, vstart, vend, flags, phys, pgds, istart, iend, tmp, count, sv
-	sub \vend, \vend, #1
 	add \rtbl, \tbl, #PAGE_SIZE
 	mov \sv, \rtbl
 	mov \count, #0
@@ -270,7 +268,8 @@ SYM_FUNC_START_LOCAL(__create_page_tables)
 	 */
 	adrp	x0, init_pg_dir
 	adrp	x1, init_pg_end
-	bl	dcache_inval_poc
+	sub	x1, x1, x0
+	bl	__inval_dcache_area
 
 	/*
 	 * Clear the init page tables.
@@ -355,6 +354,7 @@ SYM_FUNC_START_LOCAL(__create_page_tables)
 #endif
 1:
 	ldr_l	x4, idmap_ptrs_per_pgd
+	mov	x5, x3				// __pa(__idmap_text_start)
 	adr_l	x6, __idmap_text_end		// __pa(__idmap_text_end)
 
 	map_memory x0, x1, x3, x6, x7, x3, x4, x10, x11, x12, x13, x14
@@ -382,40 +382,16 @@ SYM_FUNC_START_LOCAL(__create_page_tables)
 
 	adrp	x0, idmap_pg_dir
 	adrp	x1, idmap_pg_end
-	bl	dcache_inval_poc
+	sub	x1, x1, x0
+	bl	__inval_dcache_area
 
 	adrp	x0, init_pg_dir
 	adrp	x1, init_pg_end
-	bl	dcache_inval_poc
+	sub	x1, x1, x0
+	bl	__inval_dcache_area
 
 	ret	x28
 SYM_FUNC_END(__create_page_tables)
-
-	/*
-	 * Initialize CPU registers with task-specific and cpu-specific context.
-	 *
-	 * Create a final frame record at task_pt_regs(current)->stackframe, so
-	 * that the unwinder can identify the final frame record of any task by
-	 * its location in the task stack. We reserve the entire pt_regs space
-	 * for consistency with user tasks and kthreads.
-	 */
-	.macro	init_cpu_task tsk, tmp1, tmp2
-	msr	sp_el0, \tsk
-
-	ldr	\tmp1, [\tsk, #TSK_STACK]
-	add	sp, \tmp1, #THREAD_SIZE
-	sub	sp, sp, #PT_REGS_SIZE
-
-	stp	xzr, xzr, [sp, #S_STACKFRAME]
-	add	x29, sp, #S_STACKFRAME
-
-	scs_load \tsk
-
-	adr_l	\tmp1, __per_cpu_offset
-	ldr	w\tmp2, [\tsk, #TSK_CPU]
-	ldr	\tmp1, [\tmp1, \tmp2, lsl #3]
-	set_this_cpu_offset \tmp1
-	.endm
 
 /*
  * The following fragment of code is executed with the MMU enabled.
@@ -423,15 +399,21 @@ SYM_FUNC_END(__create_page_tables)
  *   x0 = __PHYS_OFFSET
  */
 SYM_FUNC_START_LOCAL(__primary_switched)
-	adr_l	x4, init_task
-	init_cpu_task x4, x5, x6
+	adrp	x4, init_thread_union
+	add	sp, x4, #THREAD_SIZE
+	adr_l	x5, init_task
+	msr	sp_el0, x5			// Save thread_info
 
 	adr_l	x8, vectors			// load VBAR_EL1 with virtual
 	msr	vbar_el1, x8			// vector table address
 	isb
 
-	stp	x29, x30, [sp, #-16]!
+	stp	xzr, x30, [sp, #-16]!
 	mov	x29, sp
+
+#ifdef CONFIG_SHADOW_CALL_STACK
+	adr_l	scs_sp, init_shadow_call_stack	// Set shadow call stack
+#endif
 
 	str_l	x21, __fdt_pointer, x5		// Save FDT pointer
 
@@ -464,9 +446,10 @@ SYM_FUNC_START_LOCAL(__primary_switched)
 0:
 #endif
 	bl	switch_to_vhe			// Prefer VHE if possible
-	ldp	x29, x30, [sp], #16
-	bl	start_kernel
-	ASM_BUG()
+	add	sp, sp, #16
+	mov	x29, #0
+	mov	x30, #0
+	b	start_kernel
 SYM_FUNC_END(__primary_switched)
 
 	.pushsection ".rodata", "a"
@@ -568,7 +551,7 @@ SYM_FUNC_START_LOCAL(set_cpu_boot_mode_flag)
 	cmp	w0, #BOOT_CPU_MODE_EL2
 	b.ne	1f
 	add	x1, x1, #4
-1:	str	w0, [x1]			// Save CPU boot mode
+1:	str	w0, [x1]			// This CPU has booted in EL1
 	dmb	sy
 	dc	ivac, x1			// Invalidate potentially stale cache line
 	ret
@@ -649,17 +632,21 @@ SYM_FUNC_START_LOCAL(__secondary_switched)
 	isb
 
 	adr_l	x0, secondary_data
+	ldr	x1, [x0, #CPU_BOOT_STACK]	// get secondary_data.stack
+	cbz	x1, __secondary_too_slow
+	mov	sp, x1
 	ldr	x2, [x0, #CPU_BOOT_TASK]
 	cbz	x2, __secondary_too_slow
-
-	init_cpu_task x2, x1, x3
+	msr	sp_el0, x2
+	scs_load x2, x3
+	mov	x29, #0
+	mov	x30, #0
 
 #ifdef CONFIG_ARM64_PTR_AUTH
 	ptrauth_keys_init_cpu x2, x3, x4, x5
 #endif
 
-	bl	secondary_start_kernel
-	ASM_BUG()
+	b	secondary_start_kernel
 SYM_FUNC_END(__secondary_switched)
 
 SYM_FUNC_START_LOCAL(__secondary_too_slow)

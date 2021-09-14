@@ -235,7 +235,7 @@ static void __maybe_unused raise_mce(struct mce *m)
 		unsigned long start;
 		int cpu;
 
-		cpus_read_lock();
+		get_online_cpus();
 		cpumask_copy(mce_inject_cpumask, cpu_online_mask);
 		cpumask_clear_cpu(get_cpu(), mce_inject_cpumask);
 		for_each_online_cpu(cpu) {
@@ -269,7 +269,7 @@ static void __maybe_unused raise_mce(struct mce *m)
 		}
 		raise_local();
 		put_cpu();
-		cpus_read_unlock();
+		put_online_cpus();
 	} else {
 		preempt_disable();
 		raise_local();
@@ -529,7 +529,7 @@ static void do_inject(void)
 		cpu = get_nbc_for_node(topology_die_id(cpu));
 	}
 
-	cpus_read_lock();
+	get_online_cpus();
 	if (!cpu_online(cpu))
 		goto err;
 
@@ -553,7 +553,7 @@ static void do_inject(void)
 	}
 
 err:
-	cpus_read_unlock();
+	put_online_cpus();
 
 }
 

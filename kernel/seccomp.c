@@ -107,7 +107,6 @@ struct seccomp_knotif {
  *      installing process should allocate the fd as normal.
  * @flags: The flags for the new file descriptor. At the moment, only O_CLOEXEC
  *         is allowed.
- * @ioctl_flags: The flags used for the seccomp_addfd ioctl.
  * @ret: The return value of the installing process. It is set to the fd num
  *       upon success (>= 0).
  * @completion: Indicates that the installing process has completed fd
@@ -119,7 +118,6 @@ struct seccomp_kaddfd {
 	struct file *file;
 	int fd;
 	unsigned int flags;
-	__u32 ioctl_flags;
 
 	union {
 		bool setfd;
@@ -602,7 +600,7 @@ static inline void seccomp_sync_threads(unsigned long flags)
 		smp_store_release(&thread->seccomp.filter,
 				  caller->seccomp.filter);
 		atomic_set(&thread->seccomp.filter_count,
-			   atomic_read(&caller->seccomp.filter_count));
+			   atomic_read(&thread->seccomp.filter_count));
 
 		/*
 		 * Don't let an unprivileged task work around
@@ -922,6 +920,30 @@ void get_seccomp_filter(struct task_struct *tsk)
 	refcount_inc(&orig->users);
 }
 
+static void seccomp_init_siginfo(kernel_siginfo_t *info, int syscall, int reason)
+{
+	clear_siginfo(info);
+	info->si_signo = SIGSYS;
+	info->si_code = SYS_SECCOMP;
+	info->si_call_addr = (void __user *)KSTK_EIP(current);
+	info->si_errno = reason;
+	info->si_arch = syscall_get_arch(current);
+	info->si_syscall = syscall;
+}
+
+/**
+ * seccomp_send_sigsys - signals the task to allow in-process syscall emulation
+ * @syscall: syscall number to send to userland
+ * @reason: filter-supplied reason code to send to userland (via si_errno)
+ *
+ * Forces a SIGSYS with a code of SYS_SECCOMP and related sigsys info.
+ */
+static void seccomp_send_sigsys(int syscall, int reason)
+{
+	struct kernel_siginfo info;
+	seccomp_init_siginfo(&info, syscall, reason);
+	force_sig_info(&info);
+}
 #endif	/* CONFIG_SECCOMP_FILTER */
 
 /* For use with seccomp_actions_logged */
@@ -1043,37 +1065,18 @@ static u64 seccomp_next_notify_id(struct seccomp_filter *filter)
 	return filter->notif->next_id++;
 }
 
-static void seccomp_handle_addfd(struct seccomp_kaddfd *addfd, struct seccomp_knotif *n)
+static void seccomp_handle_addfd(struct seccomp_kaddfd *addfd)
 {
-	int fd;
-
 	/*
 	 * Remove the notification, and reset the list pointers, indicating
 	 * that it has been handled.
 	 */
 	list_del_init(&addfd->list);
 	if (!addfd->setfd)
-		fd = receive_fd(addfd->file, addfd->flags);
+		addfd->ret = receive_fd(addfd->file, addfd->flags);
 	else
-		fd = receive_fd_replace(addfd->fd, addfd->file, addfd->flags);
-	addfd->ret = fd;
-
-	if (addfd->ioctl_flags & SECCOMP_ADDFD_FLAG_SEND) {
-		/* If we fail reset and return an error to the notifier */
-		if (fd < 0) {
-			n->state = SECCOMP_NOTIFY_SENT;
-		} else {
-			/* Return the FD we just added */
-			n->flags = 0;
-			n->error = 0;
-			n->val = fd;
-		}
-	}
-
-	/*
-	 * Mark the notification as completed. From this point, addfd mem
-	 * might be invalidated and we can't safely read it anymore.
-	 */
+		addfd->ret = receive_fd_replace(addfd->fd, addfd->file,
+						addfd->flags);
 	complete(&addfd->completion);
 }
 
@@ -1102,30 +1105,28 @@ static int seccomp_do_user_notification(int this_syscall,
 
 	up(&match->notif->request);
 	wake_up_poll(&match->wqh, EPOLLIN | EPOLLRDNORM);
+	mutex_unlock(&match->notify_lock);
 
 	/*
 	 * This is where we wait for a reply from userspace.
 	 */
-	do {
-		mutex_unlock(&match->notify_lock);
-		err = wait_for_completion_interruptible(&n.ready);
-		mutex_lock(&match->notify_lock);
-		if (err != 0)
-			goto interrupted;
-
+wait:
+	err = wait_for_completion_interruptible(&n.ready);
+	mutex_lock(&match->notify_lock);
+	if (err == 0) {
+		/* Check if we were woken up by a addfd message */
 		addfd = list_first_entry_or_null(&n.addfd,
 						 struct seccomp_kaddfd, list);
-		/* Check if we were woken up by a addfd message */
-		if (addfd)
-			seccomp_handle_addfd(addfd, &n);
+		if (addfd && n.state != SECCOMP_NOTIFY_REPLIED) {
+			seccomp_handle_addfd(addfd);
+			mutex_unlock(&match->notify_lock);
+			goto wait;
+		}
+		ret = n.val;
+		err = n.error;
+		flags = n.flags;
+	}
 
-	}  while (n.state != SECCOMP_NOTIFY_REPLIED);
-
-	ret = n.val;
-	err = n.error;
-	flags = n.flags;
-
-interrupted:
 	/* If there were any pending addfd calls, clear them out */
 	list_for_each_entry_safe(addfd, tmp, &n.addfd, list) {
 		/* The process went away before we got a chance to handle it */
@@ -1194,7 +1195,7 @@ static int __seccomp_filter(int this_syscall, const struct seccomp_data *sd,
 		/* Show the handler the original registers. */
 		syscall_rollback(current, current_pt_regs());
 		/* Let the filter pass back 16 bits of data. */
-		force_sig_seccomp(this_syscall, data, false);
+		seccomp_send_sigsys(this_syscall, data);
 		goto skip;
 
 	case SECCOMP_RET_TRACE:
@@ -1264,15 +1265,19 @@ static int __seccomp_filter(int this_syscall, const struct seccomp_data *sd,
 		seccomp_log(this_syscall, SIGSYS, action, true);
 		/* Dump core only if this is the last remaining thread. */
 		if (action != SECCOMP_RET_KILL_THREAD ||
-		    (atomic_read(&current->signal->live) == 1)) {
+		    get_nr_threads(current) == 1) {
+			kernel_siginfo_t info;
+
 			/* Show the original registers in the dump. */
 			syscall_rollback(current, current_pt_regs());
-			/* Trigger a coredump with SIGSYS */
-			force_sig_seccomp(this_syscall, data, true);
-		} else {
-			do_exit(SIGSYS);
+			/* Trigger a manual coredump since do_exit skips it. */
+			seccomp_init_siginfo(&info, this_syscall, data);
+			do_coredump(&info);
 		}
-		return -1; /* skip the syscall go directly to signal handling */
+		if (action == SECCOMP_RET_KILL_THREAD)
+			do_exit(SIGSYS);
+		else
+			do_group_exit(SIGSYS);
 	}
 
 	unreachable();
@@ -1574,7 +1579,7 @@ static long seccomp_notify_addfd(struct seccomp_filter *filter,
 	if (addfd.newfd_flags & ~O_CLOEXEC)
 		return -EINVAL;
 
-	if (addfd.flags & ~(SECCOMP_ADDFD_FLAG_SETFD | SECCOMP_ADDFD_FLAG_SEND))
+	if (addfd.flags & ~SECCOMP_ADDFD_FLAG_SETFD)
 		return -EINVAL;
 
 	if (addfd.newfd && !(addfd.flags & SECCOMP_ADDFD_FLAG_SETFD))
@@ -1584,7 +1589,6 @@ static long seccomp_notify_addfd(struct seccomp_filter *filter,
 	if (!kaddfd.file)
 		return -EBADF;
 
-	kaddfd.ioctl_flags = addfd.flags;
 	kaddfd.flags = addfd.newfd_flags;
 	kaddfd.setfd = addfd.flags & SECCOMP_ADDFD_FLAG_SETFD;
 	kaddfd.fd = addfd.newfd;
@@ -1608,23 +1612,6 @@ static long seccomp_notify_addfd(struct seccomp_filter *filter,
 	if (knotif->state != SECCOMP_NOTIFY_SENT) {
 		ret = -EINPROGRESS;
 		goto out_unlock;
-	}
-
-	if (addfd.flags & SECCOMP_ADDFD_FLAG_SEND) {
-		/*
-		 * Disallow queuing an atomic addfd + send reply while there are
-		 * some addfd requests still to process.
-		 *
-		 * There is no clear reason to support it and allows us to keep
-		 * the loop on the other side straight-forward.
-		 */
-		if (!list_empty(&knotif->addfd)) {
-			ret = -EBUSY;
-			goto out_unlock;
-		}
-
-		/* Allow exactly only one reply */
-		knotif->state = SECCOMP_NOTIFY_REPLIED;
 	}
 
 	list_add(&kaddfd.list, &knotif->addfd);

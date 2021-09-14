@@ -53,8 +53,6 @@
 	phy-handle = <&phy0>;
 	rx-internal-delay-ps = <1800>;
 	tx-internal-delay-ps = <2000>;
-	clocks = <&cpg CPG_MOD 812>, <&versaclock5 4>;
-	clock-names = "fck", "refclk";
 	status = "okay";
 
 	phy0: ethernet-phy@0 {
@@ -321,10 +319,8 @@
 	status = "okay";
 };
 
-&usb2_clksel {
-	clocks = <&cpg CPG_MOD 703>, <&cpg CPG_MOD 704>,
-		  <&versaclock5 3>, <&usb3s0_clk>;
-	status = "okay";
+&usb_extal_clk {
+	clock-frequency = <50000000>;
 };
 
 &usb3s0_clk {

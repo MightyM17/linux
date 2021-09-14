@@ -2,11 +2,8 @@
 
 .. include:: ../disclaimer-zh_CN.rst
 
-:Original: Documentation/mips/booting.rst
-
-:翻译:
-
- 司延腾 Yanteng Si <siyanteng@loongson.cn>
+:Original: :doc:`../../../mips/booting`
+:Translator: Yanteng Si <siyanteng@loongson.cn>
 
 .. _cn_booting:
 

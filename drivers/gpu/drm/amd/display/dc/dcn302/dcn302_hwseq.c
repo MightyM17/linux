@@ -86,12 +86,17 @@ void dcn302_dpp_pg_control(struct dce_hwseq *hws, unsigned int dpp_inst, bool po
 				1, 1000);
 		break;
 	case 4: /* DPP4 */
-		REG_UPDATE(DOMAIN9_PG_CONFIG,
-				DOMAIN9_POWER_GATE, power_gate);
-
-		REG_WAIT(DOMAIN9_PG_STATUS,
-				DOMAIN9_PGFSM_PWR_STATUS, pwr_status,
-				1, 1000);
+		/*
+		 * Do not power gate DPP4, should be left at HW default, power on permanently.
+		 * PG on Pipe4 is De-featured, attempting to put it to PG state may result in hard
+		 * reset.
+		 * REG_UPDATE(DOMAIN9_PG_CONFIG,
+		 *		DOMAIN9_POWER_GATE, power_gate);
+		 *
+		 * REG_WAIT(DOMAIN9_PG_STATUS,
+		 *		DOMAIN9_PGFSM_PWR_STATUS, pwr_status,
+		 *		1, 1000);
+		 */
 		break;
 	default:
 		BREAK_TO_DEBUGGER();
@@ -143,12 +148,17 @@ void dcn302_hubp_pg_control(struct dce_hwseq *hws, unsigned int hubp_inst, bool 
 				1, 1000);
 		break;
 	case 4: /* DCHUBP4 */
-		REG_UPDATE(DOMAIN8_PG_CONFIG,
-				DOMAIN8_POWER_GATE, power_gate);
-
-		REG_WAIT(DOMAIN8_PG_STATUS,
-				DOMAIN8_PGFSM_PWR_STATUS, pwr_status,
-				1, 1000);
+		/*
+		 * Do not power gate DCHUB4, should be left at HW default, power on permanently.
+		 * PG on Pipe4 is De-featured, attempting to put it to PG state may result in hard
+		 * reset.
+		 * REG_UPDATE(DOMAIN8_PG_CONFIG,
+		 *		DOMAIN8_POWER_GATE, power_gate);
+		 *
+		 * REG_WAIT(DOMAIN8_PG_STATUS,
+		 *		DOMAIN8_PGFSM_PWR_STATUS, pwr_status,
+		 *		1, 1000);
+		 */
 		break;
 	default:
 		BREAK_TO_DEBUGGER();

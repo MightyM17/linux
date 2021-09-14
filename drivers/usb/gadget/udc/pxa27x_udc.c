@@ -208,6 +208,8 @@ static void pxa_init_debugfs(struct pxa_udc *udc)
 	struct dentry *root;
 
 	root = debugfs_create_dir(udc->gadget.name, usb_debug_root);
+	udc->debugfs_root = root;
+
 	debugfs_create_file("udcstate", 0400, root, udc, &state_dbg_fops);
 	debugfs_create_file("queues", 0400, root, udc, &queues_dbg_fops);
 	debugfs_create_file("epstate", 0400, root, udc, &eps_dbg_fops);
@@ -215,7 +217,7 @@ static void pxa_init_debugfs(struct pxa_udc *udc)
 
 static void pxa_cleanup_debugfs(struct pxa_udc *udc)
 {
-	debugfs_remove(debugfs_lookup(udc->gadget.name, usb_debug_root));
+	debugfs_remove_recursive(udc->debugfs_root);
 }
 
 #else
@@ -1728,7 +1730,7 @@ static void udc_enable(struct pxa_udc *udc)
 }
 
 /**
- * pxa27x_udc_start - Register gadget driver
+ * pxa27x_start - Register gadget driver
  * @g: gadget
  * @driver: gadget driver
  *

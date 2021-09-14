@@ -3344,15 +3344,13 @@ ips_map_status(ips_ha_t * ha, ips_scb_t * scb, ips_stat_t * sp)
 					IPS_CMD_EXTENDED_DCDB_SG)) {
 					tapeDCDB =
 					    (IPS_DCDB_TABLE_TAPE *) & scb->dcdb;
-					memcpy_and_pad(scb->scsi_cmd->sense_buffer,
-					       SCSI_SENSE_BUFFERSIZE,
+					memcpy(scb->scsi_cmd->sense_buffer,
 					       tapeDCDB->sense_info,
-					       sizeof(tapeDCDB->sense_info), 0);
+					       SCSI_SENSE_BUFFERSIZE);
 				} else {
-					memcpy_and_pad(scb->scsi_cmd->sense_buffer,
-					       SCSI_SENSE_BUFFERSIZE,
+					memcpy(scb->scsi_cmd->sense_buffer,
 					       scb->dcdb.sense_info,
-					       sizeof(scb->dcdb.sense_info), 0);
+					       SCSI_SENSE_BUFFERSIZE);
 				}
 				device_error = 2;	/* check condition */
 			}
@@ -3735,7 +3733,7 @@ ips_send_cmd(ips_ha_t * ha, ips_scb_t * scb)
 		scb->cmd.dcdb.segment_4G = 0;
 		scb->cmd.dcdb.enhanced_sg = 0;
 
-		TimeOut = scsi_cmd_to_rq(scb->scsi_cmd)->timeout;
+		TimeOut = scb->scsi_cmd->request->timeout;
 
 		if (ha->subsys->param[4] & 0x00100000) {	/* If NEW Tape DCDB is Supported */
 			if (!scb->sg_len) {

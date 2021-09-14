@@ -4,7 +4,6 @@
 #include <linux/seq_file.h>
 #include <linux/debugfs.h>
 #include <linux/mm.h>
-#include <linux/kfence.h>
 #include <linux/kasan.h>
 #include <asm/ptdump.h>
 #include <asm/kasan.h>
@@ -22,10 +21,6 @@ enum address_markers_idx {
 	IDENTITY_BEFORE_END_NR,
 	KERNEL_START_NR,
 	KERNEL_END_NR,
-#ifdef CONFIG_KFENCE
-	KFENCE_START_NR,
-	KFENCE_END_NR,
-#endif
 	IDENTITY_AFTER_NR,
 	IDENTITY_AFTER_END_NR,
 #ifdef CONFIG_KASAN
@@ -45,10 +40,6 @@ static struct addr_marker address_markers[] = {
 	[IDENTITY_BEFORE_END_NR] = {(unsigned long)_stext, "Identity Mapping End"},
 	[KERNEL_START_NR]	= {(unsigned long)_stext, "Kernel Image Start"},
 	[KERNEL_END_NR]		= {(unsigned long)_end, "Kernel Image End"},
-#ifdef CONFIG_KFENCE
-	[KFENCE_START_NR]	= {0, "KFence Pool Start"},
-	[KFENCE_END_NR]		= {0, "KFence Pool End"},
-#endif
 	[IDENTITY_AFTER_NR]	= {(unsigned long)_end, "Identity Mapping Start"},
 	[IDENTITY_AFTER_END_NR]	= {0, "Identity Mapping End"},
 #ifdef CONFIG_KASAN
@@ -257,9 +248,6 @@ static void sort_address_markers(void)
 
 static int pt_dump_init(void)
 {
-#ifdef CONFIG_KFENCE
-	unsigned long kfence_start = (unsigned long)__kfence_pool;
-#endif
 	/*
 	 * Figure out the maximum virtual address being accessible with the
 	 * kernel ASCE. We need this to keep the page table walker functions
@@ -274,10 +262,6 @@ static int pt_dump_init(void)
 	address_markers[VMEMMAP_END_NR].start_address = (unsigned long)vmemmap + vmemmap_size;
 	address_markers[VMALLOC_NR].start_address = VMALLOC_START;
 	address_markers[VMALLOC_END_NR].start_address = VMALLOC_END;
-#ifdef CONFIG_KFENCE
-	address_markers[KFENCE_START_NR].start_address = kfence_start;
-	address_markers[KFENCE_END_NR].start_address = kfence_start + KFENCE_POOL_SIZE;
-#endif
 	sort_address_markers();
 #ifdef CONFIG_PTDUMP_DEBUGFS
 	debugfs_create_file("kernel_page_tables", 0400, NULL, NULL, &ptdump_fops);

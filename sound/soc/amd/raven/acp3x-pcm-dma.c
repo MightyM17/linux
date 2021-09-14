@@ -147,7 +147,7 @@ static void config_acp3x_dma(struct i2s_stream_instance *rtd, int direction)
 		high |= BIT(31);
 		rv_writel(high, rtd->acp3x_base + mmACP_SCRATCH_REG_0 + val
 				+ 4);
-		/* Move to next physically contiguous page */
+		/* Move to next physically contiguos page */
 		val += 8;
 		addr += PAGE_SIZE;
 	}
@@ -235,6 +235,10 @@ static int acp3x_dma_open(struct snd_soc_component *component,
 		return ret;
 	}
 
+	if (!adata->play_stream && !adata->capture_stream &&
+	    !adata->i2ssp_play_stream && !adata->i2ssp_capture_stream)
+		rv_writel(1, adata->acp3x_base + mmACP_EXTERNAL_INTR_ENB);
+
 	i2s_data->acp3x_base = adata->acp3x_base;
 	runtime->private_data = i2s_data;
 	return ret;
@@ -286,7 +290,7 @@ static int acp3x_dma_hw_params(struct snd_soc_component *component,
 		pr_err("pinfo failed\n");
 	}
 	size = params_buffer_bytes(params);
-	rtd->dma_addr = substream->runtime->dma_addr;
+	rtd->dma_addr = substream->dma_buffer.addr;
 	rtd->num_pages = (PAGE_ALIGN(size) >> PAGE_SHIFT);
 	config_acp3x_dma(rtd, substream->stream);
 	return 0;
@@ -318,6 +322,13 @@ static int acp3x_dma_new(struct snd_soc_component *component,
 	snd_pcm_set_managed_buffer_all(rtd->pcm, SNDRV_DMA_TYPE_DEV,
 				       parent, MIN_BUFFER, MAX_BUFFER);
 	return 0;
+}
+
+static int acp3x_dma_mmap(struct snd_soc_component *component,
+			  struct snd_pcm_substream *substream,
+			  struct vm_area_struct *vma)
+{
+	return snd_pcm_lib_default_mmap(substream, vma);
 }
 
 static int acp3x_dma_close(struct snd_soc_component *component,
@@ -354,6 +365,12 @@ static int acp3x_dma_close(struct snd_soc_component *component,
 		}
 	}
 
+	/* Disable ACP irq, when the current stream is being closed and
+	 * another stream is also not active.
+	 */
+	if (!adata->play_stream && !adata->capture_stream &&
+		!adata->i2ssp_play_stream && !adata->i2ssp_capture_stream)
+		rv_writel(0, adata->acp3x_base + mmACP_EXTERNAL_INTR_ENB);
 	return 0;
 }
 
@@ -363,6 +380,7 @@ static const struct snd_soc_component_driver acp3x_i2s_component = {
 	.close		= acp3x_dma_close,
 	.hw_params	= acp3x_dma_hw_params,
 	.pointer	= acp3x_dma_pointer,
+	.mmap		= acp3x_dma_mmap,
 	.pcm_construct	= acp3x_dma_new,
 };
 

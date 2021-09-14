@@ -18,7 +18,6 @@ Contents:
    qlogic/index
    wan/index
    wifi/index
-   wwan/index
 
 .. only::  subproject and html
 

@@ -421,13 +421,15 @@ static int serdev_drv_probe(struct device *dev)
 	return ret;
 }
 
-static void serdev_drv_remove(struct device *dev)
+static int serdev_drv_remove(struct device *dev)
 {
 	const struct serdev_device_driver *sdrv = to_serdev_device_driver(dev->driver);
 	if (sdrv->remove)
 		sdrv->remove(to_serdev_device(dev));
 
 	dev_pm_domain_detach(dev, true);
+
+	return 0;
 }
 
 static struct bus_type serdev_bus_type = {
@@ -562,44 +564,22 @@ struct acpi_serdev_lookup {
 	int index;
 };
 
-/**
- * serdev_acpi_get_uart_resource - Gets UARTSerialBus resource if type matches
- * @ares:	ACPI resource
- * @uart:	Pointer to UARTSerialBus resource will be returned here
- *
- * Checks if the given ACPI resource is of type UARTSerialBus.
- * In this case, returns a pointer to it to the caller.
- *
- * Return: True if resource type is of UARTSerialBus, otherwise false.
- */
-bool serdev_acpi_get_uart_resource(struct acpi_resource *ares,
-				   struct acpi_resource_uart_serialbus **uart)
-{
-	struct acpi_resource_uart_serialbus *sb;
-
-	if (ares->type != ACPI_RESOURCE_TYPE_SERIAL_BUS)
-		return false;
-
-	sb = &ares->data.uart_serial_bus;
-	if (sb->type != ACPI_RESOURCE_SERIAL_TYPE_UART)
-		return false;
-
-	*uart = sb;
-	return true;
-}
-EXPORT_SYMBOL_GPL(serdev_acpi_get_uart_resource);
-
 static int acpi_serdev_parse_resource(struct acpi_resource *ares, void *data)
 {
 	struct acpi_serdev_lookup *lookup = data;
 	struct acpi_resource_uart_serialbus *sb;
 	acpi_status status;
 
-	if (!serdev_acpi_get_uart_resource(ares, &sb))
+	if (ares->type != ACPI_RESOURCE_TYPE_SERIAL_BUS)
+		return 1;
+
+	if (ares->data.common_serial_bus.type != ACPI_RESOURCE_SERIAL_TYPE_UART)
 		return 1;
 
 	if (lookup->index != -1 && lookup->n++ != lookup->index)
 		return 1;
+
+	sb = &ares->data.uart_serial_bus;
 
 	status = acpi_get_handle(lookup->device_handle,
 				 sb->resource_source.string_ptr,
@@ -608,7 +588,7 @@ static int acpi_serdev_parse_resource(struct acpi_resource *ares, void *data)
 		return 1;
 
 	/*
-	 * NOTE: Ideally, we would also want to retrieve other properties here,
+	 * NOTE: Ideally, we would also want to retreive other properties here,
 	 * once setting them before opening the device is supported by serdev.
 	 */
 
@@ -818,7 +798,7 @@ void serdev_controller_remove(struct serdev_controller *ctrl)
 EXPORT_SYMBOL_GPL(serdev_controller_remove);
 
 /**
- * __serdev_device_driver_register() - Register client driver with serdev core
+ * serdev_driver_register() - Register client driver with serdev core
  * @sdrv:	client driver to be associated with client-device.
  * @owner:	client driver owner to set.
  *

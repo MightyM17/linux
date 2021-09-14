@@ -1742,7 +1742,7 @@ xpc_init_mq_node(int nid)
 {
 	int cpu;
 
-	cpus_read_lock();
+	get_online_cpus();
 
 	for_each_cpu(cpu, cpumask_of_node(nid)) {
 		xpc_activate_mq_uv =
@@ -1753,7 +1753,7 @@ xpc_init_mq_node(int nid)
 			break;
 	}
 	if (IS_ERR(xpc_activate_mq_uv)) {
-		cpus_read_unlock();
+		put_online_cpus();
 		return PTR_ERR(xpc_activate_mq_uv);
 	}
 
@@ -1767,11 +1767,11 @@ xpc_init_mq_node(int nid)
 	}
 	if (IS_ERR(xpc_notify_mq_uv)) {
 		xpc_destroy_gru_mq_uv(xpc_activate_mq_uv);
-		cpus_read_unlock();
+		put_online_cpus();
 		return PTR_ERR(xpc_notify_mq_uv);
 	}
 
-	cpus_read_unlock();
+	put_online_cpus();
 	return 0;
 }
 

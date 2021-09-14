@@ -310,15 +310,17 @@
 	regulator-max-microvolt = <5000000>;
 };
 
-&mac_sw {
+&mac {
 	pinctrl-names = "default";
 	pinctrl-0 = <&cpsw_default>;
+	dual_emac = <1>;
 	status = "okay";
 };
 
-&davinci_mdio_sw {
+&davinci_mdio {
 	pinctrl-names = "default";
 	pinctrl-0 = <&davinci_mdio_default>;
+	status = "okay";
 
 	ethphy0: ethernet-phy@4 {
 		reg = <4>;
@@ -329,16 +331,18 @@
 	};
 };
 
-&cpsw_port1 {
+&cpsw_emac0 {
+	status = "okay";
 	phy-handle = <&ethphy0>;
 	phy-mode = "rmii";
-	ti,dual-emac-pvid = <1>;
+	dual_emac_res_vlan = <1>;
 };
 
-&cpsw_port2 {
+&cpsw_emac1 {
+	status = "okay";
 	phy-handle = <&ethphy1>;
 	phy-mode = "rmii";
-	ti,dual-emac-pvid = <2>;
+	dual_emac_res_vlan = <2>;
 };
 
 &sham {
@@ -349,7 +353,7 @@
 	status = "okay";
 };
 
-&gpio0_target {
+&gpio0 {
 	ti,no-reset-on-init;
 };
 

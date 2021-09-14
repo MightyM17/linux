@@ -27,7 +27,6 @@ place where this information is gathered.
    iommu
    media/index
    sysfs-platform_profile
-   vduse
 
 .. only::  subproject and html
 

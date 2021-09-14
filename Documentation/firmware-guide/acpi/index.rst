@@ -11,7 +11,6 @@ ACPI Support
    dsd/graph
    dsd/data-node-references
    dsd/leds
-   dsd/phy
    enumeration
    osi
    method-customizing

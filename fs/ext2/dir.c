@@ -106,11 +106,12 @@ static int ext2_commit_chunk(struct page *page, loff_t pos, unsigned len)
 	return err;
 }
 
-static bool ext2_check_page(struct page *page, int quiet, char *kaddr)
+static bool ext2_check_page(struct page *page, int quiet)
 {
 	struct inode *dir = page->mapping->host;
 	struct super_block *sb = dir->i_sb;
 	unsigned chunk_size = ext2_chunk_size(dir);
+	char *kaddr = page_address(page);
 	u32 max_inumber = le32_to_cpu(EXT2_SB(sb)->s_es->s_inodes_count);
 	unsigned offs, rec_len;
 	unsigned limit = PAGE_SIZE;
@@ -204,8 +205,7 @@ static struct page * ext2_get_page(struct inode *dir, unsigned long n,
 	if (!IS_ERR(page)) {
 		*page_addr = kmap_local_page(page);
 		if (unlikely(!PageChecked(page))) {
-			if (PageError(page) || !ext2_check_page(page, quiet,
-								*page_addr))
+			if (PageError(page) || !ext2_check_page(page, quiet))
 				goto fail;
 		}
 	}
@@ -584,10 +584,10 @@ out_unlock:
  * ext2_delete_entry deletes a directory entry by merging it with the
  * previous entry. Page is up-to-date.
  */
-int ext2_delete_entry (struct ext2_dir_entry_2 *dir, struct page *page,
-			char *kaddr)
+int ext2_delete_entry (struct ext2_dir_entry_2 * dir, struct page * page )
 {
 	struct inode *inode = page->mapping->host;
+	char *kaddr = page_address(page);
 	unsigned from = ((char*)dir - kaddr) & ~(ext2_chunk_size(inode)-1);
 	unsigned to = ((char *)dir - kaddr) +
 				ext2_rec_len_from_disk(dir->rec_len);
@@ -607,7 +607,7 @@ int ext2_delete_entry (struct ext2_dir_entry_2 *dir, struct page *page,
 		de = ext2_next_entry(de);
 	}
 	if (pde)
-		from = (char *)pde - kaddr;
+		from = (char*)pde - (char*)page_address(page);
 	pos = page_offset(page) + from;
 	lock_page(page);
 	err = ext2_prepare_chunk(page, pos, to - from);

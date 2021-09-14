@@ -78,8 +78,7 @@ struct rm3100_data {
 	bool use_interrupt;
 	int conversion_time;
 	int scale;
-	/* Ensure naturally aligned timestamp */
-	u8 buffer[RM3100_SCAN_BYTES] __aligned(8);
+	u8 buffer[RM3100_SCAN_BYTES];
 	struct iio_trigger *drdy_trig;
 
 	/*
@@ -576,7 +575,7 @@ int rm3100_common_probe(struct device *dev, struct regmap *regmap, int irq)
 
 		data->drdy_trig = devm_iio_trigger_alloc(dev, "%s-drdy%d",
 							 indio_dev->name,
-							 iio_device_id(indio_dev));
+							 indio_dev->id);
 		if (!data->drdy_trig)
 			return -ENOMEM;
 

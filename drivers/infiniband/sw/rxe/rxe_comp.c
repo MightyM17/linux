@@ -103,7 +103,6 @@ static enum ib_wc_opcode wr_to_wc_opcode(enum ib_wr_opcode opcode)
 	case IB_WR_RDMA_READ_WITH_INV:		return IB_WC_RDMA_READ;
 	case IB_WR_LOCAL_INV:			return IB_WC_LOCAL_INV;
 	case IB_WR_REG_MR:			return IB_WC_REG_MR;
-	case IB_WR_BIND_MW:			return IB_WC_BIND_MW;
 
 	default:
 		return 0xff;
@@ -142,10 +141,7 @@ static inline enum comp_state get_wqe(struct rxe_qp *qp,
 	/* we come here whether or not we found a response packet to see if
 	 * there are any posted WQEs
 	 */
-	if (qp->is_user)
-		wqe = queue_head(qp->sq.queue, QUEUE_TYPE_FROM_USER);
-	else
-		wqe = queue_head(qp->sq.queue, QUEUE_TYPE_KERNEL);
+	wqe = queue_head(qp->sq.queue);
 	*wqe_p = wqe;
 
 	/* no WQE or requester has not started it yet */
@@ -349,16 +345,14 @@ static inline enum comp_state do_read(struct rxe_qp *qp,
 
 	ret = copy_data(qp->pd, IB_ACCESS_LOCAL_WRITE,
 			&wqe->dma, payload_addr(pkt),
-			payload_size(pkt), RXE_TO_MR_OBJ);
-	if (ret) {
-		wqe->status = IB_WC_LOC_PROT_ERR;
+			payload_size(pkt), to_mr_obj, NULL);
+	if (ret)
 		return COMPST_ERROR;
-	}
 
 	if (wqe->dma.resid == 0 && (pkt->mask & RXE_END_MASK))
 		return COMPST_COMP_ACK;
-
-	return COMPST_UPDATE_COMP;
+	else
+		return COMPST_UPDATE_COMP;
 }
 
 static inline enum comp_state do_atomic(struct rxe_qp *qp,
@@ -371,13 +365,11 @@ static inline enum comp_state do_atomic(struct rxe_qp *qp,
 
 	ret = copy_data(qp->pd, IB_ACCESS_LOCAL_WRITE,
 			&wqe->dma, &atomic_orig,
-			sizeof(u64), RXE_TO_MR_OBJ);
-	if (ret) {
-		wqe->status = IB_WC_LOC_PROT_ERR;
+			sizeof(u64), to_mr_obj, NULL);
+	if (ret)
 		return COMPST_ERROR;
-	}
-
-	return COMPST_COMP_ACK;
+	else
+		return COMPST_COMP_ACK;
 }
 
 static void make_send_cqe(struct rxe_qp *qp, struct rxe_send_wqe *wqe,
@@ -422,23 +414,16 @@ static void do_complete(struct rxe_qp *qp, struct rxe_send_wqe *wqe)
 {
 	struct rxe_dev *rxe = to_rdev(qp->ibqp.device);
 	struct rxe_cqe cqe;
-	bool post;
 
-	/* do we need to post a completion */
-	post = ((qp->sq_sig_type == IB_SIGNAL_ALL_WR) ||
-			(wqe->wr.send_flags & IB_SEND_SIGNALED) ||
-			wqe->status != IB_WC_SUCCESS);
-
-	if (post)
+	if ((qp->sq_sig_type == IB_SIGNAL_ALL_WR) ||
+	    (wqe->wr.send_flags & IB_SEND_SIGNALED) ||
+	    wqe->status != IB_WC_SUCCESS) {
 		make_send_cqe(qp, wqe, &cqe);
-
-	if (qp->is_user)
-		advance_consumer(qp->sq.queue, QUEUE_TYPE_FROM_USER);
-	else
-		advance_consumer(qp->sq.queue, QUEUE_TYPE_KERNEL);
-
-	if (post)
+		advance_consumer(qp->sq.queue);
 		rxe_cq_post(qp->scq, &cqe, 0);
+	} else {
+		advance_consumer(qp->sq.queue);
+	}
 
 	if (wqe->wr.opcode == IB_WR_SEND ||
 	    wqe->wr.opcode == IB_WR_SEND_WITH_IMM ||
@@ -526,7 +511,6 @@ static void rxe_drain_resp_pkts(struct rxe_qp *qp, bool notify)
 {
 	struct sk_buff *skb;
 	struct rxe_send_wqe *wqe;
-	struct rxe_queue *q = qp->sq.queue;
 
 	while ((skb = skb_dequeue(&qp->resp_pkts))) {
 		rxe_drop_ref(qp);
@@ -534,12 +518,12 @@ static void rxe_drain_resp_pkts(struct rxe_qp *qp, bool notify)
 		ib_device_put(qp->ibqp.device);
 	}
 
-	while ((wqe = queue_head(q, q->type))) {
+	while ((wqe = queue_head(qp->sq.queue))) {
 		if (notify) {
 			wqe->status = IB_WC_WR_FLUSH_ERR;
 			do_complete(qp, wqe);
 		} else {
-			advance_consumer(q, q->type);
+			advance_consumer(qp->sq.queue);
 		}
 	}
 }

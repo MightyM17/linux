@@ -1967,18 +1967,12 @@ static int ftrace_hash_ipmodify_update(struct ftrace_ops *ops,
 
 static void print_ip_ins(const char *fmt, const unsigned char *p)
 {
-	char ins[MCOUNT_INSN_SIZE];
 	int i;
-
-	if (copy_from_kernel_nofault(ins, p, MCOUNT_INSN_SIZE)) {
-		printk(KERN_CONT "%s[FAULT] %px\n", fmt, p);
-		return;
-	}
 
 	printk(KERN_CONT "%s", fmt);
 
 	for (i = 0; i < MCOUNT_INSN_SIZE; i++)
-		printk(KERN_CONT "%s%02x", i ? ":" : "", ins[i]);
+		printk(KERN_CONT "%s%02x", i ? ":" : "", p[i]);
 }
 
 enum ftrace_bug_type ftrace_bug_type;
@@ -3100,7 +3094,6 @@ ops_references_rec(struct ftrace_ops *ops, struct dyn_ftrace *rec)
 
 static int ftrace_update_code(struct module *mod, struct ftrace_page *new_pgs)
 {
-	bool init_nop = ftrace_need_init_nop();
 	struct ftrace_page *pg;
 	struct dyn_ftrace *p;
 	u64 start, stop;
@@ -3139,7 +3132,8 @@ static int ftrace_update_code(struct module *mod, struct ftrace_page *new_pgs)
 			 * Do the initial record conversion from mcount jump
 			 * to the NOP instructions.
 			 */
-			if (init_nop && !ftrace_nop_initialize(mod, p))
+			if (!__is_defined(CC_USING_NOP_MCOUNT) &&
+			    !ftrace_nop_initialize(mod, p))
 				break;
 
 			update_cnt++;
@@ -4212,7 +4206,8 @@ static void process_mod_list(struct list_head *head, struct ftrace_ops *ops,
 		if (!func) /* warn? */
 			continue;
 
-		list_move(&ftrace_mod->list, &process_mods);
+		list_del(&ftrace_mod->list);
+		list_add(&ftrace_mod->list, &process_mods);
 
 		/* Use the newly allocated func, as it may be "*" */
 		kfree(ftrace_mod->func);
@@ -5985,8 +5980,7 @@ ftrace_graph_release(struct inode *inode, struct file *file)
 		 * infrastructure to do the synchronization, thus we must do it
 		 * ourselves.
 		 */
-		if (old_hash != EMPTY_HASH)
-			synchronize_rcu_tasks_rude();
+		synchronize_rcu_tasks_rude();
 
 		free_ftrace_hash(old_hash);
 	}
@@ -7545,7 +7539,7 @@ int ftrace_is_dead(void)
  */
 int register_ftrace_function(struct ftrace_ops *ops)
 {
-	int ret;
+	int ret = -1;
 
 	ftrace_ops_init(ops);
 

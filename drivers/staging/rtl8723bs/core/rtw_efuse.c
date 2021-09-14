@@ -4,6 +4,8 @@
  * Copyright(c) 2007 - 2011 Realtek Corporation. All rights reserved.
  *
  ******************************************************************************/
+#define _RTW_EFUSE_C_
+
 #include <drv_types.h>
 #include <rtw_debug.h>
 #include <hal_data.h>
@@ -38,6 +40,7 @@ Efuse_Read1ByteFromFakeContent(
 {
 	if (Offset >= EFUSE_MAX_HW_SIZE)
 		return false;
+	/* DbgPrint("Read fake content, offset = %d\n", Offset); */
 	if (fakeEfuseBank == 0)
 		*Value = fakeEfuseContent[Offset];
 	else
@@ -249,8 +252,9 @@ bool		bPseudoTest)
 	u8 bResult;
 	u8 readbyte;
 
-	if (bPseudoTest)
+	if (bPseudoTest) {
 		return Efuse_Read1ByteFromFakeContent(padapter, addr, data);
+	}
 
 	/*  <20130121, Kordan> For SMIC EFUSE specificatoin. */
 	/* 0x34[11]: SW force PGMEN input of efuse to high. (for the bank selected by 0x34[9:8]) */
@@ -290,8 +294,9 @@ u8 efuse_OneByteWrite(struct adapter *padapter, u16 addr, u8 data, bool bPseudoT
 	u8 bResult = false;
 	u32 efuseValue = 0;
 
-	if (bPseudoTest)
+	if (bPseudoTest) {
 		return Efuse_Write1ByteToFakeContent(padapter, addr, data);
+	}
 
 
 	/*  -----------------e-fuse reg ctrl --------------------------------- */
@@ -317,10 +322,11 @@ u8 efuse_OneByteWrite(struct adapter *padapter, u16 addr, u8 data, bool bPseudoT
 		tmpidx++;
 	}
 
-	if (tmpidx < 100)
+	if (tmpidx < 100) {
 		bResult = true;
-	else
+	} else {
 		bResult = false;
+	}
 
 	/*  disable Efuse program enable */
 	PHY_SetMacReg(padapter, EFUSE_TEST, BIT(11), 0);

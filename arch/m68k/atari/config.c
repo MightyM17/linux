@@ -875,8 +875,16 @@ static const struct resource atari_scsi_tt_rsrc[] __initconst = {
 #define FALCON_IDE_BASE	0xfff00000
 
 static const struct resource atari_falconide_rsrc[] __initconst = {
-	DEFINE_RES_MEM(FALCON_IDE_BASE, 0x38),
-	DEFINE_RES_MEM(FALCON_IDE_BASE + 0x38, 2),
+	{
+		.flags = IORESOURCE_MEM,
+		.start = FALCON_IDE_BASE,
+		.end   = FALCON_IDE_BASE + 0x39,
+	},
+	{
+		.flags = IORESOURCE_IRQ,
+		.start = IRQ_MFP_FSCSI,
+		.end   = IRQ_MFP_FSCSI,
+	},
 };
 
 int __init atari_platform_init(void)

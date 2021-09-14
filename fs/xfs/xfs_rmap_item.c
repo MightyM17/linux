@@ -466,7 +466,7 @@ xfs_rui_validate_map(
 	struct xfs_mount		*mp,
 	struct xfs_map_extent		*rmap)
 {
-	if (!xfs_has_rmapbt(mp))
+	if (!xfs_sb_version_hasrmapbt(&mp->m_sb))
 		return false;
 
 	if (rmap->me_flags & ~XFS_RMAP_EXTENT_FLAGS)
@@ -578,9 +578,6 @@ xfs_rui_item_recover(
 				rmap->me_owner, whichfork,
 				rmap->me_startoff, rmap->me_startblock,
 				rmap->me_len, state, &rcur);
-		if (error == -EFSCORRUPTED)
-			XFS_CORRUPTION_ERROR(__func__, XFS_ERRLEVEL_LOW, mp,
-					rmap, sizeof(*rmap));
 		if (error)
 			goto abort_error;
 

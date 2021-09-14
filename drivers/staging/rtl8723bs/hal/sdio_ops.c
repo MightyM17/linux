@@ -4,6 +4,8 @@
  * Copyright(c) 2007 - 2012 Realtek Corporation. All rights reserved.
  *
  *******************************************************************************/
+#define _SDIO_OPS_C_
+
 #include <drv_types.h>
 #include <rtw_debug.h>
 #include <rtl8723b_hal.h>
@@ -158,7 +160,7 @@ static u32 sdio_read32(struct intf_hdl *intfhdl, u32 addr)
 	u32 ftaddr;
 	u8 shift;
 	u32 val;
-	s32 __maybe_unused err;
+	s32 err;
 	__le32 le_tmp;
 
 	adapter = intfhdl->padapter;
@@ -346,6 +348,11 @@ static s32 sdio_writeN(struct intf_hdl *intfhdl, u32 addr, u32 cnt, u8 *buf)
 	return err;
 }
 
+static u8 sdio_f0_read8(struct intf_hdl *intfhdl, u32 addr)
+{
+	return sd_f0_read8(intfhdl, addr, NULL);
+}
+
 static void sdio_read_mem(
 	struct intf_hdl *intfhdl,
 	u32 addr,
@@ -353,7 +360,10 @@ static void sdio_read_mem(
 	u8 *rmem
 )
 {
-	sdio_readN(intfhdl, addr, cnt, rmem);
+	s32 err;
+
+	err = sdio_readN(intfhdl, addr, cnt, rmem);
+	/* TODO: Report error is err not zero */
 }
 
 static void sdio_write_mem(
@@ -476,6 +486,8 @@ void sdio_set_intf_ops(struct adapter *adapter, struct _io_ops *ops)
 	ops->_writeN = &sdio_writeN;
 	ops->_write_mem = &sdio_write_mem;
 	ops->_write_port = &sdio_write_port;
+
+	ops->_sd_f0_read8 = sdio_f0_read8;
 }
 
 /*
@@ -909,8 +921,6 @@ void sd_int_dpc(struct adapter *adapter)
 				} else {
 					rtw_c2h_wk_cmd(adapter, (u8 *)c2h_evt);
 				}
-			} else {
-				kfree(c2h_evt);
 			}
 		} else {
 			/* Error handling for malloc fail */

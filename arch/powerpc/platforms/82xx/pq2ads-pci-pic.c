@@ -91,8 +91,10 @@ static void pq2ads_pci_irq_demux(struct irq_desc *desc)
 			break;
 
 		for (bit = 0; pend != 0; ++bit, pend <<= 1) {
-			if (pend & 0x80000000)
-				generic_handle_domain_irq(priv->host, bit);
+			if (pend & 0x80000000) {
+				int virq = irq_linear_revmap(priv->host, bit);
+				generic_handle_irq(virq);
+			}
 		}
 	}
 }

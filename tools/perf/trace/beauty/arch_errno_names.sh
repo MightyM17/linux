@@ -87,13 +87,14 @@ cat <<EoHEADER
 
 EoHEADER
 
-# Create list of architectures that have a specific errno.h.
+# Create list of architectures and ignore those that do not appear
+# in tools/perf/arch
 archlist=""
-for arch in $(find $toolsdir/arch -maxdepth 1 -mindepth 1 -type d -printf "%f\n" | sort -r); do
-	test -f $toolsdir/arch/$arch/include/uapi/asm/errno.h && archlist="$archlist $arch"
+for arch in $(find $toolsdir/arch -maxdepth 1 -mindepth 1 -type d -printf "%f\n" | grep -v x86 | sort); do
+	test -d $toolsdir/perf/arch/$arch && archlist="$archlist $arch"
 done
 
-for arch in generic $archlist; do
+for arch in x86 $archlist generic; do
 	process_arch "$arch"
 done
-create_arch_errno_table_func "$archlist" "generic"
+create_arch_errno_table_func "x86 $archlist" "generic"

@@ -77,7 +77,7 @@ DEVICE_ATTR(interface_rev, S_IRUGO, pm8001_ctl_mpi_interface_rev_show, NULL);
  * @attr: device attribute (unused)
  * @buf: the buffer returned
  *
- * A sysfs 'read-only' shost attribute.
+ * A sysfs 'read only' shost attribute.
  */
 static ssize_t controller_fatal_error_show(struct device *cdev,
 		struct device_attribute *attr, char *buf)
@@ -149,7 +149,7 @@ static ssize_t pm8001_ctl_ila_version_show(struct device *cdev,
 static DEVICE_ATTR(ila_version, 0444, pm8001_ctl_ila_version_show, NULL);
 
 /**
- * pm8001_ctl_inactive_fw_version_show - Inactive firmware version number
+ * pm8001_ctl_inactive_fw_version_show - Inacative firmware version number
  * @cdev: pointer to embedded class device
  * @attr: device attribute (unused)
  * @buf: the buffer returned
@@ -396,7 +396,6 @@ static DEVICE_ATTR(aap_log, S_IRUGO, pm8001_ctl_aap_log_show, NULL);
  * @cdev:pointer to embedded class device
  * @attr: device attribute (unused)
  * @buf: the buffer returned
- *
  * A sysfs 'read-only' shost attribute.
  */
 static ssize_t pm8001_ctl_ib_queue_log_show(struct device *cdev,
@@ -431,7 +430,6 @@ static DEVICE_ATTR(ib_log, S_IRUGO, pm8001_ctl_ib_queue_log_show, NULL);
  * @cdev:pointer to embedded class device
  * @attr: device attribute (unused)
  * @buf: the buffer returned
- *
  * A sysfs 'read-only' shost attribute.
  */
 
@@ -466,7 +464,6 @@ static DEVICE_ATTR(ob_log, S_IRUGO, pm8001_ctl_ob_queue_log_show, NULL);
  * @cdev:pointer to embedded class device
  * @attr: device attribute (unused)
  * @buf:the buffer returned
- *
  * A sysfs 'read-only' shost attribute.
  */
 static ssize_t pm8001_ctl_bios_version_show(struct device *cdev,
@@ -558,13 +555,13 @@ static ssize_t pm8001_ctl_iop_log_show(struct device *cdev,
 static DEVICE_ATTR(iop_log, S_IRUGO, pm8001_ctl_iop_log_show, NULL);
 
 /**
- * pm8001_ctl_fatal_log_show - fatal error logging
- * @cdev:pointer to embedded class device
- * @attr: device attribute
- * @buf: the buffer returned
- *
- * A sysfs 'read-only' shost attribute.
- */
+ ** pm8001_ctl_fatal_log_show - fatal error logging
+ ** @cdev:pointer to embedded class device
+ ** @attr: device attribute
+ ** @buf: the buffer returned
+ **
+ ** A sysfs 'read-only' shost attribute.
+ **/
 
 static ssize_t pm8001_ctl_fatal_log_show(struct device *cdev,
 	struct device_attribute *attr, char *buf)
@@ -578,13 +575,13 @@ static ssize_t pm8001_ctl_fatal_log_show(struct device *cdev,
 static DEVICE_ATTR(fatal_log, S_IRUGO, pm8001_ctl_fatal_log_show, NULL);
 
 /**
- * non_fatal_log_show - non fatal error logging
- * @cdev:pointer to embedded class device
- * @attr: device attribute
- * @buf: the buffer returned
- *
- * A sysfs 'read-only' shost attribute.
- */
+ ** non_fatal_log_show - non fatal error logging
+ ** @cdev:pointer to embedded class device
+ ** @attr: device attribute
+ ** @buf: the buffer returned
+ **
+ ** A sysfs 'read-only' shost attribute.
+ **/
 static ssize_t non_fatal_log_show(struct device *cdev,
 	struct device_attribute *attr, char *buf)
 {
@@ -623,13 +620,12 @@ static ssize_t non_fatal_count_store(struct device *cdev,
 static DEVICE_ATTR_RW(non_fatal_count);
 
 /**
- * pm8001_ctl_gsm_log_show - gsm dump collection
- * @cdev:pointer to embedded class device
- * @attr: device attribute (unused)
- * @buf: the buffer returned
- *
- * A sysfs 'read-only' shost attribute.
- */
+ ** pm8001_ctl_gsm_log_show - gsm dump collection
+ ** @cdev:pointer to embedded class device
+ ** @attr: device attribute (unused)
+ ** @buf: the buffer returned
+ ** A sysfs 'read-only' shost attribute.
+ **/
 static ssize_t pm8001_ctl_gsm_log_show(struct device *cdev,
 	struct device_attribute *attr, char *buf)
 {

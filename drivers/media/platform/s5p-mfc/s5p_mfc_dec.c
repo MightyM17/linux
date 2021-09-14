@@ -172,7 +172,6 @@ static struct mfc_control controls[] = {
 		.type = V4L2_CTRL_TYPE_INTEGER,
 		.minimum = 0,
 		.maximum = 16383,
-		.step = 1,
 		.default_value = 0,
 	},
 	{

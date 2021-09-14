@@ -68,7 +68,6 @@
 #include <net/tcp_states.h>
 #include <linux/net_tstamp.h>
 #include <net/l3mdev.h>
-#include <uapi/linux/socket.h>
 
 /*
  * This structure really needs to be cleaned up.
@@ -317,9 +316,7 @@ struct bpf_local_storage;
   *	@sk_timer: sock cleanup timer
   *	@sk_stamp: time stamp of last packet received
   *	@sk_stamp_seq: lock for accessing sk_stamp on 32 bit architectures only
-  *	@sk_tsflags: SO_TIMESTAMPING flags
-  *	@sk_bind_phc: SO_TIMESTAMPING bind PHC index of PTP virtual clock
-  *	              for timestamping
+  *	@sk_tsflags: SO_TIMESTAMPING socket options
   *	@sk_tskey: counter to disambiguate concurrent tstamp requests
   *	@sk_zckey: counter to order MSG_ZEROCOPY notifications
   *	@sk_socket: Identd and reporting IO signals
@@ -496,7 +493,6 @@ struct sock {
 	seqlock_t		sk_stamp_seq;
 #endif
 	u16			sk_tsflags;
-	int			sk_bind_phc;
 	u8			sk_shutdown;
 	u32			sk_tskey;
 	atomic_t		sk_zckey;
@@ -1439,6 +1435,8 @@ static inline int __sk_prot_rehash(struct sock *sk)
 #define RCV_SHUTDOWN	1
 #define SEND_SHUTDOWN	2
 
+#define SOCK_SNDBUF_LOCK	1
+#define SOCK_RCVBUF_LOCK	2
 #define SOCK_BINDADDR_LOCK	4
 #define SOCK_BINDPORT_LOCK	8
 
@@ -1936,8 +1934,7 @@ static inline u32 net_tx_rndhash(void)
 
 static inline void sk_set_txhash(struct sock *sk)
 {
-	/* This pairs with READ_ONCE() in skb_set_hash_from_sk() */
-	WRITE_ONCE(sk->sk_txhash, net_tx_rndhash());
+	sk->sk_txhash = net_tx_rndhash();
 }
 
 static inline bool sk_rethink_txhash(struct sock *sk)
@@ -2209,12 +2206,9 @@ static inline void sock_poll_wait(struct file *filp, struct socket *sock,
 
 static inline void skb_set_hash_from_sk(struct sk_buff *skb, struct sock *sk)
 {
-	/* This pairs with WRITE_ONCE() in sk_set_txhash() */
-	u32 txhash = READ_ONCE(sk->sk_txhash);
-
-	if (txhash) {
+	if (sk->sk_txhash) {
 		skb->l4_hash = 1;
-		skb->hash = txhash;
+		skb->hash = sk->sk_txhash;
 	}
 }
 
@@ -2237,24 +2231,13 @@ static inline void skb_set_owner_r(struct sk_buff *skb, struct sock *sk)
 	sk_mem_charge(sk, skb->truesize);
 }
 
-static inline __must_check bool skb_set_owner_sk_safe(struct sk_buff *skb, struct sock *sk)
+static inline void skb_set_owner_sk_safe(struct sk_buff *skb, struct sock *sk)
 {
 	if (sk && refcount_inc_not_zero(&sk->sk_refcnt)) {
 		skb_orphan(skb);
 		skb->destructor = sock_efree;
 		skb->sk = sk;
-		return true;
 	}
-	return false;
-}
-
-static inline void skb_prepare_for_gro(struct sk_buff *skb)
-{
-	if (skb->destructor != sock_wfree) {
-		skb_orphan(skb);
-		return;
-	}
-	skb->slow_gro = 1;
 }
 
 void sk_reset_timer(struct sock *sk, struct timer_list *timer,
@@ -2281,18 +2264,11 @@ struct sk_buff *sock_dequeue_err_skb(struct sock *sk);
 static inline int sock_error(struct sock *sk)
 {
 	int err;
-
-	/* Avoid an atomic operation for the common case.
-	 * This is racy since another cpu/thread can change sk_err under us.
-	 */
-	if (likely(data_race(!sk->sk_err)))
+	if (likely(!sk->sk_err))
 		return 0;
-
 	err = xchg(&sk->sk_err, 0);
 	return -err;
 }
-
-void sk_error_report(struct sock *sk);
 
 static inline unsigned long sock_wspace(struct sock *sk)
 {
@@ -2398,11 +2374,6 @@ static inline bool sock_writeable(const struct sock *sk)
 static inline gfp_t gfp_any(void)
 {
 	return in_softirq() ? GFP_ATOMIC : GFP_KERNEL;
-}
-
-static inline gfp_t gfp_memcg_charge(void)
-{
-	return in_softirq() ? GFP_NOWAIT : GFP_KERNEL;
 }
 
 static inline long sock_rcvtimeo(const struct sock *sk, bool noblock)
@@ -2717,7 +2688,6 @@ extern int sysctl_optmem_max;
 extern __u32 sysctl_wmem_default;
 extern __u32 sysctl_rmem_default;
 
-#define SKB_FRAG_PAGE_ORDER	get_order(32768)
 DECLARE_STATIC_KEY_FALSE(net_high_order_alloc_disable_key);
 
 static inline int sk_get_wmem0(const struct sock *sk, const struct proto *proto)
@@ -2771,10 +2741,6 @@ static inline bool sk_dev_equal_l3scope(struct sock *sk, int dif)
 void sock_def_readable(struct sock *sk);
 
 int sock_bindtoindex(struct sock *sk, int ifindex, bool lock_sk);
-void sock_set_timestamp(struct sock *sk, int optname, bool valbool);
-int sock_set_timestamping(struct sock *sk, int optname,
-			  struct so_timestamping timestamping);
-
 void sock_enable_timestamps(struct sock *sk);
 void sock_no_linger(struct sock *sk);
 void sock_set_keepalive(struct sock *sk);

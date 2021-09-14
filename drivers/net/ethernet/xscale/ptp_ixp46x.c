@@ -5,23 +5,25 @@
  * Copyright (C) 2010 OMICRON electronics GmbH
  */
 #include <linux/device.h>
-#include <linux/module.h>
-#include <linux/mod_devicetable.h>
 #include <linux/err.h>
+#include <linux/gpio.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/irq.h>
 #include <linux/kernel.h>
+#include <linux/module.h>
+
 #include <linux/ptp_clock_kernel.h>
-#include <linux/platform_device.h>
-#include <linux/soc/ixp4xx/cpu.h>
-#include <mach/ixp4xx-regs.h>
 
 #include "ixp46x_ts.h"
 
 #define DRIVER		"ptp_ixp46x"
 #define N_EXT_TS	2
+#define MASTER_GPIO	8
+#define MASTER_IRQ	25
+#define SLAVE_GPIO	7
+#define SLAVE_IRQ	24
 
 struct ixp_clock {
 	struct ixp46x_ts_regs *regs;
@@ -29,11 +31,9 @@ struct ixp_clock {
 	struct ptp_clock_info caps;
 	int exts0_enabled;
 	int exts1_enabled;
-	int slave_irq;
-	int master_irq;
 };
 
-static DEFINE_SPINLOCK(register_lock);
+DEFINE_SPINLOCK(register_lock);
 
 /*
  * Register access functions
@@ -242,38 +242,53 @@ static const struct ptp_clock_info ptp_ixp_caps = {
 
 static struct ixp_clock ixp_clock;
 
-int ixp46x_ptp_find(struct ixp46x_ts_regs *__iomem *regs, int *phc_index)
+static int setup_interrupt(int gpio)
 {
-	*regs = ixp_clock.regs;
-	*phc_index = ptp_clock_index(ixp_clock.ptp_clock);
+	int irq;
+	int err;
 
-	if (!ixp_clock.ptp_clock)
-		return -EPROBE_DEFER;
+	err = gpio_request(gpio, "ixp4-ptp");
+	if (err)
+		return err;
 
-	return 0;
+	err = gpio_direction_input(gpio);
+	if (err)
+		return err;
+
+	irq = gpio_to_irq(gpio);
+	if (irq < 0)
+		return irq;
+
+	err = irq_set_irq_type(irq, IRQF_TRIGGER_FALLING);
+	if (err) {
+		pr_err("cannot set trigger type for irq %d\n", irq);
+		return err;
+	}
+
+	err = request_irq(irq, isr, 0, DRIVER, &ixp_clock);
+	if (err) {
+		pr_err("request_irq failed for irq %d\n", irq);
+		return err;
+	}
+
+	return irq;
 }
-EXPORT_SYMBOL_GPL(ixp46x_ptp_find);
 
-/* Called from the registered devm action */
-static void ptp_ixp_unregister_action(void *d)
+static void __exit ptp_ixp_exit(void)
 {
-	struct ptp_clock *ptp_clock = d;
-
-	ptp_clock_unregister(ptp_clock);
-	ixp_clock.ptp_clock = NULL;
+	free_irq(MASTER_IRQ, &ixp_clock);
+	free_irq(SLAVE_IRQ, &ixp_clock);
+	ixp46x_phc_index = -1;
+	ptp_clock_unregister(ixp_clock.ptp_clock);
 }
 
-static int ptp_ixp_probe(struct platform_device *pdev)
+static int __init ptp_ixp_init(void)
 {
-	struct device *dev = &pdev->dev;
-	int ret;
+	if (!cpu_is_ixp46x())
+		return -ENODEV;
 
-	ixp_clock.regs = devm_platform_ioremap_resource(pdev, 0);
-	ixp_clock.master_irq = platform_get_irq(pdev, 0);
-	ixp_clock.slave_irq = platform_get_irq(pdev, 1);
-	if (IS_ERR(ixp_clock.regs) ||
-	    !ixp_clock.master_irq || !ixp_clock.slave_irq)
-		return -ENXIO;
+	ixp_clock.regs =
+		(struct ixp46x_ts_regs __iomem *) IXP4XX_TIMESYNC_BASE_VIRT;
 
 	ixp_clock.caps = ptp_ixp_caps;
 
@@ -282,51 +297,32 @@ static int ptp_ixp_probe(struct platform_device *pdev)
 	if (IS_ERR(ixp_clock.ptp_clock))
 		return PTR_ERR(ixp_clock.ptp_clock);
 
-	ret = devm_add_action_or_reset(dev, ptp_ixp_unregister_action,
-				       ixp_clock.ptp_clock);
-	if (ret) {
-		dev_err(dev, "failed to install clock removal handler\n");
-		return ret;
-	}
+	ixp46x_phc_index = ptp_clock_index(ixp_clock.ptp_clock);
 
 	__raw_writel(DEFAULT_ADDEND, &ixp_clock.regs->addend);
 	__raw_writel(1, &ixp_clock.regs->trgt_lo);
 	__raw_writel(0, &ixp_clock.regs->trgt_hi);
 	__raw_writel(TTIPEND, &ixp_clock.regs->event);
 
-	ret = devm_request_irq(dev, ixp_clock.master_irq, isr,
-			       0, DRIVER, &ixp_clock);
-	if (ret)
-		return dev_err_probe(dev, ret,
-				     "request_irq failed for irq %d\n",
-				     ixp_clock.master_irq);
-
-	ret = devm_request_irq(dev, ixp_clock.slave_irq, isr,
-			       0, DRIVER, &ixp_clock);
-	if (ret)
-		return dev_err_probe(dev, ret,
-				     "request_irq failed for irq %d\n",
-				     ixp_clock.slave_irq);
+	if (MASTER_IRQ != setup_interrupt(MASTER_GPIO)) {
+		pr_err("failed to setup gpio %d as irq\n", MASTER_GPIO);
+		goto no_master;
+	}
+	if (SLAVE_IRQ != setup_interrupt(SLAVE_GPIO)) {
+		pr_err("failed to setup gpio %d as irq\n", SLAVE_GPIO);
+		goto no_slave;
+	}
 
 	return 0;
+no_slave:
+	free_irq(MASTER_IRQ, &ixp_clock);
+no_master:
+	ptp_clock_unregister(ixp_clock.ptp_clock);
+	return -ENODEV;
 }
 
-static const struct of_device_id ptp_ixp_match[] = {
-	{
-		.compatible = "intel,ixp46x-ptp-timer",
-	},
-	{ },
-};
-
-static struct platform_driver ptp_ixp_driver = {
-	.driver = {
-		.name = "ptp-ixp46x",
-		.of_match_table = ptp_ixp_match,
-		.suppress_bind_attrs = true,
-	},
-	.probe = ptp_ixp_probe,
-};
-module_platform_driver(ptp_ixp_driver);
+module_init(ptp_ixp_init);
+module_exit(ptp_ixp_exit);
 
 MODULE_AUTHOR("Richard Cochran <richardcochran@gmail.com>");
 MODULE_DESCRIPTION("PTP clock using the IXP46X timer");

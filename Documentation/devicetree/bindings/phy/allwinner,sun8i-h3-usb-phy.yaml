@@ -15,9 +15,7 @@ properties:
     const: 1
 
   compatible:
-    enum:
-      - allwinner,sun8i-h3-usb-phy
-      - allwinner,sun50i-h616-usb-phy
+    const: allwinner,sun8i-h3-usb-phy
 
   reg:
     items:

@@ -86,6 +86,12 @@ nouveau_channel_del(struct nouveau_channel **pchan)
 	struct nouveau_channel *chan = *pchan;
 	if (chan) {
 		struct nouveau_cli *cli = (void *)chan->user.client;
+		bool super;
+
+		if (cli) {
+			super = cli->base.super;
+			cli->base.super = true;
+		}
 
 		if (chan->fence)
 			nouveau_fence(chan->drm)->context_del(chan);
@@ -105,6 +111,9 @@ nouveau_channel_del(struct nouveau_channel **pchan)
 			nouveau_bo_unpin(chan->push.buffer);
 		nouveau_bo_ref(NULL, &chan->push.buffer);
 		kfree(chan);
+
+		if (cli)
+			cli->base.super = super;
 	}
 	*pchan = NULL;
 }
@@ -203,7 +212,7 @@ nouveau_channel_prep(struct nouveau_drm *drm, struct nvif_device *device,
 		args.start = 0;
 		args.limit = chan->vmm->vmm.limit - 1;
 	} else
-	if (chan->push.buffer->bo.resource->mem_type == TTM_PL_VRAM) {
+	if (chan->push.buffer->bo.mem.mem_type == TTM_PL_VRAM) {
 		if (device->info.family == NV_DEVICE_INFO_V0_TNT) {
 			/* nv04 vram pushbuf hack, retarget to its location in
 			 * the framebuffer bar rather than direct vram access..
@@ -503,16 +512,20 @@ nouveau_channel_new(struct nouveau_drm *drm, struct nvif_device *device,
 		    struct nouveau_channel **pchan)
 {
 	struct nouveau_cli *cli = (void *)device->object.client;
+	bool super;
 	int ret;
 
 	/* hack until fencenv50 is fixed, and agp access relaxed */
+	super = cli->base.super;
+	cli->base.super = true;
+
 	ret = nouveau_channel_ind(drm, device, arg0, priv, pchan);
 	if (ret) {
 		NV_PRINTK(dbg, cli, "ib channel create, %d\n", ret);
 		ret = nouveau_channel_dma(drm, device, pchan);
 		if (ret) {
 			NV_PRINTK(dbg, cli, "dma channel create, %d\n", ret);
-			return ret;
+			goto done;
 		}
 	}
 
@@ -520,13 +533,15 @@ nouveau_channel_new(struct nouveau_drm *drm, struct nvif_device *device,
 	if (ret) {
 		NV_PRINTK(err, cli, "channel failed to initialise, %d\n", ret);
 		nouveau_channel_del(pchan);
-		return ret;
+		goto done;
 	}
 
 	ret = nouveau_svmm_join((*pchan)->vmm->svmm, (*pchan)->inst);
 	if (ret)
 		nouveau_channel_del(pchan);
 
+done:
+	cli->base.super = super;
 	return ret;
 }
 

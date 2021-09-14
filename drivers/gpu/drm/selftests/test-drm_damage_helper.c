@@ -6,36 +6,8 @@
 #define pr_fmt(fmt) "drm_damage_helper: " fmt
 
 #include <drm/drm_damage_helper.h>
-#include <drm/drm_plane.h>
-#include <drm/drm_drv.h>
 
 #include "test-drm_modeset_common.h"
-
-struct drm_driver mock_driver;
-static struct drm_device mock_device;
-static struct drm_object_properties mock_obj_props;
-static struct drm_plane mock_plane;
-static struct drm_property mock_prop;
-
-static void mock_setup(struct drm_plane_state *state)
-{
-	static bool setup_done = false;
-
-	state->plane = &mock_plane;
-
-	if (setup_done)
-		return;
-
-	/* just enough so that drm_plane_enable_fb_damage_clips() works */
-	mock_device.driver = &mock_driver;
-	mock_device.mode_config.prop_fb_damage_clips = &mock_prop;
-	mock_plane.dev = &mock_device;
-	mock_plane.base.properties = &mock_obj_props;
-	mock_prop.base.id = 1; /* 0 is an invalid id */
-	mock_prop.dev = &mock_device;
-
-	drm_plane_enable_fb_damage_clips(&mock_plane);
-}
 
 static void set_plane_src(struct drm_plane_state *state, int x1, int y1, int x2,
 			  int y2)
@@ -98,29 +70,23 @@ static bool check_damage_clip(struct drm_plane_state *state, struct drm_rect *r,
 	return true;
 }
 
-const struct drm_framebuffer fb = {
-	.width = 2048,
-	.height = 2048
-};
-
-/* common mocked structs many tests need */
-#define MOCK_VARIABLES() \
-	struct drm_plane_state old_state; \
-	struct drm_plane_state state = { \
-		.crtc = ZERO_SIZE_PTR, \
-		.fb = (struct drm_framebuffer *) &fb, \
-		.visible = true, \
-	}; \
-	mock_setup(&old_state); \
-	mock_setup(&state);
-
 int igt_damage_iter_no_damage(void *ignored)
 {
 	struct drm_atomic_helper_damage_iter iter;
+	struct drm_plane_state old_state;
 	struct drm_rect clip;
 	uint32_t num_hits = 0;
 
-	MOCK_VARIABLES();
+	struct drm_framebuffer fb = {
+		.width = 2048,
+		.height = 2048
+	};
+
+	struct drm_plane_state state = {
+		.crtc = ZERO_SIZE_PTR,
+		.fb = &fb,
+		.visible = true,
+	};
 
 	/* Plane src same as fb size. */
 	set_plane_src(&old_state, 0, 0, fb.width << 16, fb.height << 16);
@@ -138,10 +104,20 @@ int igt_damage_iter_no_damage(void *ignored)
 int igt_damage_iter_no_damage_fractional_src(void *ignored)
 {
 	struct drm_atomic_helper_damage_iter iter;
+	struct drm_plane_state old_state;
 	struct drm_rect clip;
 	uint32_t num_hits = 0;
 
-	MOCK_VARIABLES();
+	struct drm_framebuffer fb = {
+		.width = 2048,
+		.height = 2048
+	};
+
+	struct drm_plane_state state = {
+		.crtc = ZERO_SIZE_PTR,
+		.fb = &fb,
+		.visible = true,
+	};
 
 	/* Plane src has fractional part. */
 	set_plane_src(&old_state, 0x3fffe, 0x3fffe,
@@ -161,10 +137,20 @@ int igt_damage_iter_no_damage_fractional_src(void *ignored)
 int igt_damage_iter_no_damage_src_moved(void *ignored)
 {
 	struct drm_atomic_helper_damage_iter iter;
+	struct drm_plane_state old_state;
 	struct drm_rect clip;
 	uint32_t num_hits = 0;
 
-	MOCK_VARIABLES();
+	struct drm_framebuffer fb = {
+		.width = 2048,
+		.height = 2048
+	};
+
+	struct drm_plane_state state = {
+		.crtc = ZERO_SIZE_PTR,
+		.fb = &fb,
+		.visible = true,
+	};
 
 	/* Plane src moved since old plane state. */
 	set_plane_src(&old_state, 0, 0, 1024 << 16, 768 << 16);
@@ -183,10 +169,20 @@ int igt_damage_iter_no_damage_src_moved(void *ignored)
 int igt_damage_iter_no_damage_fractional_src_moved(void *ignored)
 {
 	struct drm_atomic_helper_damage_iter iter;
+	struct drm_plane_state old_state;
 	struct drm_rect clip;
 	uint32_t num_hits = 0;
 
-	MOCK_VARIABLES();
+	struct drm_framebuffer fb = {
+		.width = 2048,
+		.height = 2048
+	};
+
+	struct drm_plane_state state = {
+		.crtc = ZERO_SIZE_PTR,
+		.fb = &fb,
+		.visible = true,
+	};
 
 	/* Plane src has fractional part and it moved since old plane state. */
 	set_plane_src(&old_state, 0x3fffe, 0x3fffe,
@@ -206,14 +202,20 @@ int igt_damage_iter_no_damage_fractional_src_moved(void *ignored)
 int igt_damage_iter_no_damage_not_visible(void *ignored)
 {
 	struct drm_atomic_helper_damage_iter iter;
+	struct drm_plane_state old_state;
 	struct drm_rect clip;
 	uint32_t num_hits = 0;
 
-	MOCK_VARIABLES();
+	struct drm_framebuffer fb = {
+		.width = 2048,
+		.height = 2048
+	};
 
-	state.visible = false;
-
-	mock_setup(&old_state);
+	struct drm_plane_state state = {
+		.crtc = ZERO_SIZE_PTR,
+		.fb = &fb,
+		.visible = false,
+	};
 
 	set_plane_src(&old_state, 0, 0, 1024 << 16, 768 << 16);
 	set_plane_src(&state, 0, 0, 1024 << 16, 768 << 16);
@@ -229,12 +231,19 @@ int igt_damage_iter_no_damage_not_visible(void *ignored)
 int igt_damage_iter_no_damage_no_crtc(void *ignored)
 {
 	struct drm_atomic_helper_damage_iter iter;
+	struct drm_plane_state old_state;
 	struct drm_rect clip;
 	uint32_t num_hits = 0;
 
-	MOCK_VARIABLES();
+	struct drm_framebuffer fb = {
+		.width = 2048,
+		.height = 2048
+	};
 
-	state.crtc = NULL;
+	struct drm_plane_state state = {
+		.crtc = 0,
+		.fb = &fb,
+	};
 
 	set_plane_src(&old_state, 0, 0, 1024 << 16, 768 << 16);
 	set_plane_src(&state, 0, 0, 1024 << 16, 768 << 16);
@@ -259,8 +268,6 @@ int igt_damage_iter_no_damage_no_fb(void *ignored)
 		.fb = 0,
 	};
 
-	mock_setup(&old_state);
-
 	set_plane_src(&old_state, 0, 0, 1024 << 16, 768 << 16);
 	set_plane_src(&state, 0, 0, 1024 << 16, 768 << 16);
 	drm_atomic_helper_damage_iter_init(&iter, &old_state, &state);
@@ -275,12 +282,22 @@ int igt_damage_iter_no_damage_no_fb(void *ignored)
 int igt_damage_iter_simple_damage(void *ignored)
 {
 	struct drm_atomic_helper_damage_iter iter;
+	struct drm_plane_state old_state;
 	struct drm_property_blob damage_blob;
 	struct drm_mode_rect damage;
 	struct drm_rect clip;
 	uint32_t num_hits = 0;
 
-	MOCK_VARIABLES();
+	struct drm_framebuffer fb = {
+		.width = 2048,
+		.height = 2048
+	};
+
+	struct drm_plane_state state = {
+		.crtc = ZERO_SIZE_PTR,
+		.fb = &fb,
+		.visible = true,
+	};
 
 	set_plane_src(&old_state, 0, 0, 1024 << 16, 768 << 16);
 	set_plane_src(&state, 0, 0, 1024 << 16, 768 << 16);
@@ -301,12 +318,22 @@ int igt_damage_iter_simple_damage(void *ignored)
 int igt_damage_iter_single_damage(void *ignored)
 {
 	struct drm_atomic_helper_damage_iter iter;
+	struct drm_plane_state old_state;
 	struct drm_property_blob damage_blob;
 	struct drm_mode_rect damage;
 	struct drm_rect clip;
 	uint32_t num_hits = 0;
 
-	MOCK_VARIABLES();
+	struct drm_framebuffer fb = {
+		.width = 2048,
+		.height = 2048
+	};
+
+	struct drm_plane_state state = {
+		.crtc = ZERO_SIZE_PTR,
+		.fb = &fb,
+		.visible = true,
+	};
 
 	set_plane_src(&old_state, 0, 0, 1024 << 16, 768 << 16);
 	set_plane_src(&state, 0, 0, 1024 << 16, 768 << 16);
@@ -326,12 +353,22 @@ int igt_damage_iter_single_damage(void *ignored)
 int igt_damage_iter_single_damage_intersect_src(void *ignored)
 {
 	struct drm_atomic_helper_damage_iter iter;
+	struct drm_plane_state old_state;
 	struct drm_property_blob damage_blob;
 	struct drm_mode_rect damage;
 	struct drm_rect clip;
 	uint32_t num_hits = 0;
 
-	MOCK_VARIABLES();
+	struct drm_framebuffer fb = {
+		.width = 2048,
+		.height = 2048
+	};
+
+	struct drm_plane_state state = {
+		.crtc = ZERO_SIZE_PTR,
+		.fb = &fb,
+		.visible = true,
+	};
 
 	set_plane_src(&old_state, 0, 0, 1024 << 16, 768 << 16);
 	set_plane_src(&state, 0, 0, 1024 << 16, 768 << 16);
@@ -352,12 +389,22 @@ int igt_damage_iter_single_damage_intersect_src(void *ignored)
 int igt_damage_iter_single_damage_outside_src(void *ignored)
 {
 	struct drm_atomic_helper_damage_iter iter;
+	struct drm_plane_state old_state;
 	struct drm_property_blob damage_blob;
 	struct drm_mode_rect damage;
 	struct drm_rect clip;
 	uint32_t num_hits = 0;
 
-	MOCK_VARIABLES();
+	struct drm_framebuffer fb = {
+		.width = 2048,
+		.height = 2048
+	};
+
+	struct drm_plane_state state = {
+		.crtc = ZERO_SIZE_PTR,
+		.fb = &fb,
+		.visible = true,
+	};
 
 	set_plane_src(&old_state, 0, 0, 1024 << 16, 768 << 16);
 	set_plane_src(&state, 0, 0, 1024 << 16, 768 << 16);
@@ -377,12 +424,22 @@ int igt_damage_iter_single_damage_outside_src(void *ignored)
 int igt_damage_iter_single_damage_fractional_src(void *ignored)
 {
 	struct drm_atomic_helper_damage_iter iter;
+	struct drm_plane_state old_state;
 	struct drm_property_blob damage_blob;
 	struct drm_mode_rect damage;
 	struct drm_rect clip;
 	uint32_t num_hits = 0;
 
-	MOCK_VARIABLES();
+	struct drm_framebuffer fb = {
+		.width = 2048,
+		.height = 2048
+	};
+
+	struct drm_plane_state state = {
+		.crtc = ZERO_SIZE_PTR,
+		.fb = &fb,
+		.visible = true,
+	};
 
 	/* Plane src has fractional part. */
 	set_plane_src(&old_state, 0x40002, 0x40002,
@@ -405,12 +462,22 @@ int igt_damage_iter_single_damage_fractional_src(void *ignored)
 int igt_damage_iter_single_damage_intersect_fractional_src(void *ignored)
 {
 	struct drm_atomic_helper_damage_iter iter;
+	struct drm_plane_state old_state;
 	struct drm_property_blob damage_blob;
 	struct drm_mode_rect damage;
 	struct drm_rect clip;
 	uint32_t num_hits = 0;
 
-	MOCK_VARIABLES();
+	struct drm_framebuffer fb = {
+		.width = 2048,
+		.height = 2048
+	};
+
+	struct drm_plane_state state = {
+		.crtc = ZERO_SIZE_PTR,
+		.fb = &fb,
+		.visible = true,
+	};
 
 	/* Plane src has fractional part. */
 	set_plane_src(&old_state, 0x40002, 0x40002,
@@ -434,12 +501,22 @@ int igt_damage_iter_single_damage_intersect_fractional_src(void *ignored)
 int igt_damage_iter_single_damage_outside_fractional_src(void *ignored)
 {
 	struct drm_atomic_helper_damage_iter iter;
+	struct drm_plane_state old_state;
 	struct drm_property_blob damage_blob;
 	struct drm_mode_rect damage;
 	struct drm_rect clip;
 	uint32_t num_hits = 0;
 
-	MOCK_VARIABLES();
+	struct drm_framebuffer fb = {
+		.width = 2048,
+		.height = 2048
+	};
+
+	struct drm_plane_state state = {
+		.crtc = ZERO_SIZE_PTR,
+		.fb = &fb,
+		.visible = true,
+	};
 
 	/* Plane src has fractional part. */
 	set_plane_src(&old_state, 0x40002, 0x40002,
@@ -462,12 +539,22 @@ int igt_damage_iter_single_damage_outside_fractional_src(void *ignored)
 int igt_damage_iter_single_damage_src_moved(void *ignored)
 {
 	struct drm_atomic_helper_damage_iter iter;
+	struct drm_plane_state old_state;
 	struct drm_property_blob damage_blob;
 	struct drm_mode_rect damage;
 	struct drm_rect clip;
 	uint32_t num_hits = 0;
 
-	MOCK_VARIABLES();
+	struct drm_framebuffer fb = {
+		.width = 2048,
+		.height = 2048
+	};
+
+	struct drm_plane_state state = {
+		.crtc = ZERO_SIZE_PTR,
+		.fb = &fb,
+		.visible = true,
+	};
 
 	/* Plane src moved since old plane state. */
 	set_plane_src(&old_state, 0, 0, 1024 << 16, 768 << 16);
@@ -489,12 +576,22 @@ int igt_damage_iter_single_damage_src_moved(void *ignored)
 int igt_damage_iter_single_damage_fractional_src_moved(void *ignored)
 {
 	struct drm_atomic_helper_damage_iter iter;
+	struct drm_plane_state old_state;
 	struct drm_property_blob damage_blob;
 	struct drm_mode_rect damage;
 	struct drm_rect clip;
 	uint32_t num_hits = 0;
 
-	MOCK_VARIABLES();
+	struct drm_framebuffer fb = {
+		.width = 2048,
+		.height = 2048
+	};
+
+	struct drm_plane_state state = {
+		.crtc = ZERO_SIZE_PTR,
+		.fb = &fb,
+		.visible = true,
+	};
 
 	/* Plane src with fractional part moved since old plane state. */
 	set_plane_src(&old_state, 0x3fffe, 0x3fffe,
@@ -518,12 +615,22 @@ int igt_damage_iter_single_damage_fractional_src_moved(void *ignored)
 int igt_damage_iter_damage(void *ignored)
 {
 	struct drm_atomic_helper_damage_iter iter;
+	struct drm_plane_state old_state;
 	struct drm_property_blob damage_blob;
 	struct drm_mode_rect damage[2];
 	struct drm_rect clip;
 	uint32_t num_hits = 0;
 
-	MOCK_VARIABLES();
+	struct drm_framebuffer fb = {
+		.width = 2048,
+		.height = 2048
+	};
+
+	struct drm_plane_state state = {
+		.crtc = ZERO_SIZE_PTR,
+		.fb = &fb,
+		.visible = true,
+	};
 
 	set_plane_src(&old_state, 0, 0, 1024 << 16, 768 << 16);
 	set_plane_src(&state, 0, 0, 1024 << 16, 768 << 16);
@@ -549,12 +656,22 @@ int igt_damage_iter_damage(void *ignored)
 int igt_damage_iter_damage_one_intersect(void *ignored)
 {
 	struct drm_atomic_helper_damage_iter iter;
+	struct drm_plane_state old_state;
 	struct drm_property_blob damage_blob;
 	struct drm_mode_rect damage[2];
 	struct drm_rect clip;
 	uint32_t num_hits = 0;
 
-	MOCK_VARIABLES();
+	struct drm_framebuffer fb = {
+		.width = 2048,
+		.height = 2048
+	};
+
+	struct drm_plane_state state = {
+		.crtc = ZERO_SIZE_PTR,
+		.fb = &fb,
+		.visible = true,
+	};
 
 	set_plane_src(&old_state, 0x40002, 0x40002,
 		      0x40002 + (1024 << 16), 0x40002 + (768 << 16));
@@ -582,12 +699,22 @@ int igt_damage_iter_damage_one_intersect(void *ignored)
 int igt_damage_iter_damage_one_outside(void *ignored)
 {
 	struct drm_atomic_helper_damage_iter iter;
+	struct drm_plane_state old_state;
 	struct drm_property_blob damage_blob;
 	struct drm_mode_rect damage[2];
 	struct drm_rect clip;
 	uint32_t num_hits = 0;
 
-	MOCK_VARIABLES();
+	struct drm_framebuffer fb = {
+		.width = 2048,
+		.height = 2048
+	};
+
+	struct drm_plane_state state = {
+		.crtc = ZERO_SIZE_PTR,
+		.fb = &fb,
+		.visible = true,
+	};
 
 	set_plane_src(&old_state, 0, 0, 1024 << 16, 768 << 16);
 	set_plane_src(&state, 0, 0, 1024 << 16, 768 << 16);
@@ -609,12 +736,22 @@ int igt_damage_iter_damage_one_outside(void *ignored)
 int igt_damage_iter_damage_src_moved(void *ignored)
 {
 	struct drm_atomic_helper_damage_iter iter;
+	struct drm_plane_state old_state;
 	struct drm_property_blob damage_blob;
 	struct drm_mode_rect damage[2];
 	struct drm_rect clip;
 	uint32_t num_hits = 0;
 
-	MOCK_VARIABLES();
+	struct drm_framebuffer fb = {
+		.width = 2048,
+		.height = 2048
+	};
+
+	struct drm_plane_state state = {
+		.crtc = ZERO_SIZE_PTR,
+		.fb = &fb,
+		.visible = true,
+	};
 
 	set_plane_src(&old_state, 0x40002, 0x40002,
 		      0x40002 + (1024 << 16), 0x40002 + (768 << 16));
@@ -638,14 +775,22 @@ int igt_damage_iter_damage_src_moved(void *ignored)
 int igt_damage_iter_damage_not_visible(void *ignored)
 {
 	struct drm_atomic_helper_damage_iter iter;
+	struct drm_plane_state old_state;
 	struct drm_property_blob damage_blob;
 	struct drm_mode_rect damage[2];
 	struct drm_rect clip;
 	uint32_t num_hits = 0;
 
-	MOCK_VARIABLES();
+	struct drm_framebuffer fb = {
+		.width = 2048,
+		.height = 2048
+	};
 
-	state.visible = false;
+	struct drm_plane_state state = {
+		.crtc = ZERO_SIZE_PTR,
+		.fb = &fb,
+		.visible = false,
+	};
 
 	set_plane_src(&old_state, 0x40002, 0x40002,
 		      0x40002 + (1024 << 16), 0x40002 + (768 << 16));

@@ -6,7 +6,6 @@
 
 #include <linux/bug.h>
 #include <linux/cpu_pm.h>
-#include <linux/entry-kvm.h>
 #include <linux/errno.h>
 #include <linux/err.h>
 #include <linux/kvm_host.h>
@@ -16,7 +15,6 @@
 #include <linux/fs.h>
 #include <linux/mman.h>
 #include <linux/sched.h>
-#include <linux/kmemleak.h>
 #include <linux/kvm.h>
 #include <linux/kvm_irqfd.h>
 #include <linux/irqbypass.h>
@@ -43,6 +41,10 @@
 #include <kvm/arm_hypercalls.h>
 #include <kvm/arm_pmu.h>
 #include <kvm/arm_psci.h>
+
+#ifdef REQUIRES_VIRT
+__asm__(".arch_extension	virt");
+#endif
 
 static enum kvm_mode kvm_mode = KVM_MODE_DEFAULT;
 DEFINE_STATIC_KEY_FALSE(kvm_protected_mode_initialized);
@@ -90,16 +92,6 @@ int kvm_vm_ioctl_enable_cap(struct kvm *kvm,
 	case KVM_CAP_ARM_NISV_TO_USER:
 		r = 0;
 		kvm->arch.return_nisv_io_abort_to_user = true;
-		break;
-	case KVM_CAP_ARM_MTE:
-		mutex_lock(&kvm->lock);
-		if (!system_supports_mte() || kvm->created_vcpus) {
-			r = -EINVAL;
-		} else {
-			r = 0;
-			kvm->arch.mte_enabled = true;
-		}
-		mutex_unlock(&kvm->lock);
 		break;
 	default:
 		r = -EINVAL;
@@ -244,9 +236,6 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 		 * (bump this number if adding more devices)
 		 */
 		r = 1;
-		break;
-	case KVM_CAP_ARM_MTE:
-		r = system_supports_mte();
 		break;
 	case KVM_CAP_STEAL_TIME:
 		r = kvm_arm_pvtime_supported();
@@ -573,7 +562,7 @@ static void update_vmid(struct kvm_vmid *vmid)
 		kvm_call_hyp(__kvm_flush_vm_context);
 	}
 
-	WRITE_ONCE(vmid->vmid, kvm_next_vmid);
+	vmid->vmid = kvm_next_vmid;
 	kvm_next_vmid++;
 	kvm_next_vmid &= (1 << kvm_get_vmid_bits()) - 1;
 
@@ -700,59 +689,7 @@ static void check_vcpu_requests(struct kvm_vcpu *vcpu)
 			vgic_v4_load(vcpu);
 			preempt_enable();
 		}
-
-		if (kvm_check_request(KVM_REQ_RELOAD_PMU, vcpu))
-			kvm_pmu_handle_pmcr(vcpu,
-					    __vcpu_sys_reg(vcpu, PMCR_EL0));
 	}
-}
-
-static bool vcpu_mode_is_bad_32bit(struct kvm_vcpu *vcpu)
-{
-	if (likely(!vcpu_mode_is_32bit(vcpu)))
-		return false;
-
-	return !system_supports_32bit_el0() ||
-		static_branch_unlikely(&arm64_mismatched_32bit_el0);
-}
-
-/**
- * kvm_vcpu_exit_request - returns true if the VCPU should *not* enter the guest
- * @vcpu:	The VCPU pointer
- * @ret:	Pointer to write optional return code
- *
- * Returns: true if the VCPU needs to return to a preemptible + interruptible
- *	    and skip guest entry.
- *
- * This function disambiguates between two different types of exits: exits to a
- * preemptible + interruptible kernel context and exits to userspace. For an
- * exit to userspace, this function will write the return code to ret and return
- * true. For an exit to preemptible + interruptible kernel context (i.e. check
- * for pending work and re-enter), return true without writing to ret.
- */
-static bool kvm_vcpu_exit_request(struct kvm_vcpu *vcpu, int *ret)
-{
-	struct kvm_run *run = vcpu->run;
-
-	/*
-	 * If we're using a userspace irqchip, then check if we need
-	 * to tell a userspace irqchip about timer or PMU level
-	 * changes and if so, exit to userspace (the actual level
-	 * state gets updated in kvm_timer_update_run and
-	 * kvm_pmu_update_run below).
-	 */
-	if (static_branch_unlikely(&userspace_irqchip_in_use)) {
-		if (kvm_timer_should_notify_user(vcpu) ||
-		    kvm_pmu_should_notify_user(vcpu)) {
-			*ret = -EINTR;
-			run->exit_reason = KVM_EXIT_INTR;
-			return true;
-		}
-	}
-
-	return kvm_request_pending(vcpu) ||
-			need_new_vmid_gen(&vcpu->arch.hw_mmu->vmid) ||
-			xfer_to_guest_mode_work_pending();
 }
 
 /**
@@ -783,12 +720,10 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
 			return ret;
 	}
 
-	vcpu_load(vcpu);
+	if (run->immediate_exit)
+		return -EINTR;
 
-	if (run->immediate_exit) {
-		ret = -EINTR;
-		goto out;
-	}
+	vcpu_load(vcpu);
 
 	kvm_sigset_activate(vcpu);
 
@@ -798,9 +733,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
 		/*
 		 * Check conditions before entering the guest
 		 */
-		ret = xfer_to_guest_mode_handle_work(vcpu);
-		if (!ret)
-			ret = 1;
+		cond_resched();
 
 		update_vmid(&vcpu->arch.hw_mmu->vmid);
 
@@ -820,6 +753,30 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
 		kvm_vgic_flush_hwstate(vcpu);
 
 		/*
+		 * Exit if we have a signal pending so that we can deliver the
+		 * signal to user space.
+		 */
+		if (signal_pending(current)) {
+			ret = -EINTR;
+			run->exit_reason = KVM_EXIT_INTR;
+		}
+
+		/*
+		 * If we're using a userspace irqchip, then check if we need
+		 * to tell a userspace irqchip about timer or PMU level
+		 * changes and if so, exit to userspace (the actual level
+		 * state gets updated in kvm_timer_update_run and
+		 * kvm_pmu_update_run below).
+		 */
+		if (static_branch_unlikely(&userspace_irqchip_in_use)) {
+			if (kvm_timer_should_notify_user(vcpu) ||
+			    kvm_pmu_should_notify_user(vcpu)) {
+				ret = -EINTR;
+				run->exit_reason = KVM_EXIT_INTR;
+			}
+		}
+
+		/*
 		 * Ensure we set mode to IN_GUEST_MODE after we disable
 		 * interrupts and before the final VCPU requests check.
 		 * See the comment in kvm_vcpu_exiting_guest_mode() and
@@ -827,7 +784,8 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
 		 */
 		smp_store_mb(vcpu->mode, IN_GUEST_MODE);
 
-		if (ret <= 0 || kvm_vcpu_exit_request(vcpu, &ret)) {
+		if (ret <= 0 || need_new_vmid_gen(&vcpu->arch.hw_mmu->vmid) ||
+		    kvm_request_pending(vcpu)) {
 			vcpu->mode = OUTSIDE_GUEST_MODE;
 			isb(); /* Ensure work in x_flush_hwstate is committed */
 			kvm_pmu_sync_hwstate(vcpu);
@@ -917,7 +875,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
 		 * with the asymmetric AArch32 case), return to userspace with
 		 * a fatal error.
 		 */
-		if (vcpu_mode_is_bad_32bit(vcpu)) {
+		if (!system_supports_32bit_el0() && vcpu_mode_is_32bit(vcpu)) {
 			/*
 			 * As we have caught the guest red-handed, decide that
 			 * it isn't fit for purpose anymore by making the vcpu
@@ -938,18 +896,6 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
 	}
 
 	kvm_sigset_deactivate(vcpu);
-
-out:
-	/*
-	 * In the unlikely event that we are returning to userspace
-	 * with pending exceptions or PC adjustment, commit these
-	 * adjustments in order to give userspace a consistent view of
-	 * the vcpu state. Note that this relies on __kvm_adjust_pc()
-	 * being preempt-safe on VHE.
-	 */
-	if (unlikely(vcpu->arch.flags & (KVM_ARM64_PENDING_EXCEPTION |
-					 KVM_ARM64_INCREMENT_PC)))
-		kvm_call_hyp(__kvm_adjust_pc, vcpu);
 
 	vcpu_put(vcpu);
 	return ret;
@@ -1053,7 +999,7 @@ static int kvm_vcpu_set_target(struct kvm_vcpu *vcpu,
 			       const struct kvm_vcpu_init *init)
 {
 	unsigned int i, ret;
-	u32 phys_target = kvm_target_cpu();
+	int phys_target = kvm_target_cpu();
 
 	if (init->target != phys_target)
 		return -EINVAL;
@@ -1118,11 +1064,10 @@ static int kvm_arch_vcpu_ioctl_vcpu_init(struct kvm_vcpu *vcpu,
 		if (!cpus_have_final_cap(ARM64_HAS_STAGE2_FWB))
 			stage2_unmap_vm(vcpu->kvm);
 		else
-			icache_inval_all_pou();
+			__flush_icache_all();
 	}
 
 	vcpu_reset_hcr(vcpu);
-	vcpu->arch.cptr_el2 = CPTR_EL2_DEFAULT;
 
 	/*
 	 * Handle the "start in power-off" case.
@@ -1233,14 +1178,6 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		r = -EFAULT;
 		if (copy_from_user(&reg, argp, sizeof(reg)))
 			break;
-
-		/*
-		 * We could owe a reset due to PSCI. Handle the pending reset
-		 * here to ensure userspace register accesses are ordered after
-		 * the reset.
-		 */
-		if (kvm_check_request(KVM_REQ_VCPU_RESET, vcpu))
-			kvm_reset_vcpu(vcpu);
 
 		if (ioctl == KVM_SET_ONE_REG)
 			r = kvm_arm_set_reg(vcpu, &reg);
@@ -1398,13 +1335,6 @@ long kvm_arch_vm_ioctl(struct file *filp,
 			return -EFAULT;
 
 		return 0;
-	}
-	case KVM_ARM_MTE_COPY_TAGS: {
-		struct kvm_arm_copy_mte_tags copy_tags;
-
-		if (copy_from_user(&copy_tags, argp, sizeof(copy_tags)))
-			return -EFAULT;
-		return kvm_vm_ioctl_mte_copy_tags(kvm, &copy_tags);
 	}
 	default:
 		return -EINVAL;
@@ -1723,6 +1653,11 @@ static bool init_psci_relay(void)
 	return true;
 }
 
+static int init_common_resources(void)
+{
+	return kvm_set_ipa_limit();
+}
+
 static int init_subsystems(void)
 {
 	int err = 0;
@@ -1976,17 +1911,56 @@ static void _kvm_host_prot_finalize(void *discard)
 	WARN_ON(kvm_call_hyp_nvhe(__pkvm_prot_finalize));
 }
 
+static inline int pkvm_mark_hyp(phys_addr_t start, phys_addr_t end)
+{
+	return kvm_call_hyp_nvhe(__pkvm_mark_hyp, start, end);
+}
+
+#define pkvm_mark_hyp_section(__section)		\
+	pkvm_mark_hyp(__pa_symbol(__section##_start),	\
+			__pa_symbol(__section##_end))
+
 static int finalize_hyp_mode(void)
 {
+	int cpu, ret;
+
 	if (!is_protected_kvm_enabled())
 		return 0;
 
-	/*
-	 * Exclude HYP BSS from kmemleak so that it doesn't get peeked
-	 * at, which would end badly once the section is inaccessible.
-	 * None of other sections should ever be introspected.
-	 */
-	kmemleak_free_part(__hyp_bss_start, __hyp_bss_end - __hyp_bss_start);
+	ret = pkvm_mark_hyp_section(__hyp_idmap_text);
+	if (ret)
+		return ret;
+
+	ret = pkvm_mark_hyp_section(__hyp_text);
+	if (ret)
+		return ret;
+
+	ret = pkvm_mark_hyp_section(__hyp_rodata);
+	if (ret)
+		return ret;
+
+	ret = pkvm_mark_hyp_section(__hyp_bss);
+	if (ret)
+		return ret;
+
+	ret = pkvm_mark_hyp(hyp_mem_base, hyp_mem_base + hyp_mem_size);
+	if (ret)
+		return ret;
+
+	for_each_possible_cpu(cpu) {
+		phys_addr_t start = virt_to_phys((void *)kvm_arm_hyp_percpu_base[cpu]);
+		phys_addr_t end = start + (PAGE_SIZE << nvhe_percpu_order());
+
+		ret = pkvm_mark_hyp(start, end);
+		if (ret)
+			return ret;
+
+		start = virt_to_phys((void *)per_cpu(kvm_arm_hyp_stack_page, cpu));
+		end = start + PAGE_SIZE;
+		ret = pkvm_mark_hyp(start, end);
+		if (ret)
+			return ret;
+	}
 
 	/*
 	 * Flip the static key upfront as that may no longer be possible
@@ -1996,6 +1970,11 @@ static int finalize_hyp_mode(void)
 	on_each_cpu(_kvm_host_prot_finalize, NULL, 1);
 
 	return 0;
+}
+
+static void check_kvm_target_cpu(void *ret)
+{
+	*(int *)ret = kvm_target_cpu();
 }
 
 struct kvm_vcpu *kvm_mpidr_to_vcpu(struct kvm *kvm, unsigned long mpidr)
@@ -2057,6 +2036,7 @@ void kvm_arch_irq_bypass_start(struct irq_bypass_consumer *cons)
 int kvm_arch_init(void *opaque)
 {
 	int err;
+	int ret, cpu;
 	bool in_hyp_mode;
 
 	if (!is_hyp_mode_available()) {
@@ -2071,7 +2051,15 @@ int kvm_arch_init(void *opaque)
 		kvm_info("Guests without required CPU erratum workarounds can deadlock system!\n" \
 			 "Only trusted guests should be used on this system.\n");
 
-	err = kvm_set_ipa_limit();
+	for_each_online_cpu(cpu) {
+		smp_call_function_single(cpu, check_kvm_target_cpu, &ret, 1);
+		if (ret < 0) {
+			kvm_err("Error, CPU %d not supported!\n", cpu);
+			return -ENODEV;
+		}
+	}
+
+	err = init_common_resources();
 	if (err)
 		return err;
 

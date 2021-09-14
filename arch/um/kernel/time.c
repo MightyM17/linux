@@ -68,15 +68,23 @@ static void time_travel_handle_message(struct um_timetravel_msg *msg,
 	int ret;
 
 	/*
-	 * We can't unlock here, but interrupt signals with a timetravel_handler
-	 * (see um_request_irq_tt) get to the timetravel_handler anyway.
+	 * Poll outside the locked section (if we're not called to only read
+	 * the response) so we can get interrupts for e.g. virtio while we're
+	 * here, but then we need to lock to not get interrupted between the
+	 * read of the message and write of the ACK.
 	 */
 	if (mode != TTMH_READ) {
-		BUG_ON(mode == TTMH_IDLE && !irqs_disabled());
+		bool disabled = irqs_disabled();
 
+		BUG_ON(mode == TTMH_IDLE && !disabled);
+
+		if (disabled)
+			local_irq_enable();
 		while (os_poll(1, &time_travel_ext_fd) != 0) {
 			/* nothing */
 		}
+		if (disabled)
+			local_irq_disable();
 	}
 
 	ret = os_read_file(time_travel_ext_fd, msg, sizeof(*msg));
@@ -115,15 +123,15 @@ static u64 time_travel_ext_req(u32 op, u64 time)
 		.time = time,
 		.seq = mseq,
 	};
+	unsigned long flags;
 
 	/*
-	 * We need to block even the timetravel handlers of SIGIO here and
-	 * only restore their use when we got the ACK - otherwise we may
-	 * (will) get interrupted by that, try to queue the IRQ for future
-	 * processing and thus send another request while we're still waiting
-	 * for an ACK, but the peer doesn't know we got interrupted and will
-	 * send the ACKs in the same order as the message, but we'd need to
-	 * see them in the opposite order ...
+	 * We need to save interrupts here and only restore when we
+	 * got the ACK - otherwise we can get interrupted and send
+	 * another request while we're still waiting for an ACK, but
+	 * the peer doesn't know we got interrupted and will send
+	 * the ACKs in the same order as the message, but we'd need
+	 * to see them in the opposite order ...
 	 *
 	 * This wouldn't matter *too* much, but some ACKs carry the
 	 * current time (for UM_TIMETRAVEL_GET) and getting another
@@ -132,7 +140,7 @@ static u64 time_travel_ext_req(u32 op, u64 time)
 	 * The sequence number assignment that happens here lets us
 	 * debug such message handling issues more easily.
 	 */
-	block_signals_hard();
+	local_irq_save(flags);
 	os_write_file(time_travel_ext_fd, &msg, sizeof(msg));
 
 	while (msg.op != UM_TIMETRAVEL_ACK)
@@ -144,7 +152,7 @@ static u64 time_travel_ext_req(u32 op, u64 time)
 
 	if (op == UM_TIMETRAVEL_GET)
 		time_travel_set_time(msg.time);
-	unblock_signals_hard();
+	local_irq_restore(flags);
 
 	return msg.time;
 }
@@ -344,6 +352,9 @@ void deliver_time_travel_irqs(void)
 	while ((e = list_first_entry_or_null(&time_travel_irqs,
 					     struct time_travel_event,
 					     list))) {
+		WARN(e->time != time_travel_time,
+		     "time moved from %lld to %lld before IRQ delivery\n",
+		     time_travel_time, e->time);
 		list_del(&e->list);
 		e->pending = false;
 		e->fn(e);

@@ -16,6 +16,7 @@
 #include <linux/mman.h>
 #include <linux/random.h>
 #include <linux/init.h>
+#include <linux/raw.h>
 #include <linux/tty.h>
 #include <linux/capability.h>
 #include <linux/ptrace.h>

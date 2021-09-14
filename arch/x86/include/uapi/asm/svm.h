@@ -110,9 +110,6 @@
 #define SVM_VMGEXIT_GET_AP_JUMP_TABLE		1
 #define SVM_VMGEXIT_UNSUPPORTED_EVENT		0x8000ffff
 
-/* Exit code reserved for hypervisor/software use */
-#define SVM_EXIT_SW				0xf0000000
-
 #define SVM_EXIT_ERR           -1
 
 #define SVM_EXIT_REASONS \

@@ -879,6 +879,18 @@ static void pd_probe_drive(struct pd_unit *disk)
 {
 	struct gendisk *p;
 
+	p = alloc_disk(1 << PD_BITS);
+	if (!p)
+		return;
+
+	strcpy(p->disk_name, disk->name);
+	p->fops = &pd_fops;
+	p->major = major;
+	p->first_minor = (disk - pd) << PD_BITS;
+	p->events = DISK_EVENT_MEDIA_CHANGE;
+	disk->gd = p;
+	p->private_data = disk;
+
 	memset(&disk->tag_set, 0, sizeof(disk->tag_set));
 	disk->tag_set.ops = &pd_mq_ops;
 	disk->tag_set.cmd_size = sizeof(struct pd_req);
@@ -891,21 +903,14 @@ static void pd_probe_drive(struct pd_unit *disk)
 	if (blk_mq_alloc_tag_set(&disk->tag_set))
 		return;
 
-	p = blk_mq_alloc_disk(&disk->tag_set, disk);
-	if (IS_ERR(p)) {
+	p->queue = blk_mq_init_queue(&disk->tag_set);
+	if (IS_ERR(p->queue)) {
 		blk_mq_free_tag_set(&disk->tag_set);
+		p->queue = NULL;
 		return;
 	}
-	disk->gd = p;
 
-	strcpy(p->disk_name, disk->name);
-	p->fops = &pd_fops;
-	p->major = major;
-	p->first_minor = (disk - pd) << PD_BITS;
-	p->minors = 1 << PD_BITS;
-	p->events = DISK_EVENT_MEDIA_CHANGE;
-	p->private_data = disk;
-
+	p->queue->queuedata = disk;
 	blk_queue_max_hw_sectors(p->queue, cluster);
 	blk_queue_bounce_limit(p->queue, BLK_BOUNCE_HIGH);
 
@@ -1014,8 +1019,9 @@ static void __exit pd_exit(void)
 		if (p) {
 			disk->gd = NULL;
 			del_gendisk(p);
-			blk_cleanup_disk(p);
+			blk_cleanup_queue(p->queue);
 			blk_mq_free_tag_set(&disk->tag_set);
+			put_disk(p);
 			pi_release(disk->pi);
 		}
 	}

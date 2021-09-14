@@ -134,7 +134,7 @@ lasi700_probe(struct parisc_device *dev)
 	return -ENODEV;
 }
 
-static void __exit
+static int __exit
 lasi700_driver_remove(struct parisc_device *dev)
 {
 	struct Scsi_Host *host = dev_get_drvdata(&dev->dev);
@@ -146,6 +146,8 @@ lasi700_driver_remove(struct parisc_device *dev)
 	free_irq(host->irq, host);
 	iounmap(hostdata->base);
 	kfree(hostdata);
+
+	return 0;
 }
 
 static struct parisc_driver lasi700_driver __refdata = {

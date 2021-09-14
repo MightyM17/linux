@@ -249,12 +249,12 @@ static void set_power_saving_task_num(unsigned int num)
 
 static void acpi_pad_idle_cpus(unsigned int num_cpus)
 {
-	cpus_read_lock();
+	get_online_cpus();
 
 	num_cpus = min_t(unsigned int, num_cpus, num_online_cpus());
 	set_power_saving_task_num(num_cpus);
 
-	cpus_read_unlock();
+	put_online_cpus();
 }
 
 static uint32_t acpi_pad_idle_cpus_num(void)

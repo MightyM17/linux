@@ -32,7 +32,6 @@
 #include <drm/ttm/ttm_bo_api.h>
 #include <drm/ttm/ttm_bo_driver.h>
 #include <drm/ttm/ttm_placement.h>
-#include <drm/ttm/ttm_range_manager.h>
 
 #include "qxl_drv.h"
 #include "qxl_object.h"
@@ -127,12 +126,12 @@ static void qxl_bo_move_notify(struct ttm_buffer_object *bo,
 	struct qxl_bo *qbo;
 	struct qxl_device *qdev;
 
-	if (!qxl_ttm_bo_is_qxl_bo(bo) || !bo->resource)
+	if (!qxl_ttm_bo_is_qxl_bo(bo))
 		return;
 	qbo = to_qxl_bo(bo);
 	qdev = to_qxl(qbo->tbo.base.dev);
 
-	if (bo->resource->mem_type == TTM_PL_PRIV && qbo->surface_id)
+	if (bo->mem.mem_type == TTM_PL_PRIV && qbo->surface_id)
 		qxl_surface_evict(qdev, qbo, new_mem ? true : false);
 }
 
@@ -141,7 +140,7 @@ static int qxl_bo_move(struct ttm_buffer_object *bo, bool evict,
 		       struct ttm_resource *new_mem,
 		       struct ttm_place *hop)
 {
-	struct ttm_resource *old_mem = bo->resource;
+	struct ttm_resource *old_mem = &bo->mem;
 	int ret;
 
 	qxl_bo_move_notify(bo, new_mem);

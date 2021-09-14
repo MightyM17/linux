@@ -42,9 +42,7 @@ static int ice_info_pba(struct ice_pf *pf, struct ice_info_ctx *ctx)
 
 	status = ice_read_pba_string(hw, (u8 *)ctx->buf, sizeof(ctx->buf));
 	if (status)
-		/* We failed to locate the PBA, so just skip this entry */
-		dev_dbg(ice_pf_to_dev(pf), "Failed to read Product Board Assembly string, status %s\n",
-			ice_stat_str(status));
+		return -EIO;
 
 	return 0;
 }
@@ -278,12 +276,6 @@ static int ice_devlink_info_get(struct devlink *devlink,
 	size_t i;
 	int err;
 
-	err = ice_wait_for_reset(pf, 10 * HZ);
-	if (err) {
-		NL_SET_ERR_MSG_MOD(extack, "Device is busy resetting");
-		return err;
-	}
-
 	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
 	if (!ctx)
 		return -ENOMEM;
@@ -291,9 +283,6 @@ static int ice_devlink_info_get(struct devlink *devlink,
 	/* discover capabilities first */
 	status = ice_discover_dev_caps(hw, &ctx->dev_caps);
 	if (status) {
-		dev_dbg(dev, "Failed to discover device capabilities, status %s aq_err %s\n",
-			ice_stat_str(status), ice_aq_str(hw->adminq.sq_last_status));
-		NL_SET_ERR_MSG_MOD(extack, "Unable to discover device capabilities");
 		err = -EIO;
 		goto out_free_ctx;
 	}
@@ -477,7 +466,7 @@ struct ice_pf *ice_allocate_pf(struct device *dev)
 {
 	struct devlink *devlink;
 
-	devlink = devlink_alloc(&ice_devlink_ops, sizeof(struct ice_pf), dev);
+	devlink = devlink_alloc(&ice_devlink_ops, sizeof(struct ice_pf));
 	if (!devlink)
 		return NULL;
 
@@ -504,7 +493,7 @@ int ice_devlink_register(struct ice_pf *pf)
 	struct device *dev = ice_pf_to_dev(pf);
 	int err;
 
-	err = devlink_register(devlink);
+	err = devlink_register(devlink, dev);
 	if (err) {
 		dev_err(dev, "devlink registration failed: %d\n", err);
 		return err;

@@ -2,7 +2,7 @@
 /*
  * HiSilicon SoC Hardware event counters support
  *
- * Copyright (C) 2017 HiSilicon Limited
+ * Copyright (C) 2017 Hisilicon Limited
  * Author: Anurup M <anurup.m@huawei.com>
  *         Shaokun Zhang <zhangshaokun@hisilicon.com>
  *

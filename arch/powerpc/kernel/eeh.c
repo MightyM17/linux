@@ -21,9 +21,9 @@
 #include <linux/spinlock.h>
 #include <linux/export.h>
 #include <linux/of.h>
-#include <linux/debugfs.h>
 
 #include <linux/atomic.h>
+#include <asm/debugfs.h>
 #include <asm/eeh.h>
 #include <asm/eeh_event.h>
 #include <asm/io.h>
@@ -346,7 +346,28 @@ void eeh_slot_error_detail(struct eeh_pe *pe, int severity)
  */
 static inline unsigned long eeh_token_to_phys(unsigned long token)
 {
-	return ppc_find_vmap_phys(token);
+	pte_t *ptep;
+	unsigned long pa;
+	int hugepage_shift;
+
+	/*
+	 * We won't find hugepages here(this is iomem). Hence we are not
+	 * worried about _PAGE_SPLITTING/collapse. Also we will not hit
+	 * page table free, because of init_mm.
+	 */
+	ptep = find_init_mm_pte(token, &hugepage_shift);
+	if (!ptep)
+		return token;
+
+	pa = pte_pfn(*ptep);
+
+	/* On radix we can do hugepage mappings for io, so handle that */
+	if (!hugepage_shift)
+		hugepage_shift = PAGE_SHIFT;
+
+	pa <<= PAGE_SHIFT;
+	pa |= token & ((1ul << hugepage_shift) - 1);
+	return pa;
 }
 
 /*
@@ -1901,24 +1922,24 @@ static int __init eeh_init_proc(void)
 		proc_create_single("powerpc/eeh", 0, NULL, proc_eeh_show);
 #ifdef CONFIG_DEBUG_FS
 		debugfs_create_file_unsafe("eeh_enable", 0600,
-					   arch_debugfs_dir, NULL,
+					   powerpc_debugfs_root, NULL,
 					   &eeh_enable_dbgfs_ops);
 		debugfs_create_u32("eeh_max_freezes", 0600,
-				arch_debugfs_dir, &eeh_max_freezes);
+				powerpc_debugfs_root, &eeh_max_freezes);
 		debugfs_create_bool("eeh_disable_recovery", 0600,
-				arch_debugfs_dir,
+				powerpc_debugfs_root,
 				&eeh_debugfs_no_recover);
 		debugfs_create_file_unsafe("eeh_dev_check", 0600,
-				arch_debugfs_dir, NULL,
+				powerpc_debugfs_root, NULL,
 				&eeh_dev_check_fops);
 		debugfs_create_file_unsafe("eeh_dev_break", 0600,
-				arch_debugfs_dir, NULL,
+				powerpc_debugfs_root, NULL,
 				&eeh_dev_break_fops);
 		debugfs_create_file_unsafe("eeh_force_recover", 0600,
-				arch_debugfs_dir, NULL,
+				powerpc_debugfs_root, NULL,
 				&eeh_force_recover_fops);
 		debugfs_create_file_unsafe("eeh_dev_can_recover", 0600,
-				arch_debugfs_dir, NULL,
+				powerpc_debugfs_root, NULL,
 				&eeh_dev_can_recover_fops);
 		eeh_cache_debugfs_init();
 #endif

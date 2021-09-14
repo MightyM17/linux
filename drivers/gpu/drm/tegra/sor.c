@@ -3125,21 +3125,21 @@ static int tegra_sor_init(struct host1x_client *client)
 		if (err < 0) {
 			dev_err(sor->dev, "failed to acquire SOR reset: %d\n",
 				err);
-			goto rpm_put;
+			return err;
 		}
 
 		err = reset_control_assert(sor->rst);
 		if (err < 0) {
 			dev_err(sor->dev, "failed to assert SOR reset: %d\n",
 				err);
-			goto rpm_put;
+			return err;
 		}
 	}
 
 	err = clk_prepare_enable(sor->clk);
 	if (err < 0) {
 		dev_err(sor->dev, "failed to enable clock: %d\n", err);
-		goto rpm_put;
+		return err;
 	}
 
 	usleep_range(1000, 3000);
@@ -3150,7 +3150,7 @@ static int tegra_sor_init(struct host1x_client *client)
 			dev_err(sor->dev, "failed to deassert SOR reset: %d\n",
 				err);
 			clk_disable_unprepare(sor->clk);
-			goto rpm_put;
+			return err;
 		}
 
 		reset_control_release(sor->rst);
@@ -3171,12 +3171,6 @@ static int tegra_sor_init(struct host1x_client *client)
 	}
 
 	return 0;
-
-rpm_put:
-	if (sor->rst)
-		pm_runtime_put(sor->dev);
-
-	return err;
 }
 
 static int tegra_sor_exit(struct host1x_client *client)
@@ -3745,8 +3739,12 @@ static int tegra_sor_probe(struct platform_device *pdev)
 		if (!sor->aux)
 			return -EPROBE_DEFER;
 
-		if (get_device(sor->aux->dev))
-			sor->output.ddc = &sor->aux->ddc;
+		if (get_device(&sor->aux->ddc.dev)) {
+			if (try_module_get(sor->aux->ddc.owner))
+				sor->output.ddc = &sor->aux->ddc;
+			else
+				put_device(&sor->aux->ddc.dev);
+		}
 	}
 
 	if (!sor->aux) {
@@ -3774,13 +3772,12 @@ static int tegra_sor_probe(struct platform_device *pdev)
 
 	err = tegra_sor_parse_dt(sor);
 	if (err < 0)
-		goto put_aux;
+		return err;
 
 	err = tegra_output_probe(&sor->output);
-	if (err < 0) {
-		dev_err_probe(&pdev->dev, err, "failed to probe output\n");
-		goto put_aux;
-	}
+	if (err < 0)
+		return dev_err_probe(&pdev->dev, err,
+				     "failed to probe output\n");
 
 	if (sor->ops && sor->ops->probe) {
 		err = sor->ops->probe(sor);
@@ -3919,9 +3916,16 @@ static int tegra_sor_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, sor);
 	pm_runtime_enable(&pdev->dev);
 
-	host1x_client_init(&sor->client);
+	INIT_LIST_HEAD(&sor->client.list);
 	sor->client.ops = &sor_client_ops;
 	sor->client.dev = &pdev->dev;
+
+	err = host1x_client_register(&sor->client);
+	if (err < 0) {
+		dev_err(&pdev->dev, "failed to register host1x client: %d\n",
+			err);
+		goto rpm_disable;
+	}
 
 	/*
 	 * On Tegra210 and earlier, provide our own implementation for the
@@ -3934,13 +3938,13 @@ static int tegra_sor_probe(struct platform_device *pdev)
 				      sor->index);
 		if (!name) {
 			err = -ENOMEM;
-			goto uninit;
+			goto unregister;
 		}
 
 		err = host1x_client_resume(&sor->client);
 		if (err < 0) {
 			dev_err(sor->dev, "failed to resume: %d\n", err);
-			goto uninit;
+			goto unregister;
 		}
 
 		sor->clk_pad = tegra_clk_sor_pad_register(sor, name);
@@ -3951,30 +3955,17 @@ static int tegra_sor_probe(struct platform_device *pdev)
 		err = PTR_ERR(sor->clk_pad);
 		dev_err(sor->dev, "failed to register SOR pad clock: %d\n",
 			err);
-		goto uninit;
-	}
-
-	err = __host1x_client_register(&sor->client);
-	if (err < 0) {
-		dev_err(&pdev->dev, "failed to register host1x client: %d\n",
-			err);
-		goto uninit;
+		goto unregister;
 	}
 
 	return 0;
 
-uninit:
-	host1x_client_exit(&sor->client);
+unregister:
+	host1x_client_unregister(&sor->client);
+rpm_disable:
 	pm_runtime_disable(&pdev->dev);
 remove:
-	if (sor->aux)
-		sor->output.ddc = NULL;
-
 	tegra_output_remove(&sor->output);
-put_aux:
-	if (sor->aux)
-		put_device(sor->aux->dev);
-
 	return err;
 }
 
@@ -3991,11 +3982,6 @@ static int tegra_sor_remove(struct platform_device *pdev)
 	}
 
 	pm_runtime_disable(&pdev->dev);
-
-	if (sor->aux) {
-		put_device(sor->aux->dev);
-		sor->output.ddc = NULL;
-	}
 
 	tegra_output_remove(&sor->output);
 

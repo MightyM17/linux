@@ -7,7 +7,6 @@ powerpc
 .. toctree::
     :maxdepth: 1
 
-    associativity
     booting
     bootwrapper
     cpu_families

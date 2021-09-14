@@ -8,7 +8,6 @@
 
 #include "dsi_phy.h"
 #include "dsi.xml.h"
-#include "dsi_phy_28nm.xml.h"
 
 /*
  * DSI PLL 28nm - clock diagram (eg: DSI0):

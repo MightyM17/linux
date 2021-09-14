@@ -23,8 +23,6 @@ Linux Tracing Technologies
    histogram-design
    boottime-trace
    hwlat_detector
-   osnoise-tracer
-   timerlat-tracer
    intel_th
    ring-buffer-design
    stm

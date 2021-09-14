@@ -40,10 +40,6 @@ cat << EOF
 #define __IGNORE_setrlimit	/* setrlimit */
 #endif
 
-#ifndef __ARCH_WANT_MEMFD_SECRET
-#define __IGNORE_memfd_secret
-#endif
-
 /* Missing flags argument */
 #define __IGNORE_renameat	/* renameat2 */
 
@@ -266,4 +262,4 @@ syscall_list() {
 }
 
 (ignore_list && syscall_list $(dirname $0)/../arch/x86/entry/syscalls/syscall_32.tbl) | \
-$* -Wno-error -E -x c - > /dev/null
+$* -E -x c - > /dev/null

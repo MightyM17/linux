@@ -43,8 +43,10 @@ static int lbs_ethtool_get_eeprom(struct net_device *dev,
 	int ret;
 
 	if (eeprom->offset + eeprom->len > LBS_EEPROM_LEN ||
-	    eeprom->len > LBS_EEPROM_READ_LEN)
-		return -EINVAL;
+	    eeprom->len > LBS_EEPROM_READ_LEN) {
+		ret = -EINVAL;
+		goto out;
+	}
 
 	cmd.hdr.size = cpu_to_le16(sizeof(struct cmd_ds_802_11_eeprom_access) -
 		LBS_EEPROM_READ_LEN + eeprom->len);
@@ -55,7 +57,8 @@ static int lbs_ethtool_get_eeprom(struct net_device *dev,
 	if (!ret)
 		memcpy(bytes, cmd.value, eeprom->len);
 
-	return ret;
+out:
+        return ret;
 }
 
 static void lbs_ethtool_get_wol(struct net_device *dev,

@@ -11,7 +11,6 @@
 #include <linux/kernel.h>
 #include <linux/sched/mm.h>
 #include <linux/memblock.h>
-#include <linux/of.h>
 #include <linux/of_fdt.h>
 #include <linux/mm.h>
 #include <linux/hugetlb.h>
@@ -358,19 +357,30 @@ static void __init radix_init_pgtable(void)
 	}
 
 	/* Find out how many PID bits are supported */
-	if (!cpu_has_feature(CPU_FTR_HVMODE) &&
-			cpu_has_feature(CPU_FTR_P9_RADIX_PREFETCH_BUG)) {
-		/*
-		 * Older versions of KVM on these machines perfer if the
-		 * guest only uses the low 19 PID bits.
-		 */
-		if (!mmu_pid_bits)
-			mmu_pid_bits = 19;
-	} else {
+	if (!cpu_has_feature(CPU_FTR_P9_RADIX_PREFETCH_BUG)) {
 		if (!mmu_pid_bits)
 			mmu_pid_bits = 20;
+		mmu_base_pid = 1;
+	} else if (cpu_has_feature(CPU_FTR_HVMODE)) {
+		if (!mmu_pid_bits)
+			mmu_pid_bits = 20;
+#ifdef CONFIG_KVM_BOOK3S_HV_POSSIBLE
+		/*
+		 * When KVM is possible, we only use the top half of the
+		 * PID space to avoid collisions between host and guest PIDs
+		 * which can cause problems due to prefetch when exiting the
+		 * guest with AIL=3
+		 */
+		mmu_base_pid = 1 << (mmu_pid_bits - 1);
+#else
+		mmu_base_pid = 1;
+#endif
+	} else {
+		/* The guest uses the bottom half of the PID space */
+		if (!mmu_pid_bits)
+			mmu_pid_bits = 19;
+		mmu_base_pid = 1;
 	}
-	mmu_base_pid = 1;
 
 	/*
 	 * Allocate Partition table and process table for the
@@ -476,7 +486,6 @@ static int __init radix_dt_scan_page_sizes(unsigned long node,
 		def = &mmu_psize_defs[idx];
 		def->shift = shift;
 		def->ap  = ap;
-		def->h_rpt_pgsize = psize_to_rpti_pgsize(idx);
 	}
 
 	/* needed ? */
@@ -551,13 +560,9 @@ void __init radix__early_init_devtree(void)
 		 */
 		mmu_psize_defs[MMU_PAGE_4K].shift = 12;
 		mmu_psize_defs[MMU_PAGE_4K].ap = 0x0;
-		mmu_psize_defs[MMU_PAGE_4K].h_rpt_pgsize =
-			psize_to_rpti_pgsize(MMU_PAGE_4K);
 
 		mmu_psize_defs[MMU_PAGE_64K].shift = 16;
 		mmu_psize_defs[MMU_PAGE_64K].ap = 0x5;
-		mmu_psize_defs[MMU_PAGE_64K].h_rpt_pgsize =
-			psize_to_rpti_pgsize(MMU_PAGE_64K);
 	}
 
 	/*
@@ -679,8 +684,7 @@ void radix__early_init_mmu_secondary(void)
 	mtspr(SPRN_UAMOR, 0);
 }
 
-/* Called during kexec sequence with MMU off */
-notrace void radix__mmu_cleanup_all(void)
+void radix__mmu_cleanup_all(void)
 {
 	unsigned long lpcr;
 
@@ -821,7 +825,7 @@ static void __meminit remove_pud_table(pud_t *pud_start, unsigned long addr,
 			continue;
 		}
 
-		pmd_base = pud_pgtable(*pud);
+		pmd_base = (pmd_t *)pud_page_vaddr(*pud);
 		remove_pmd_table(pmd_base, addr, next);
 		free_pmd_table(pmd_base, pud);
 	}
@@ -855,7 +859,7 @@ static void __meminit remove_pagetable(unsigned long start, unsigned long end)
 			continue;
 		}
 
-		pud_base = p4d_pgtable(*p4d);
+		pud_base = (pud_t *)p4d_page_vaddr(*p4d);
 		remove_pud_table(pud_base, addr, next);
 		free_pud_table(pud_base, p4d);
 	}
@@ -1106,7 +1110,7 @@ int pud_free_pmd_page(pud_t *pud, unsigned long addr)
 	pmd_t *pmd;
 	int i;
 
-	pmd = pud_pgtable(*pud);
+	pmd = (pmd_t *)pud_page_vaddr(*pud);
 	pud_clear(pud);
 
 	flush_tlb_kernel_range(addr, addr + PUD_SIZE);

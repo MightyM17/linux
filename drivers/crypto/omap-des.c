@@ -229,8 +229,9 @@ static int omap_des_hw_init(struct omap_des_dev *dd)
 	 * It may be long delays between requests.
 	 * Device might go to off mode to save power.
 	 */
-	err = pm_runtime_resume_and_get(dd->dev);
+	err = pm_runtime_get_sync(dd->dev);
 	if (err < 0) {
+		pm_runtime_put_noidle(dd->dev);
 		dev_err(dd->dev, "%s: failed to get_sync(%d)\n", __func__, err);
 		return err;
 	}
@@ -993,8 +994,9 @@ static int omap_des_probe(struct platform_device *pdev)
 	pm_runtime_set_autosuspend_delay(dev, DEFAULT_AUTOSUSPEND_DELAY);
 
 	pm_runtime_enable(dev);
-	err = pm_runtime_resume_and_get(dev);
+	err = pm_runtime_get_sync(dev);
 	if (err < 0) {
+		pm_runtime_put_noidle(dev);
 		dev_err(dd->dev, "%s: failed to get_sync(%d)\n", __func__, err);
 		goto err_get;
 	}
@@ -1033,9 +1035,9 @@ static int omap_des_probe(struct platform_device *pdev)
 
 
 	INIT_LIST_HEAD(&dd->list);
-	spin_lock_bh(&list_lock);
+	spin_lock(&list_lock);
 	list_add_tail(&dd->list, &dev_list);
-	spin_unlock_bh(&list_lock);
+	spin_unlock(&list_lock);
 
 	/* Initialize des crypto engine */
 	dd->engine = crypto_engine_alloc_init(dev, 1);
@@ -1094,9 +1096,9 @@ static int omap_des_remove(struct platform_device *pdev)
 	if (!dd)
 		return -ENODEV;
 
-	spin_lock_bh(&list_lock);
+	spin_lock(&list_lock);
 	list_del(&dd->list);
-	spin_unlock_bh(&list_lock);
+	spin_unlock(&list_lock);
 
 	for (i = dd->pdata->algs_info_size - 1; i >= 0; i--)
 		for (j = dd->pdata->algs_info[i].registered - 1; j >= 0; j--)
@@ -1122,8 +1124,9 @@ static int omap_des_resume(struct device *dev)
 {
 	int err;
 
-	err = pm_runtime_resume_and_get(dev);
+	err = pm_runtime_get_sync(dev);
 	if (err < 0) {
+		pm_runtime_put_noidle(dev);
 		dev_err(dev, "%s: failed to get_sync(%d)\n", __func__, err);
 		return err;
 	}

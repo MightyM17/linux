@@ -364,6 +364,7 @@ struct cached_dev {
 
 	/* The rest of this all shows up in sysfs */
 	unsigned int		sequential_cutoff;
+	unsigned int		readahead;
 
 	unsigned int		io_disable:1;
 	unsigned int		verify:1;

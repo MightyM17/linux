@@ -95,7 +95,7 @@ static void __put_single_page(struct page *page)
 {
 	__page_cache_release(page);
 	mem_cgroup_uncharge(page);
-	free_unref_page(page, 0);
+	free_unref_page(page);
 }
 
 static void __put_compound_page(struct page *page)
@@ -178,6 +178,28 @@ int get_kernel_pages(const struct kvec *kiov, int nr_segs, int write,
 	return seg;
 }
 EXPORT_SYMBOL_GPL(get_kernel_pages);
+
+/*
+ * get_kernel_page() - pin a kernel page in memory
+ * @start:	starting kernel address
+ * @write:	pinning for read/write, currently ignored
+ * @pages:	array that receives pointer to the page pinned.
+ *		Must be at least nr_segs long.
+ *
+ * Returns 1 if page is pinned. If the page was not pinned, returns
+ * -errno. The page returned must be released with a put_page() call
+ * when it is finished with.
+ */
+int get_kernel_page(unsigned long start, int write, struct page **pages)
+{
+	const struct kvec kiov = {
+		.iov_base = (void *)start,
+		.iov_len = PAGE_SIZE
+	};
+
+	return get_kernel_pages(&kiov, 1, write, pages);
+}
+EXPORT_SYMBOL_GPL(get_kernel_page);
 
 static void pagevec_lru_move_fn(struct pagevec *pvec,
 	void (*move_fn)(struct page *page, struct lruvec *lruvec))
@@ -291,7 +313,7 @@ void lru_note_cost(struct lruvec *lruvec, bool file, unsigned int nr_pages)
 
 void lru_note_cost_page(struct page *page)
 {
-	lru_note_cost(mem_cgroup_page_lruvec(page),
+	lru_note_cost(mem_cgroup_page_lruvec(page, page_pgdat(page)),
 		      page_is_file_lru(page), thp_nr_pages(page));
 }
 
@@ -532,7 +554,7 @@ static void lru_deactivate_file_fn(struct page *page, struct lruvec *lruvec)
 	} else {
 		/*
 		 * The page's writeback ends up during pagevec
-		 * We move that page into tail of inactive.
+		 * We moves tha page into tail of inactive.
 		 */
 		add_page_to_lru_list_tail(page, lruvec);
 		__count_vm_events(PGROTATED, nr_pages);

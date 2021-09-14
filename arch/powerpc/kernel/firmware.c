@@ -23,20 +23,18 @@ EXPORT_SYMBOL_GPL(powerpc_firmware_features);
 
 #if defined(CONFIG_PPC_PSERIES) || defined(CONFIG_KVM_GUEST)
 DEFINE_STATIC_KEY_FALSE(kvm_guest);
-int __init check_kvm_guest(void)
+bool check_kvm_guest(void)
 {
 	struct device_node *hyper_node;
 
 	hyper_node = of_find_node_by_path("/hypervisor");
 	if (!hyper_node)
-		return 0;
+		return false;
 
 	if (!of_device_is_compatible(hyper_node, "linux,kvm"))
-		return 0;
+		return false;
 
 	static_branch_enable(&kvm_guest);
-
-	return 0;
+	return true;
 }
-core_initcall(check_kvm_guest); // before kvm_guest_init()
 #endif

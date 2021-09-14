@@ -23,11 +23,8 @@
  */
 #define J721E_CODEC_CONF_COUNT	5
 
-enum j721e_audio_domain_id {
-	J721E_AUDIO_DOMAIN_CPB = 0,
-	J721E_AUDIO_DOMAIN_IVI,
-	J721E_AUDIO_DOMAIN_LAST,
-};
+#define J721E_AUDIO_DOMAIN_CPB	0
+#define J721E_AUDIO_DOMAIN_IVI	1
 
 #define J721E_CLK_PARENT_48000	0
 #define J721E_CLK_PARENT_44100	1
@@ -81,7 +78,7 @@ struct j721e_priv {
 	u32 pll_rates[2];
 	unsigned int hsdiv_rates[2];
 
-	struct j721e_audio_domain audio_domains[J721E_AUDIO_DOMAIN_LAST];
+	struct j721e_audio_domain audio_domains[2];
 
 	struct mutex mutex;
 };
@@ -200,10 +197,11 @@ static int j721e_configure_refclk(struct j721e_priv *priv,
 		return ret;
 	}
 
-	if (domain->parent_clk_id == -1 || priv->hsdiv_rates[domain->parent_clk_id] != scki) {
+	if (priv->hsdiv_rates[domain->parent_clk_id] != scki) {
 		dev_dbg(priv->dev,
-			"domain%u configuration for %u Hz: %s, %dxFS (SCKI: %u Hz)\n",
-			audio_domain, rate,
+			"%s configuration for %u Hz: %s, %dxFS (SCKI: %u Hz)\n",
+			audio_domain == J721E_AUDIO_DOMAIN_CPB ? "CPB" : "IVI",
+			rate,
 			clk_id == J721E_CLK_PARENT_48000 ? "PLL4" : "PLL15",
 			ratios_for_pcm3168a[i], scki);
 
@@ -265,11 +263,10 @@ static int j721e_audio_startup(struct snd_pcm_substream *substream)
 
 	domain->active++;
 
-	for (i = 0; i < J721E_AUDIO_DOMAIN_LAST; i++) {
-		active_rate = priv->audio_domains[i].rate;
-		if (active_rate)
-			break;
-	}
+	if (priv->audio_domains[J721E_AUDIO_DOMAIN_CPB].rate)
+		active_rate = priv->audio_domains[J721E_AUDIO_DOMAIN_CPB].rate;
+	else
+		active_rate = priv->audio_domains[J721E_AUDIO_DOMAIN_IVI].rate;
 
 	if (active_rate)
 		ret = snd_pcm_hw_constraint_single(substream->runtime,
@@ -281,29 +278,23 @@ static int j721e_audio_startup(struct snd_pcm_substream *substream)
 					  j721e_rule_rate, &priv->rate_range,
 					  SNDRV_PCM_HW_PARAM_RATE, -1);
 
+	mutex_unlock(&priv->mutex);
 
 	if (ret)
-		goto out;
+		return ret;
 
 	/* Reset TDM slots to 32 */
 	ret = snd_soc_dai_set_tdm_slot(cpu_dai, 0x3, 0x3, 2, 32);
 	if (ret && ret != -ENOTSUPP)
-		goto out;
+		return ret;
 
 	for_each_rtd_codec_dais(rtd, i, codec_dai) {
 		ret = snd_soc_dai_set_tdm_slot(codec_dai, 0x3, 0x3, 2, 32);
 		if (ret && ret != -ENOTSUPP)
-			goto out;
+			return ret;
 	}
 
-	if (ret == -ENOTSUPP)
-		ret = 0;
-out:
-	if (ret)
-		domain->active--;
-	mutex_unlock(&priv->mutex);
-
-	return ret;
+	return 0;
 }
 
 static int j721e_audio_hw_params(struct snd_pcm_substream *substream,
@@ -828,7 +819,7 @@ static int j721e_soc_probe(struct platform_device *pdev)
 	struct snd_soc_card *card;
 	const struct of_device_id *match;
 	struct j721e_priv *priv;
-	int link_cnt, conf_cnt, ret, i;
+	int link_cnt, conf_cnt, ret;
 
 	if (!node) {
 		dev_err(&pdev->dev, "of node is missing.\n");
@@ -852,9 +843,8 @@ static int j721e_soc_probe(struct platform_device *pdev)
 	if (!priv->dai_links)
 		return -ENOMEM;
 
-	for (i = 0; i < J721E_AUDIO_DOMAIN_LAST; i++)
-		priv->audio_domains[i].parent_clk_id = -1;
-
+	priv->audio_domains[J721E_AUDIO_DOMAIN_CPB].parent_clk_id = -1;
+	priv->audio_domains[J721E_AUDIO_DOMAIN_IVI].parent_clk_id = -1;
 	priv->dev = &pdev->dev;
 	card = &priv->card;
 	card->dev = &pdev->dev;

@@ -462,6 +462,8 @@ static void hns_ae_adjust_link(struct hnae_handle *handle, int speed,
 	default:
 		break;
 	}
+
+	return;
 }
 
 static void hns_ae_get_ring_bdnum_limit(struct hnae_queue *queue,

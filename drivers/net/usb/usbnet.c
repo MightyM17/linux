@@ -74,23 +74,6 @@ MODULE_PARM_DESC (msg_level, "Override default message level");
 
 /*-------------------------------------------------------------------------*/
 
-static const char * const usbnet_event_names[] = {
-	[EVENT_TX_HALT]		   = "EVENT_TX_HALT",
-	[EVENT_RX_HALT]		   = "EVENT_RX_HALT",
-	[EVENT_RX_MEMORY]	   = "EVENT_RX_MEMORY",
-	[EVENT_STS_SPLIT]	   = "EVENT_STS_SPLIT",
-	[EVENT_LINK_RESET]	   = "EVENT_LINK_RESET",
-	[EVENT_RX_PAUSED]	   = "EVENT_RX_PAUSED",
-	[EVENT_DEV_ASLEEP]	   = "EVENT_DEV_ASLEEP",
-	[EVENT_DEV_OPEN]	   = "EVENT_DEV_OPEN",
-	[EVENT_DEVICE_REPORT_IDLE] = "EVENT_DEVICE_REPORT_IDLE",
-	[EVENT_NO_RUNTIME_PM]	   = "EVENT_NO_RUNTIME_PM",
-	[EVENT_RX_KILL]		   = "EVENT_RX_KILL",
-	[EVENT_LINK_CHANGE]	   = "EVENT_LINK_CHANGE",
-	[EVENT_SET_RX_MODE]	   = "EVENT_SET_RX_MODE",
-	[EVENT_NO_IP_ALIGN]	   = "EVENT_NO_IP_ALIGN",
-};
-
 /* handles CDC Ethernet and many other network "bulk data" interfaces */
 int usbnet_get_endpoints(struct usbnet *dev, struct usb_interface *intf)
 {
@@ -469,9 +452,9 @@ void usbnet_defer_kevent (struct usbnet *dev, int work)
 {
 	set_bit (work, &dev->flags);
 	if (!schedule_work (&dev->kevent))
-		netdev_dbg(dev->net, "kevent %s may have been dropped\n", usbnet_event_names[work]);
+		netdev_dbg(dev->net, "kevent %d may have been dropped\n", work);
 	else
-		netdev_dbg(dev->net, "kevent %s scheduled\n", usbnet_event_names[work]);
+		netdev_dbg(dev->net, "kevent %d scheduled\n", work);
 }
 EXPORT_SYMBOL_GPL(usbnet_defer_kevent);
 
@@ -1614,15 +1597,15 @@ void usbnet_disconnect (struct usb_interface *intf)
 		   xdev->bus->bus_name, xdev->devpath,
 		   dev->driver_info->description);
 
-	if (dev->driver_info->unbind)
-		dev->driver_info->unbind(dev, intf);
-
 	net = dev->net;
 	unregister_netdev (net);
 
 	cancel_work_sync(&dev->kevent);
 
 	usb_scuttle_anchored_urbs(&dev->deferred);
+
+	if (dev->driver_info->unbind)
+		dev->driver_info->unbind (dev, intf);
 
 	usb_kill_urb(dev->interrupt);
 	usb_free_urb(dev->interrupt);
@@ -1725,7 +1708,7 @@ usbnet_probe (struct usb_interface *udev, const struct usb_device_id *prod)
 	dev->interrupt_count = 0;
 
 	dev->net = net;
-	strscpy(net->name, "usb%d", sizeof(net->name));
+	strcpy (net->name, "usb%d");
 	memcpy (net->dev_addr, node_id, sizeof node_id);
 
 	/* rx and tx sides can use different message sizes;
@@ -1752,13 +1735,13 @@ usbnet_probe (struct usb_interface *udev, const struct usb_device_id *prod)
 		if ((dev->driver_info->flags & FLAG_ETHER) != 0 &&
 		    ((dev->driver_info->flags & FLAG_POINTTOPOINT) == 0 ||
 		     (net->dev_addr [0] & 0x02) == 0))
-			strscpy(net->name, "eth%d", sizeof(net->name));
+			strcpy (net->name, "eth%d");
 		/* WLAN devices should always be named "wlan%d" */
 		if ((dev->driver_info->flags & FLAG_WLAN) != 0)
-			strscpy(net->name, "wlan%d", sizeof(net->name));
+			strcpy(net->name, "wlan%d");
 		/* WWAN devices should always be named "wwan%d" */
 		if ((dev->driver_info->flags & FLAG_WWAN) != 0)
-			strscpy(net->name, "wwan%d", sizeof(net->name));
+			strcpy(net->name, "wwan%d");
 
 		/* devices that cannot do ARP */
 		if ((dev->driver_info->flags & FLAG_NOARP) != 0)

@@ -66,11 +66,9 @@ int rn_get_active_display_cnt_wa(
 	for (i = 0; i < context->stream_count; i++) {
 		const struct dc_stream_state *stream = context->streams[i];
 
-		/* Extend the WA to DP for Linux*/
 		if (stream->signal == SIGNAL_TYPE_HDMI_TYPE_A ||
 				stream->signal == SIGNAL_TYPE_DVI_SINGLE_LINK ||
-				stream->signal == SIGNAL_TYPE_DVI_DUAL_LINK ||
-				stream->signal == SIGNAL_TYPE_DISPLAY_PORT)
+				stream->signal == SIGNAL_TYPE_DVI_DUAL_LINK)
 			tmds_present = true;
 	}
 
@@ -108,10 +106,10 @@ static void rn_update_clocks_update_dpp_dto(struct clk_mgr_internal *clk_mgr,
 	for (i = 0; i < clk_mgr->base.ctx->dc->res_pool->pipe_count; i++) {
 		int dpp_inst, dppclk_khz, prev_dppclk_khz;
 
-		/* Loop index may not match dpp->inst if some pipes disabled,
-		 * so select correct inst from res_pool
+		/* Loop index will match dpp->inst if resource exists,
+		 * and we want to avoid dependency on dpp object
 		 */
-		dpp_inst = clk_mgr->base.ctx->dc->res_pool->dpps[i]->inst;
+		dpp_inst = i;
 		dppclk_khz = context->res_ctx.pipe_ctx[i].plane_res.bw.dppclk_khz;
 
 		prev_dppclk_khz = clk_mgr->dccg->pipe_dppclk_khz[i];
@@ -130,7 +128,7 @@ void rn_update_clocks(struct clk_mgr *clk_mgr_base,
 	struct clk_mgr_internal *clk_mgr = TO_CLK_MGR_INTERNAL(clk_mgr_base);
 	struct dc_clocks *new_clocks = &context->bw_ctx.bw.dcn.clk;
 	struct dc *dc = clk_mgr_base->ctx->dc;
-	int display_count;
+	int display_count, i;
 	bool update_dppclk = false;
 	bool update_dispclk = false;
 	bool dpp_clock_lowered = false;
@@ -211,6 +209,14 @@ void rn_update_clocks(struct clk_mgr *clk_mgr_base,
 				context,
 				clk_mgr_base->clks.dppclk_khz,
 				safe_to_lower);
+
+		for (i = 0; i < context->stream_count; i++) {
+			if (context->streams[i]->signal == SIGNAL_TYPE_EDP &&
+				context->streams[i]->apply_seamless_boot_optimization) {
+				dc_wait_for_vblank(dc, context->streams[i]);
+				break;
+			}
+		}
 
 		clk_mgr_base->clks.actual_dppclk_khz =
 				rn_vbios_smu_set_dppclk(clk_mgr, clk_mgr_base->clks.dppclk_khz);
@@ -836,7 +842,6 @@ static struct wm_table lpddr4_wm_table_rn = {
 		},
 	}
 };
-
 static unsigned int find_socclk_for_voltage(struct dpm_clocks *clock_table, unsigned int voltage)
 {
 	int i;
@@ -849,7 +854,6 @@ static unsigned int find_socclk_for_voltage(struct dpm_clocks *clock_table, unsi
 	ASSERT(0);
 	return 0;
 }
-
 static unsigned int find_dcfclk_for_voltage(struct dpm_clocks *clock_table, unsigned int voltage)
 {
 	int i;

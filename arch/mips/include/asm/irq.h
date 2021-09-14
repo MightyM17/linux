@@ -11,6 +11,7 @@
 
 #include <linux/linkage.h>
 #include <linux/smp.h>
+#include <linux/irqdomain.h>
 
 #include <asm/mipsmtregs.h>
 
@@ -56,9 +57,6 @@ static inline int irq_canonicalize(int irq)
 asmlinkage void plat_irq_dispatch(void);
 
 extern void do_IRQ(unsigned int irq);
-
-struct irq_domain;
-extern void do_domain_IRQ(struct irq_domain *domain, unsigned int irq);
 
 extern void arch_init_irq(void);
 extern void spurious_interrupt(void);

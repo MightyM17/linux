@@ -20,9 +20,9 @@
 #include <linux/sched.h>
 #include <linux/uaccess.h>
 
+#include "atomic.h"
 #include "encoding.h"
 #include "kcsan.h"
-#include "permissive.h"
 
 static bool kcsan_early_enable = IS_ENABLED(CONFIG_KCSAN_EARLY_ENABLE);
 unsigned int kcsan_udelay_task = CONFIG_KCSAN_UDELAY_TASK;
@@ -301,9 +301,9 @@ static inline void reset_kcsan_skip(void)
 	this_cpu_write(kcsan_skip, skip_count);
 }
 
-static __always_inline bool kcsan_is_enabled(struct kcsan_ctx *ctx)
+static __always_inline bool kcsan_is_enabled(void)
 {
-	return READ_ONCE(kcsan_enabled) && !ctx->disable_count;
+	return READ_ONCE(kcsan_enabled) && get_ctx()->disable_count == 0;
 }
 
 /* Introduce delay depending on context and configuration. */
@@ -353,18 +353,10 @@ static noinline void kcsan_found_watchpoint(const volatile void *ptr,
 					    atomic_long_t *watchpoint,
 					    long encoded_watchpoint)
 {
-	const bool is_assert = (type & KCSAN_ACCESS_ASSERT) != 0;
-	struct kcsan_ctx *ctx = get_ctx();
 	unsigned long flags;
 	bool consumed;
 
-	/*
-	 * We know a watchpoint exists. Let's try to keep the race-window
-	 * between here and finally consuming the watchpoint below as small as
-	 * possible -- avoid unneccessarily complex code until consumed.
-	 */
-
-	if (!kcsan_is_enabled(ctx))
+	if (!kcsan_is_enabled())
 		return;
 
 	/*
@@ -372,22 +364,14 @@ static noinline void kcsan_found_watchpoint(const volatile void *ptr,
 	 * reporting a race where e.g. the writer set up the watchpoint, but the
 	 * reader has access_mask!=0, we have to ignore the found watchpoint.
 	 */
-	if (ctx->access_mask)
+	if (get_ctx()->access_mask != 0)
 		return;
 
 	/*
-	 * If the other thread does not want to ignore the access, and there was
-	 * a value change as a result of this thread's operation, we will still
-	 * generate a report of unknown origin.
-	 *
-	 * Use CONFIG_KCSAN_REPORT_RACE_UNKNOWN_ORIGIN=n to filter.
-	 */
-	if (!is_assert && kcsan_ignore_address(ptr))
-		return;
-
-	/*
-	 * Consuming the watchpoint must be guarded by kcsan_is_enabled() to
-	 * avoid erroneously triggering reports if the context is disabled.
+	 * Consume the watchpoint as soon as possible, to minimize the chances
+	 * of !consumed. Consuming the watchpoint must always be guarded by
+	 * kcsan_is_enabled() check, as otherwise we might erroneously
+	 * triggering reports when disabled.
 	 */
 	consumed = try_consume_watchpoint(watchpoint, encoded_watchpoint);
 
@@ -396,7 +380,9 @@ static noinline void kcsan_found_watchpoint(const volatile void *ptr,
 
 	if (consumed) {
 		kcsan_save_irqtrace(current);
-		kcsan_report_set_info(ptr, size, type, watchpoint - watchpoints);
+		kcsan_report(ptr, size, type, KCSAN_VALUE_CHANGE_MAYBE,
+			     KCSAN_REPORT_CONSUMED_WATCHPOINT,
+			     watchpoint - watchpoints);
 		kcsan_restore_irqtrace(current);
 	} else {
 		/*
@@ -407,7 +393,7 @@ static noinline void kcsan_found_watchpoint(const volatile void *ptr,
 		atomic_long_inc(&kcsan_counters[KCSAN_COUNTER_REPORT_RACES]);
 	}
 
-	if (is_assert)
+	if ((type & KCSAN_ACCESS_ASSERT) != 0)
 		atomic_long_inc(&kcsan_counters[KCSAN_COUNTER_ASSERT_FAILURES]);
 	else
 		atomic_long_inc(&kcsan_counters[KCSAN_COUNTER_DATA_RACES]);
@@ -421,11 +407,15 @@ kcsan_setup_watchpoint(const volatile void *ptr, size_t size, int type)
 	const bool is_write = (type & KCSAN_ACCESS_WRITE) != 0;
 	const bool is_assert = (type & KCSAN_ACCESS_ASSERT) != 0;
 	atomic_long_t *watchpoint;
-	u64 old, new, diff;
+	union {
+		u8 _1;
+		u16 _2;
+		u32 _4;
+		u64 _8;
+	} expect_value;
 	unsigned long access_mask;
 	enum kcsan_value_change value_change = KCSAN_VALUE_CHANGE_MAYBE;
 	unsigned long ua_flags = user_access_save();
-	struct kcsan_ctx *ctx = get_ctx();
 	unsigned long irq_flags = 0;
 
 	/*
@@ -434,14 +424,16 @@ kcsan_setup_watchpoint(const volatile void *ptr, size_t size, int type)
 	 */
 	reset_kcsan_skip();
 
-	if (!kcsan_is_enabled(ctx))
+	if (!kcsan_is_enabled())
 		goto out;
 
 	/*
-	 * Check to-ignore addresses after kcsan_is_enabled(), as we may access
-	 * memory that is not yet initialized during early boot.
+	 * Special atomic rules: unlikely to be true, so we check them here in
+	 * the slow-path, and not in the fast-path in is_atomic(). Call after
+	 * kcsan_is_enabled(), as we may access memory that is not yet
+	 * initialized during early boot.
 	 */
-	if (!is_assert && kcsan_ignore_address(ptr))
+	if (!is_assert && kcsan_is_atomic_special(ptr))
 		goto out;
 
 	if (!check_encodable((unsigned long)ptr, size)) {
@@ -476,22 +468,31 @@ kcsan_setup_watchpoint(const volatile void *ptr, size_t size, int type)
 	 * Read the current value, to later check and infer a race if the data
 	 * was modified via a non-instrumented access, e.g. from a device.
 	 */
-	old = 0;
+	expect_value._8 = 0;
 	switch (size) {
 	case 1:
-		old = READ_ONCE(*(const u8 *)ptr);
+		expect_value._1 = READ_ONCE(*(const u8 *)ptr);
 		break;
 	case 2:
-		old = READ_ONCE(*(const u16 *)ptr);
+		expect_value._2 = READ_ONCE(*(const u16 *)ptr);
 		break;
 	case 4:
-		old = READ_ONCE(*(const u32 *)ptr);
+		expect_value._4 = READ_ONCE(*(const u32 *)ptr);
 		break;
 	case 8:
-		old = READ_ONCE(*(const u64 *)ptr);
+		expect_value._8 = READ_ONCE(*(const u64 *)ptr);
 		break;
 	default:
 		break; /* ignore; we do not diff the values */
+	}
+
+	if (IS_ENABLED(CONFIG_KCSAN_DEBUG)) {
+		kcsan_disable_current();
+		pr_err("watching %s, size: %zu, addr: %px [slot: %d, encoded: %lx]\n",
+		       is_write ? "write" : "read", size, ptr,
+		       watchpoint_slot((unsigned long)ptr),
+		       encode_watchpoint((unsigned long)ptr, size, is_write));
+		kcsan_enable_current();
 	}
 
 	/*
@@ -504,37 +505,34 @@ kcsan_setup_watchpoint(const volatile void *ptr, size_t size, int type)
 	 * Re-read value, and check if it is as expected; if not, we infer a
 	 * racy access.
 	 */
-	access_mask = ctx->access_mask;
-	new = 0;
+	access_mask = get_ctx()->access_mask;
 	switch (size) {
 	case 1:
-		new = READ_ONCE(*(const u8 *)ptr);
+		expect_value._1 ^= READ_ONCE(*(const u8 *)ptr);
+		if (access_mask)
+			expect_value._1 &= (u8)access_mask;
 		break;
 	case 2:
-		new = READ_ONCE(*(const u16 *)ptr);
+		expect_value._2 ^= READ_ONCE(*(const u16 *)ptr);
+		if (access_mask)
+			expect_value._2 &= (u16)access_mask;
 		break;
 	case 4:
-		new = READ_ONCE(*(const u32 *)ptr);
+		expect_value._4 ^= READ_ONCE(*(const u32 *)ptr);
+		if (access_mask)
+			expect_value._4 &= (u32)access_mask;
 		break;
 	case 8:
-		new = READ_ONCE(*(const u64 *)ptr);
+		expect_value._8 ^= READ_ONCE(*(const u64 *)ptr);
+		if (access_mask)
+			expect_value._8 &= (u64)access_mask;
 		break;
 	default:
 		break; /* ignore; we do not diff the values */
 	}
 
-	diff = old ^ new;
-	if (access_mask)
-		diff &= access_mask;
-
-	/*
-	 * Check if we observed a value change.
-	 *
-	 * Also check if the data race should be ignored (the rules depend on
-	 * non-zero diff); if it is to be ignored, the below rules for
-	 * KCSAN_VALUE_CHANGE_MAYBE apply.
-	 */
-	if (diff && !kcsan_ignore_data_race(size, type, old, new, diff))
+	/* Were we able to observe a value-change? */
+	if (expect_value._8 != 0)
 		value_change = KCSAN_VALUE_CHANGE_TRUE;
 
 	/* Check if this access raced with another. */
@@ -568,9 +566,8 @@ kcsan_setup_watchpoint(const volatile void *ptr, size_t size, int type)
 		if (is_assert && value_change == KCSAN_VALUE_CHANGE_TRUE)
 			atomic_long_inc(&kcsan_counters[KCSAN_COUNTER_ASSERT_FAILURES]);
 
-		kcsan_report_known_origin(ptr, size, type, value_change,
-					  watchpoint - watchpoints,
-					  old, new, access_mask);
+		kcsan_report(ptr, size, type, value_change, KCSAN_REPORT_RACE_SIGNAL,
+			     watchpoint - watchpoints);
 	} else if (value_change == KCSAN_VALUE_CHANGE_TRUE) {
 		/* Inferring a race, since the value should not have changed. */
 
@@ -579,7 +576,9 @@ kcsan_setup_watchpoint(const volatile void *ptr, size_t size, int type)
 			atomic_long_inc(&kcsan_counters[KCSAN_COUNTER_ASSERT_FAILURES]);
 
 		if (IS_ENABLED(CONFIG_KCSAN_REPORT_RACE_UNKNOWN_ORIGIN) || is_assert)
-			kcsan_report_unknown_origin(ptr, size, type, old, new, access_mask);
+			kcsan_report(ptr, size, type, KCSAN_VALUE_CHANGE_TRUE,
+				     KCSAN_REPORT_RACE_UNKNOWN_ORIGIN,
+				     watchpoint - watchpoints);
 	}
 
 	/*
@@ -655,15 +654,6 @@ void __init kcsan_init(void)
 	if (kcsan_early_enable) {
 		pr_info("enabled early\n");
 		WRITE_ONCE(kcsan_enabled, true);
-	}
-
-	if (IS_ENABLED(CONFIG_KCSAN_REPORT_VALUE_CHANGE_ONLY) ||
-	    IS_ENABLED(CONFIG_KCSAN_ASSUME_PLAIN_WRITES_ATOMIC) ||
-	    IS_ENABLED(CONFIG_KCSAN_PERMISSIVE) ||
-	    IS_ENABLED(CONFIG_KCSAN_IGNORE_ATOMICS)) {
-		pr_warn("non-strict mode configured - use CONFIG_KCSAN_STRICT=y to see all data races\n");
-	} else {
-		pr_info("strict mode configured\n");
 	}
 }
 

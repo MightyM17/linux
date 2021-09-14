@@ -45,10 +45,10 @@
 #include <media/cec-notifier.h>
 
 #include "i915_drv.h"
+#include "intel_de.h"
 
 struct drm_printer;
 struct __intel_global_objs_state;
-struct intel_ddi_buf_trans;
 
 /*
  * Display related stuff
@@ -127,12 +127,8 @@ struct intel_framebuffer {
 
 	/* Params to remap the FB pages and program the plane registers in each view. */
 	struct intel_fb_view normal_view;
-	union {
-		struct intel_fb_view rotated_view;
-		struct intel_fb_view remapped_view;
-	};
-
-	struct i915_address_space *dpt_vm;
+	struct intel_fb_view rotated_view;
+	struct intel_fb_view remapped_view;
 };
 
 struct intel_fbdev {
@@ -196,10 +192,6 @@ struct intel_encoder {
 	void (*update_complete)(struct intel_atomic_state *,
 				struct intel_encoder *,
 				struct intel_crtc *);
-	void (*pre_disable)(struct intel_atomic_state *,
-			    struct intel_encoder *,
-			    const struct intel_crtc_state *,
-			    const struct drm_connector_state *);
 	void (*disable)(struct intel_atomic_state *,
 			struct intel_encoder *,
 			const struct intel_crtc_state *,
@@ -268,9 +260,6 @@ struct intel_encoder {
 	 * Returns whether the port clock is enabled or not.
 	 */
 	bool (*is_clock_enabled)(struct intel_encoder *encoder);
-	const struct intel_ddi_buf_trans *(*get_buf_trans)(struct intel_encoder *encoder,
-							   const struct intel_crtc_state *crtc_state,
-							   int *n_entries);
 	enum hpd_pin hpd_pin;
 	enum intel_display_power_domain power_domain;
 	/* for communication with audio component; protected by av_mutex */
@@ -318,7 +307,7 @@ struct intel_panel {
 		/* DPCD backlight */
 		union {
 			struct {
-				struct drm_edp_backlight_info info;
+				u8 pwmgen_bit_count;
 			} vesa;
 			struct {
 				bool sdr_uses_aux;
@@ -622,8 +611,7 @@ struct intel_plane_state {
 		enum drm_scaling_filter scaling_filter;
 	} hw;
 
-	struct i915_vma *ggtt_vma;
-	struct i915_vma *dpt_vma;
+	struct i915_vma *vma;
 	unsigned long flags;
 #define PLANE_HAS_FENCE BIT(0)
 
@@ -888,18 +876,6 @@ enum intel_output_format {
 	INTEL_OUTPUT_FORMAT_YCBCR444,
 };
 
-struct intel_mpllb_state {
-	u32 clock; /* in KHz */
-	u32 ref_control;
-	u32 mpllb_cp;
-	u32 mpllb_div;
-	u32 mpllb_div2;
-	u32 mpllb_fracn1;
-	u32 mpllb_fracn2;
-	u32 mpllb_sscen;
-	u32 mpllb_sscstep;
-};
-
 struct intel_crtc_state {
 	/*
 	 * uapi (drm) state. This is the software state shown to userspace.
@@ -1034,10 +1010,7 @@ struct intel_crtc_state {
 	struct intel_shared_dpll *shared_dpll;
 
 	/* Actual register state of the dpll, for shared dpll cross-checking. */
-	union {
-		struct intel_dpll_hw_state dpll_hw_state;
-		struct intel_mpllb_state mpllb_state;
-	};
+	struct intel_dpll_hw_state dpll_hw_state;
 
 	/*
 	 * ICL reserved DPLLs for the CRTC/port. The active PLL is selected by
@@ -1063,9 +1036,7 @@ struct intel_crtc_state {
 	bool has_psr;
 	bool has_psr2;
 	bool enable_psr2_sel_fetch;
-	bool req_psr2_sdp_prior_scanline;
 	u32 dc3co_exitline;
-	u16 su_y_granularity;
 
 	/*
 	 * Frequence the dpll for the port should run at. Differs from the
@@ -1227,7 +1198,7 @@ struct intel_crtc_state {
 	struct {
 		bool enable;
 		u8 pipeline_full;
-		u16 flipline, vmin, vmax, guardband;
+		u16 flipline, vmin, vmax;
 	} vrr;
 
 	/* Stream Splitter for eDP MSO */
@@ -1507,7 +1478,6 @@ struct intel_psr {
 	bool sink_support;
 	bool source_support;
 	bool enabled;
-	bool paused;
 	enum pipe pipe;
 	enum transcoder transcoder;
 	bool active;
@@ -1518,15 +1488,13 @@ struct intel_psr {
 	bool colorimetry_support;
 	bool psr2_enabled;
 	bool psr2_sel_fetch_enabled;
-	bool req_psr2_sdp_prior_scanline;
 	u8 sink_sync_latency;
 	ktime_t last_entry_attempt;
 	ktime_t last_exit;
 	bool sink_not_reliable;
 	bool irq_aux_error;
-	u16 su_w_granularity;
-	u16 su_y_granularity;
-	u32 dc3co_exitline;
+	u16 su_x_granularity;
+	bool dc3co_enabled;
 	u32 dc3co_exit_delay;
 	struct delayed_work dc3co_work;
 	struct drm_dp_vsc_sdp vsc;
@@ -1631,7 +1599,6 @@ struct intel_dp {
 
 	/* Display stream compression testing */
 	bool force_dsc_en;
-	int force_dsc_bpp;
 
 	bool hobl_failed;
 	bool hobl_active;
@@ -1749,14 +1716,6 @@ vlv_pipe_to_channel(enum pipe pipe)
 	default:
 		BUG();
 	}
-}
-
-static inline bool intel_pipe_valid(struct drm_i915_private *i915, enum pipe pipe)
-{
-	return (pipe >= 0 &&
-		pipe < ARRAY_SIZE(i915->pipe_to_crtc_mapping) &&
-		INTEL_INFO(i915)->pipe_mask & BIT(pipe) &&
-		i915->pipe_to_crtc_mapping[pipe]);
 }
 
 static inline struct intel_crtc *
@@ -2014,19 +1973,9 @@ intel_wait_for_vblank_if_active(struct drm_i915_private *dev_priv, enum pipe pip
 		intel_wait_for_vblank(dev_priv, pipe);
 }
 
-static inline bool intel_modifier_uses_dpt(struct drm_i915_private *i915, u64 modifier)
+static inline u32 intel_plane_ggtt_offset(const struct intel_plane_state *state)
 {
-	return DISPLAY_VER(i915) >= 13 && modifier != DRM_FORMAT_MOD_LINEAR;
-}
-
-static inline bool intel_fb_uses_dpt(const struct drm_framebuffer *fb)
-{
-	return fb && intel_modifier_uses_dpt(to_i915(fb->dev), fb->modifier);
-}
-
-static inline u32 intel_plane_ggtt_offset(const struct intel_plane_state *plane_state)
-{
-	return i915_ggtt_offset(plane_state->ggtt_vma);
+	return i915_ggtt_offset(state->vma);
 }
 
 static inline struct intel_frontbuffer *

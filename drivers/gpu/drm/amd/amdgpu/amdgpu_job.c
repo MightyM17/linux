@@ -25,8 +25,6 @@
 #include <linux/wait.h>
 #include <linux/sched.h>
 
-#include <drm/drm_drv.h>
-
 #include "amdgpu.h"
 #include "amdgpu_trace.h"
 
@@ -36,15 +34,6 @@ static enum drm_gpu_sched_stat amdgpu_job_timedout(struct drm_sched_job *s_job)
 	struct amdgpu_job *job = to_amdgpu_job(s_job);
 	struct amdgpu_task_info ti;
 	struct amdgpu_device *adev = ring->adev;
-	int idx;
-
-	if (!drm_dev_enter(&adev->ddev, &idx)) {
-		DRM_INFO("%s - device unplugged skipping recovery on scheduler:%s",
-			 __func__, s_job->sched->name);
-
-		/* Effectively the job is aborted as the device is gone */
-		return DRM_GPU_SCHED_STAT_ENODEV;
-	}
 
 	memset(&ti, 0, sizeof(struct amdgpu_task_info));
 
@@ -52,7 +41,7 @@ static enum drm_gpu_sched_stat amdgpu_job_timedout(struct drm_sched_job *s_job)
 	    amdgpu_ring_soft_recovery(ring, job->vmid, s_job->s_fence->parent)) {
 		DRM_ERROR("ring %s timeout, but soft recovered\n",
 			  s_job->sched->name);
-		goto exit;
+		return DRM_GPU_SCHED_STAT_NOMINAL;
 	}
 
 	amdgpu_vm_get_task_info(ring->adev, job->pasid, &ti);
@@ -64,15 +53,13 @@ static enum drm_gpu_sched_stat amdgpu_job_timedout(struct drm_sched_job *s_job)
 
 	if (amdgpu_device_should_recover_gpu(ring->adev)) {
 		amdgpu_device_gpu_recover(ring->adev, job);
+		return DRM_GPU_SCHED_STAT_NOMINAL;
 	} else {
 		drm_sched_suspend_timeout(&ring->sched);
 		if (amdgpu_sriov_vf(adev))
 			adev->virt.tdr_debug = true;
+		return DRM_GPU_SCHED_STAT_NOMINAL;
 	}
-
-exit:
-	drm_dev_exit(idx);
-	return DRM_GPU_SCHED_STAT_NOMINAL;
 }
 
 int amdgpu_job_alloc(struct amdgpu_device *adev, unsigned num_ibs,
@@ -127,16 +114,11 @@ void amdgpu_job_free_resources(struct amdgpu_job *job)
 {
 	struct amdgpu_ring *ring = to_amdgpu_ring(job->base.sched);
 	struct dma_fence *f;
-	struct dma_fence *hw_fence;
 	unsigned i;
 
-	if (job->hw_fence.ops == NULL)
-		hw_fence = job->external_hw_fence;
-	else
-		hw_fence = &job->hw_fence;
-
 	/* use sched fence if available */
-	f = job->base.s_fence ? &job->base.s_fence->finished : hw_fence;
+	f = job->base.s_fence ? &job->base.s_fence->finished : job->fence;
+
 	for (i = 0; i < job->num_ibs; ++i)
 		amdgpu_ib_free(ring->adev, &job->ibs[i], f);
 }
@@ -147,27 +129,20 @@ static void amdgpu_job_free_cb(struct drm_sched_job *s_job)
 
 	drm_sched_job_cleanup(s_job);
 
+	dma_fence_put(job->fence);
 	amdgpu_sync_free(&job->sync);
 	amdgpu_sync_free(&job->sched_sync);
-
-    /* only put the hw fence if has embedded fence */
-	if (job->hw_fence.ops != NULL)
-		dma_fence_put(&job->hw_fence);
-	else
-		kfree(job);
+	kfree(job);
 }
 
 void amdgpu_job_free(struct amdgpu_job *job)
 {
 	amdgpu_job_free_resources(job);
+
+	dma_fence_put(job->fence);
 	amdgpu_sync_free(&job->sync);
 	amdgpu_sync_free(&job->sched_sync);
-
-	/* only put the hw fence if has embedded fence */
-	if (job->hw_fence.ops != NULL)
-		dma_fence_put(&job->hw_fence);
-	else
-		kfree(job);
+	kfree(job);
 }
 
 int amdgpu_job_submit(struct amdgpu_job *job, struct drm_sched_entity *entity,
@@ -196,14 +171,11 @@ int amdgpu_job_submit_direct(struct amdgpu_job *job, struct amdgpu_ring *ring,
 
 	job->base.sched = &ring->sched;
 	r = amdgpu_ib_schedule(ring, job->num_ibs, job->ibs, NULL, fence);
-	/* record external_hw_fence for direct submit */
-	job->external_hw_fence = dma_fence_get(*fence);
+	job->fence = dma_fence_get(*fence);
 	if (r)
 		return r;
 
 	amdgpu_job_free(job);
-	dma_fence_put(*fence);
-
 	return 0;
 }
 
@@ -261,12 +233,10 @@ static struct dma_fence *amdgpu_job_run(struct drm_sched_job *sched_job)
 		if (r)
 			DRM_ERROR("Error scheduling IBs (%d)\n", r);
 	}
+	/* if gpu reset, hw fence will be replaced here */
+	dma_fence_put(job->fence);
+	job->fence = dma_fence_get(fence);
 
-	if (!job->job_run_counter)
-		dma_fence_get(fence);
-	else if (finished->error < 0)
-		dma_fence_put(&job->hw_fence);
-	job->job_run_counter++;
 	amdgpu_job_free_resources(job);
 
 	fence = r ? ERR_PTR(r) : fence;

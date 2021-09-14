@@ -1,9 +1,7 @@
 .. raw:: latex
 
-	\renewcommand\thesection*
-	\renewcommand\thesubsection*
-	\kerneldocCJKon
-	\kerneldocBeginJP
+        \renewcommand\thesection*
+        \renewcommand\thesubsection*
 
 Japanese translations
 =====================
@@ -12,7 +10,3 @@ Japanese translations
    :maxdepth: 1
 
    howto
-
-.. raw:: latex
-
-	\kerneldocEndJP

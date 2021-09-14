@@ -277,10 +277,13 @@ static void fscache_object_work_func(struct work_struct *work)
 {
 	struct fscache_object *object =
 		container_of(work, struct fscache_object, work);
+	unsigned long start;
 
 	_enter("{OBJ%x}", object->debug_id);
 
+	start = jiffies;
 	fscache_object_sm_dispatcher(object);
+	fscache_hist(fscache_objs_histogram, start);
 	fscache_put_object(object, fscache_obj_put_work);
 }
 
@@ -433,6 +436,7 @@ static const struct fscache_state *fscache_parent_ready(struct fscache_object *o
 	spin_lock(&parent->lock);
 	parent->n_ops++;
 	parent->n_obj_ops++;
+	object->lookup_jif = jiffies;
 	spin_unlock(&parent->lock);
 
 	_leave("");
@@ -518,6 +522,7 @@ void fscache_object_lookup_negative(struct fscache_object *object)
 		set_bit(FSCACHE_COOKIE_NO_DATA_YET, &cookie->flags);
 		clear_bit(FSCACHE_COOKIE_UNAVAILABLE, &cookie->flags);
 
+		_debug("wake up lookup %p", &cookie->flags);
 		clear_bit_unlock(FSCACHE_COOKIE_LOOKING_UP, &cookie->flags);
 		wake_up_bit(&cookie->flags, FSCACHE_COOKIE_LOOKING_UP);
 	}
@@ -591,6 +596,7 @@ static const struct fscache_state *fscache_object_available(struct fscache_objec
 	object->cache->ops->lookup_complete(object);
 	fscache_stat_d(&fscache_n_cop_lookup_complete);
 
+	fscache_hist(fscache_obj_instantiate_histogram, object->lookup_jif);
 	fscache_stat(&fscache_n_object_avail);
 
 	_leave("");
@@ -793,6 +799,8 @@ static void fscache_put_object(struct fscache_object *object,
  */
 void fscache_object_destroy(struct fscache_object *object)
 {
+	fscache_objlist_remove(object);
+
 	/* We can get rid of the cookie now */
 	fscache_cookie_put(object->cookie, fscache_cookie_put_object);
 	object->cookie = NULL;

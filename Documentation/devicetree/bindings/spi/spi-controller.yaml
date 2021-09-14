@@ -79,7 +79,22 @@ properties:
     description:
       The SPI controller acts as a slave, instead of a master.
 
-  slave:
+allOf:
+  - if:
+      not:
+        required:
+          - spi-slave
+    then:
+      properties:
+        "#address-cells":
+          const: 1
+    else:
+      properties:
+        "#address-cells":
+          const: 0
+
+patternProperties:
+  "^slave$":
     type: object
 
     properties:
@@ -90,7 +105,6 @@ properties:
     required:
       - compatible
 
-patternProperties:
   "^.*@[0-9a-f]+$":
     type: object
 
@@ -100,11 +114,8 @@ patternProperties:
           Compatible of the SPI device.
 
       reg:
-        minItems: 1
-        maxItems: 256
-        items:
-          minimum: 0
-          maximum: 256
+        minimum: 0
+        maximum: 256
         description:
           Chip select used by the device.
 
@@ -165,20 +176,6 @@ patternProperties:
     required:
       - compatible
       - reg
-
-allOf:
-  - if:
-      not:
-        required:
-          - spi-slave
-    then:
-      properties:
-        "#address-cells":
-          const: 1
-    else:
-      properties:
-        "#address-cells":
-          const: 0
 
 additionalProperties: true
 

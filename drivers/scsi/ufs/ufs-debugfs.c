@@ -13,7 +13,7 @@ void __init ufs_debugfs_init(void)
 	ufs_debugfs_root = debugfs_create_dir("ufshcd", NULL);
 }
 
-void ufs_debugfs_exit(void)
+void __exit ufs_debugfs_exit(void)
 {
 	debugfs_remove_recursive(ufs_debugfs_root);
 }
@@ -60,14 +60,14 @@ __acquires(&hba->host_sem)
 		up(&hba->host_sem);
 		return -EBUSY;
 	}
-	ufshcd_rpm_get_sync(hba);
+	pm_runtime_get_sync(hba->dev);
 	return 0;
 }
 
 static void ufs_debugfs_put_user_access(struct ufs_hba *hba)
 __releases(&hba->host_sem)
 {
-	ufshcd_rpm_put_sync(hba);
+	pm_runtime_put_sync(hba->dev);
 	up(&hba->host_sem);
 }
 

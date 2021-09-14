@@ -132,7 +132,6 @@ int search_by_entry_key(struct super_block *sb, const struct cpu_key *key,
 			return IO_ERROR;
 		}
 		PATH_LAST_POSITION(path)--;
-		break;
 
 	case ITEM_FOUND:
 		break;

@@ -79,8 +79,7 @@
 #define MLXBF_PMC_L3C_PERF_CNT_HIGH_VAL GENMASK(24, 0)
 
 /**
- * struct mlxbf_pmc_attribute - Structure to hold attribute and block info
- * for each sysfs entry
+ * Structure to hold attribute and block info for each sysfs entry
  * @dev_attr: Device attribute struct
  * @index: index to identify counter number within a block
  * @nr: block number to which the sysfs belongs
@@ -92,7 +91,7 @@ struct mlxbf_pmc_attribute {
 };
 
 /**
- * struct mlxbf_pmc_block_info - Structure to hold info for each HW block
+ * Structure to hold info for each HW block
  *
  * @mmio_base: The VA at which the PMC block is mapped
  * @blk_size: Size of each mapped region
@@ -103,7 +102,7 @@ struct mlxbf_pmc_attribute {
  * @attr_event_list: Attributes for "event_list" sysfs files
  * @attr_enable: Attributes for "enable" sysfs files
  * @block_attr: All attributes needed for the block
- * @block_attr_grp: Attribute group for the block
+ * @blcok_attr_grp: Attribute group for the block
  */
 struct mlxbf_pmc_block_info {
 	void __iomem *mmio_base;
@@ -119,7 +118,7 @@ struct mlxbf_pmc_block_info {
 };
 
 /**
- * struct mlxbf_pmc_context - Structure to hold PMC context info
+ * Structure to hold PMC context info
  *
  * @pdev: The kernel structure representing the device
  * @total_blocks: Total number of blocks
@@ -128,7 +127,7 @@ struct mlxbf_pmc_block_info {
  * @block_name: Block name
  * @block:  Block info
  * @groups:  Attribute groups from each block
- * @svc_sreg_support: Whether SMCs are used to access performance registers
+ * @sv_sreg_support: Whether SMCs are used to access performance registers
  * @sreg_tbl_perf: Secure register access table number
  * @event_set: Event set to use
  */
@@ -146,7 +145,7 @@ struct mlxbf_pmc_context {
 };
 
 /**
- * struct mlxbf_pmc_events - Structure to hold supported events for each block
+ * Structure to hold supported events for each block
  * @evt_num: Event number used to program counters
  * @evt_name: Name of the event
  */

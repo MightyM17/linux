@@ -5,7 +5,6 @@
  */
 
 #include "i915_drv.h"
-#include "intel_de.h"
 #include "intel_display_types.h"
 
 #define DSB_BUF_SIZE    (2 * PAGE_SIZE)

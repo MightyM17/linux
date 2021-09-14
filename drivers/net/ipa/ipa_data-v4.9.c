@@ -106,7 +106,6 @@ static const struct ipa_gsi_endpoint_data ipa_gsi_endpoint_data[] = {
 			.filter_support	= true,
 			.config = {
 				.resource_group	= IPA_RSRC_GROUP_SRC_UL_DL,
-				.checksum       = true,
 				.qmap		= true,
 				.status_enable	= true,
 				.tx = {
@@ -130,7 +129,6 @@ static const struct ipa_gsi_endpoint_data ipa_gsi_endpoint_data[] = {
 		.endpoint = {
 			.config = {
 				.resource_group	= IPA_RSRC_GROUP_DST_UL_DL_DPL,
-				.checksum       = true,
 				.qmap		= true,
 				.aggregation	= true,
 				.rx = {
@@ -265,140 +263,116 @@ static const struct ipa_resource_data ipa_resource_data = {
 
 /* IPA-resident memory region data for an SoC having IPA v4.9 */
 static const struct ipa_mem ipa_mem_local_data[] = {
-	{
-		.id		= IPA_MEM_UC_SHARED,
+	[IPA_MEM_UC_SHARED] = {
 		.offset		= 0x0000,
 		.size		= 0x0080,
 		.canary_count	= 0,
 	},
-	{
-		.id		= IPA_MEM_UC_INFO,
+	[IPA_MEM_UC_INFO] = {
 		.offset		= 0x0080,
 		.size		= 0x0200,
 		.canary_count	= 0,
 	},
-	{
-		.id		= IPA_MEM_V4_FILTER_HASHED,
-		.offset		= 0x0288,
+	[IPA_MEM_V4_FILTER_HASHED] = { .offset		= 0x0288,
 		.size		= 0x0078,
 		.canary_count	= 2,
 	},
-	{
-		.id		= IPA_MEM_V4_FILTER,
+	[IPA_MEM_V4_FILTER] = {
 		.offset		= 0x0308,
 		.size		= 0x0078,
 		.canary_count	= 2,
 	},
-	{
-		.id		= IPA_MEM_V6_FILTER_HASHED,
+	[IPA_MEM_V6_FILTER_HASHED] = {
 		.offset		= 0x0388,
 		.size		= 0x0078,
 		.canary_count	= 2,
 	},
-	{
-		.id		= IPA_MEM_V6_FILTER,
+	[IPA_MEM_V6_FILTER] = {
 		.offset		= 0x0408,
 		.size		= 0x0078,
 		.canary_count	= 2,
 	},
-	{
-		.id		= IPA_MEM_V4_ROUTE_HASHED,
+	[IPA_MEM_V4_ROUTE_HASHED] = {
 		.offset		= 0x0488,
 		.size		= 0x0078,
 		.canary_count	= 2,
 	},
-	{
-		.id		= IPA_MEM_V4_ROUTE,
+	[IPA_MEM_V4_ROUTE] = {
 		.offset		= 0x0508,
 		.size		= 0x0078,
 		.canary_count	= 2,
 	},
-	{
-		.id		= IPA_MEM_V6_ROUTE_HASHED,
+	[IPA_MEM_V6_ROUTE_HASHED] = {
 		.offset		= 0x0588,
 		.size		= 0x0078,
 		.canary_count	= 2,
 	},
-	{
-		.id		= IPA_MEM_V6_ROUTE,
+	[IPA_MEM_V6_ROUTE] = {
 		.offset		= 0x0608,
 		.size		= 0x0078,
 		.canary_count	= 2,
 	},
-	{
-		.id		= IPA_MEM_MODEM_HEADER,
+	[IPA_MEM_MODEM_HEADER] = {
 		.offset		= 0x0688,
 		.size		= 0x0240,
 		.canary_count	= 2,
 	},
-	{
-		.id		= IPA_MEM_AP_HEADER,
+	[IPA_MEM_AP_HEADER] = {
 		.offset		= 0x08c8,
 		.size		= 0x0200,
 		.canary_count	= 0,
 	},
-	{
-		.id		= IPA_MEM_MODEM_PROC_CTX,
+	[IPA_MEM_MODEM_PROC_CTX] = {
 		.offset		= 0x0ad0,
 		.size		= 0x0b20,
 		.canary_count	= 2,
 	},
-	{
-		.id		= IPA_MEM_AP_PROC_CTX,
+	[IPA_MEM_AP_PROC_CTX] = {
 		.offset		= 0x15f0,
 		.size		= 0x0200,
 		.canary_count	= 0,
 	},
-	{
-		.id		= IPA_MEM_NAT_TABLE,
+	[IPA_MEM_NAT_TABLE] = {
 		.offset		= 0x1800,
 		.size		= 0x0d00,
 		.canary_count	= 4,
 	},
-	{
-		.id		= IPA_MEM_STATS_QUOTA_MODEM,
+	[IPA_MEM_STATS_QUOTA_MODEM] = {
 		.offset		= 0x2510,
 		.size		= 0x0030,
 		.canary_count	= 4,
 	},
-	{
-		.id		= IPA_MEM_STATS_QUOTA_AP,
+	[IPA_MEM_STATS_QUOTA_AP] = {
 		.offset		= 0x2540,
 		.size		= 0x0048,
 		.canary_count	= 0,
 	},
-	{
-		.id		= IPA_MEM_STATS_TETHERING,
+	[IPA_MEM_STATS_TETHERING] = {
 		.offset		= 0x2588,
 		.size		= 0x0238,
 		.canary_count	= 0,
 	},
-	{
-		.id		= IPA_MEM_STATS_FILTER_ROUTE,
+	[IPA_MEM_STATS_FILTER_ROUTE] = {
 		.offset		= 0x27c0,
 		.size		= 0x0800,
 		.canary_count	= 0,
 	},
-	{
-		.id		= IPA_MEM_STATS_DROP,
+	[IPA_MEM_STATS_DROP] = {
 		.offset		= 0x2fc0,
 		.size		= 0x0020,
 		.canary_count	= 0,
 	},
-	{
-		.id		= IPA_MEM_MODEM,
+	[IPA_MEM_MODEM] = {
 		.offset		= 0x2fe8,
 		.size		= 0x0800,
 		.canary_count	= 2,
 	},
-	{
-		.id		= IPA_MEM_UC_EVENT_RING,
+	[IPA_MEM_UC_EVENT_RING] = {
 		.offset		= 0x3800,
 		.size		= 0x1000,
 		.canary_count	= 1,
 	},
-	{
-		.id		= IPA_MEM_PDN_CONFIG,
+	[IPA_MEM_PDN_CONFIG] = {
 		.offset		= 0x4800,
 		.size		= 0x0050,
 		.canary_count	= 0,
@@ -418,13 +392,18 @@ static const struct ipa_mem_data ipa_mem_data = {
 /* Interconnect rates are in 1000 byte/second units */
 static const struct ipa_interconnect_data ipa_interconnect_data[] = {
 	{
-		.name			= "memory",
+		.name			= "ipa_to_llcc",
 		.peak_bandwidth		= 600000,	/* 600 MBps */
+		.average_bandwidth	= 150000,	/* 150 MBps */
+	},
+	{
+		.name			= "llcc_to_ebi1",
+		.peak_bandwidth		= 1804000,	/* 1.804 GBps */
 		.average_bandwidth	= 150000,	/* 150 MBps */
 	},
 	/* Average rate is unused for the next interconnect */
 	{
-		.name			= "config",
+		.name			= "appss_to_ipa",
 		.peak_bandwidth		= 74000,	/* 74 MBps */
 		.average_bandwidth	= 0,		/* unused */
 	},
@@ -432,7 +411,7 @@ static const struct ipa_interconnect_data ipa_interconnect_data[] = {
 };
 
 /* Clock and interconnect configuration data for an SoC having IPA v4.9 */
-static const struct ipa_power_data ipa_power_data = {
+static const struct ipa_clock_data ipa_clock_data = {
 	.core_clock_rate	= 60 * 1000 * 1000,	/* Hz */
 	.interconnect_count	= ARRAY_SIZE(ipa_interconnect_data),
 	.interconnect_data	= ipa_interconnect_data,
@@ -447,5 +426,5 @@ const struct ipa_data ipa_data_v4_9 = {
 	.endpoint_data	= ipa_gsi_endpoint_data,
 	.resource_data	= &ipa_resource_data,
 	.mem_data	= &ipa_mem_data,
-	.power_data	= &ipa_power_data,
+	.clock_data	= &ipa_clock_data,
 };

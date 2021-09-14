@@ -97,8 +97,11 @@ static void hlwd_gpio_irqhandler(struct irq_desc *desc)
 
 	chained_irq_enter(chip, desc);
 
-	for_each_set_bit(hwirq, &pending, 32)
-		generic_handle_domain_irq(hlwd->gpioc.irq.domain, hwirq);
+	for_each_set_bit(hwirq, &pending, 32) {
+		int irq = irq_find_mapping(hlwd->gpioc.irq.domain, hwirq);
+
+		generic_handle_irq(irq);
+	}
 
 	chained_irq_exit(chip, desc);
 }

@@ -41,7 +41,6 @@
 #include <linux/syscalls.h>
 
 #include <asm/processor.h>
-#include <asm/pkru.h>
 #include <asm/fpu/internal.h>
 #include <asm/mmu_context.h>
 #include <asm/prctl.h>
@@ -137,7 +136,7 @@ void __show_regs(struct pt_regs *regs, enum show_regs_mode mode,
 		       log_lvl, d3, d6, d7);
 	}
 
-	if (cpu_feature_enabled(X86_FEATURE_OSPKE))
+	if (boot_cpu_has(X86_FEATURE_OSPKE))
 		printk("%sPKRU: %08x\n", log_lvl, read_pkru());
 }
 
@@ -338,29 +337,6 @@ static __always_inline void load_seg_legacy(unsigned short prev_index,
 		 */
 		loadseg(which, next_index);
 	}
-}
-
-/*
- * Store prev's PKRU value and load next's PKRU value if they differ. PKRU
- * is not XSTATE managed on context switch because that would require a
- * lookup in the task's FPU xsave buffer and require to keep that updated
- * in various places.
- */
-static __always_inline void x86_pkru_load(struct thread_struct *prev,
-					  struct thread_struct *next)
-{
-	if (!cpu_feature_enabled(X86_FEATURE_OSPKE))
-		return;
-
-	/* Stash the prev task's value: */
-	prev->pkru = rdpkru();
-
-	/*
-	 * PKRU writes are slightly expensive.  Avoid them when not
-	 * strictly necessary:
-	 */
-	if (prev->pkru != next->pkru)
-		wrpkru(next->pkru);
 }
 
 static __always_inline void x86_fsgsbase_load(struct thread_struct *prev,
@@ -611,8 +587,6 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 		loadsegment(ds, next->ds);
 
 	x86_fsgsbase_load(prev, next);
-
-	x86_pkru_load(prev, next);
 
 	/*
 	 * Switch the PDA and FPU contexts.

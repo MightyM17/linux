@@ -33,18 +33,16 @@ extern struct workqueue_struct *gfs2_control_wq;
 
 static void gfs2_ail_error(struct gfs2_glock *gl, const struct buffer_head *bh)
 {
-	struct gfs2_sbd *sdp = gl->gl_name.ln_sbd;
-
-	fs_err(sdp,
+	fs_err(gl->gl_name.ln_sbd,
 	       "AIL buffer %p: blocknr %llu state 0x%08lx mapping %p page "
 	       "state 0x%lx\n",
 	       bh, (unsigned long long)bh->b_blocknr, bh->b_state,
 	       bh->b_page->mapping, bh->b_page->flags);
-	fs_err(sdp, "AIL glock %u:%llu mapping %p\n",
+	fs_err(gl->gl_name.ln_sbd, "AIL glock %u:%llu mapping %p\n",
 	       gl->gl_name.ln_type, gl->gl_name.ln_number,
 	       gfs2_glock2aspace(gl));
-	gfs2_lm(sdp, "AIL error\n");
-	gfs2_withdraw_delayed(sdp);
+	gfs2_lm(gl->gl_name.ln_sbd, "AIL error\n");
+	gfs2_withdraw(gl->gl_name.ln_sbd);
 }
 
 /**
@@ -398,7 +396,7 @@ static int gfs2_dinode_in(struct gfs2_inode *ip, const void *buf)
 	struct timespec64 atime;
 	u16 height, depth;
 	umode_t mode = be32_to_cpu(str->di_mode);
-	bool is_new = ip->i_inode.i_state & I_NEW;
+	bool is_new = ip->i_inode.i_flags & I_NEW;
 
 	if (unlikely(ip->i_no_addr != be64_to_cpu(str->di_num.no_addr)))
 		goto corrupt;
@@ -612,13 +610,16 @@ static int freeze_go_xmote_bh(struct gfs2_glock *gl)
 		j_gl->gl_ops->go_inval(j_gl, DIO_METADATA);
 
 		error = gfs2_find_jhead(sdp->sd_jdesc, &head, false);
-		if (gfs2_assert_withdraw_delayed(sdp, !error))
-			return error;
-		if (gfs2_assert_withdraw_delayed(sdp, head.lh_flags &
-						 GFS2_LOG_HEAD_UNMOUNT))
-			return -EIO;
-		sdp->sd_log_sequence = head.lh_sequence + 1;
-		gfs2_log_pointers_init(sdp, head.lh_blkno);
+		if (error)
+			gfs2_consist(sdp);
+		if (!(head.lh_flags & GFS2_LOG_HEAD_UNMOUNT))
+			gfs2_consist(sdp);
+
+		/*  Initialize some head of the log stuff  */
+		if (!gfs2_withdrawn(sdp)) {
+			sdp->sd_log_sequence = head.lh_sequence + 1;
+			gfs2_log_pointers_init(sdp, head.lh_blkno);
+		}
 	}
 	return 0;
 }

@@ -395,7 +395,7 @@ static struct irq_chip dln2_gpio_irqchip = {
 static void dln2_gpio_event(struct platform_device *pdev, u16 echo,
 			    const void *data, int len)
 {
-	int pin, ret;
+	int pin, irq;
 
 	const struct {
 		__le16 count;
@@ -416,20 +416,24 @@ static void dln2_gpio_event(struct platform_device *pdev, u16 echo,
 		return;
 	}
 
-	switch (dln2->irq_type[pin]) {
-	case DLN2_GPIO_EVENT_CHANGE_RISING:
-		if (!event->value)
-			return;
-		break;
-	case DLN2_GPIO_EVENT_CHANGE_FALLING:
-		if (event->value)
-			return;
-		break;
+	irq = irq_find_mapping(dln2->gpio.irq.domain, pin);
+	if (!irq) {
+		dev_err(dln2->gpio.parent, "pin %d not mapped to IRQ\n", pin);
+		return;
 	}
 
-	ret = generic_handle_domain_irq(dln2->gpio.irq.domain, pin);
-	if (unlikely(ret))
-		dev_err(dln2->gpio.parent, "pin %d not mapped to IRQ\n", pin);
+	switch (dln2->irq_type[pin]) {
+	case DLN2_GPIO_EVENT_CHANGE_RISING:
+		if (event->value)
+			generic_handle_irq(irq);
+		break;
+	case DLN2_GPIO_EVENT_CHANGE_FALLING:
+		if (!event->value)
+			generic_handle_irq(irq);
+		break;
+	default:
+		generic_handle_irq(irq);
+	}
 }
 
 static int dln2_gpio_probe(struct platform_device *pdev)

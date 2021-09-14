@@ -363,6 +363,8 @@ static int pwm_imx_tpm_probe(struct platform_device *pdev)
 
 	tpm->chip.dev = &pdev->dev;
 	tpm->chip.ops = &imx_tpm_pwm_ops;
+	tpm->chip.of_xlate = of_pwm_xlate_with_flags;
+	tpm->chip.of_pwm_n_cells = 3;
 
 	/* get number of channels */
 	val = readl(tpm->base + PWM_IMX_TPM_PARAM);
@@ -382,12 +384,11 @@ static int pwm_imx_tpm_probe(struct platform_device *pdev)
 static int pwm_imx_tpm_remove(struct platform_device *pdev)
 {
 	struct imx_tpm_pwm_chip *tpm = platform_get_drvdata(pdev);
-
-	pwmchip_remove(&tpm->chip);
+	int ret = pwmchip_remove(&tpm->chip);
 
 	clk_disable_unprepare(tpm->clk);
 
-	return 0;
+	return ret;
 }
 
 static int __maybe_unused pwm_imx_tpm_suspend(struct device *dev)

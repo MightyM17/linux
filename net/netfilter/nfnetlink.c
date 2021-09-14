@@ -68,7 +68,6 @@ static const char *const nfnl_lockdep_names[NFNL_SUBSYS_COUNT] = {
 	[NFNL_SUBSYS_CTHELPER] = "nfnl_subsys_cthelper",
 	[NFNL_SUBSYS_NFTABLES] = "nfnl_subsys_nftables",
 	[NFNL_SUBSYS_NFT_COMPAT] = "nfnl_subsys_nftcompat",
-	[NFNL_SUBSYS_HOOK] = "nfnl_subsys_hook",
 };
 
 static const int nfnl_group2type[NFNLGRP_MAX+1] = {
@@ -257,7 +256,6 @@ replay:
 			.net	= net,
 			.sk	= nfnlnet->nfnl,
 			.nlh	= nlh,
-			.nfmsg	= nlmsg_data(nlh),
 			.extack	= extack,
 		};
 
@@ -493,7 +491,6 @@ replay_abort:
 				.net	= net,
 				.sk	= nfnlnet->nfnl,
 				.nlh	= nlh,
-				.nfmsg	= nlmsg_data(nlh),
 				.extack	= &extack,
 			};
 

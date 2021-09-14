@@ -1564,10 +1564,8 @@ found_ok_skb:
 			cerr = put_cmsg(msg, SOL_TLS, TLS_GET_RECORD_TYPE,
 					sizeof(thdr->type), &thdr->type);
 
-			if (cerr && thdr->type != TLS_RECORD_TYPE_DATA) {
-				copied = -EIO;
-				break;
-			}
+			if (cerr && thdr->type != TLS_RECORD_TYPE_DATA)
+				return -EIO;
 			/*  don't send tls header, skip copy */
 			goto skip_copy;
 		}

@@ -59,7 +59,7 @@ Declare the I2C devices via ACPI
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 ACPI can also describe I2C devices. There is special documentation for this
-which is currently located at Documentation/firmware-guide/acpi/enumeration.rst.
+which is currently located at :doc:`../firmware-guide/acpi/enumeration`.
 
 
 Declare the I2C devices in board files

@@ -67,13 +67,15 @@ static int ipack_bus_probe(struct device *device)
 	return drv->ops->probe(dev);
 }
 
-static void ipack_bus_remove(struct device *device)
+static int ipack_bus_remove(struct device *device)
 {
 	struct ipack_device *dev = to_ipack_dev(device);
 	struct ipack_driver *drv = to_ipack_driver(device->driver);
 
 	if (drv->ops->remove)
 		drv->ops->remove(dev);
+
+	return 0;
 }
 
 static int ipack_uevent(struct device *dev, struct kobj_uevent_env *env)

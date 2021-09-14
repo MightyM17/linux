@@ -29,8 +29,7 @@ properties:
 
     properties:
       port@0:
-        $ref: /schemas/graph.yaml#/$defs/port-base
-        unevaluatedProperties: false
+        $ref: /schemas/graph.yaml#/properties/port
         description:
           Primary MIPI port for MIPI input
 

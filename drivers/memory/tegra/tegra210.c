@@ -16,1149 +16,1005 @@ static const struct tegra_mc_client tegra210_mc_clients[] = {
 		.id = 0x01,
 		.name = "display0a",
 		.swgroup = TEGRA_SWGROUP_DC,
-		.regs = {
-			.smmu = {
-				.reg = 0x228,
-				.bit = 1,
-			},
-			.la = {
-				.reg = 0x2e8,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x1e,
-			},
+		.smmu = {
+			.reg = 0x228,
+			.bit = 1,
+		},
+		.la = {
+			.reg = 0x2e8,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x1e,
 		},
 	}, {
 		.id = 0x02,
 		.name = "display0ab",
 		.swgroup = TEGRA_SWGROUP_DCB,
-		.regs = {
-			.smmu = {
-				.reg = 0x228,
-				.bit = 2,
-			},
-			.la = {
-				.reg = 0x2f4,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x1e,
-			},
+		.smmu = {
+			.reg = 0x228,
+			.bit = 2,
+		},
+		.la = {
+			.reg = 0x2f4,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x1e,
 		},
 	}, {
 		.id = 0x03,
 		.name = "display0b",
 		.swgroup = TEGRA_SWGROUP_DC,
-		.regs = {
-			.smmu = {
-				.reg = 0x228,
-				.bit = 3,
-			},
-			.la = {
-				.reg = 0x2e8,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x1e,
-			},
+		.smmu = {
+			.reg = 0x228,
+			.bit = 3,
+		},
+		.la = {
+			.reg = 0x2e8,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x1e,
 		},
 	}, {
 		.id = 0x04,
 		.name = "display0bb",
 		.swgroup = TEGRA_SWGROUP_DCB,
-		.regs = {
-			.smmu = {
-				.reg = 0x228,
-				.bit = 4,
-			},
-			.la = {
-				.reg = 0x2f4,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x1e,
-			},
+		.smmu = {
+			.reg = 0x228,
+			.bit = 4,
+		},
+		.la = {
+			.reg = 0x2f4,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x1e,
 		},
 	}, {
 		.id = 0x05,
 		.name = "display0c",
 		.swgroup = TEGRA_SWGROUP_DC,
-		.regs = {
-			.smmu = {
-				.reg = 0x228,
-				.bit = 5,
-			},
-			.la = {
-				.reg = 0x2ec,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x1e,
-			},
+		.smmu = {
+			.reg = 0x228,
+			.bit = 5,
+		},
+		.la = {
+			.reg = 0x2ec,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x1e,
 		},
 	}, {
 		.id = 0x06,
 		.name = "display0cb",
 		.swgroup = TEGRA_SWGROUP_DCB,
-		.regs = {
-			.smmu = {
-				.reg = 0x228,
-				.bit = 6,
-			},
-			.la = {
-				.reg = 0x2f8,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x1e,
-			},
+		.smmu = {
+			.reg = 0x228,
+			.bit = 6,
+		},
+		.la = {
+			.reg = 0x2f8,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x1e,
 		},
 	}, {
 		.id = 0x0e,
 		.name = "afir",
 		.swgroup = TEGRA_SWGROUP_AFI,
-		.regs = {
-			.smmu = {
-				.reg = 0x228,
-				.bit = 14,
-			},
-			.la = {
-				.reg = 0x2e0,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x2e,
-			},
+		.smmu = {
+			.reg = 0x228,
+			.bit = 14,
+		},
+		.la = {
+			.reg = 0x2e0,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x2e,
 		},
 	}, {
 		.id = 0x0f,
 		.name = "avpcarm7r",
 		.swgroup = TEGRA_SWGROUP_AVPC,
-		.regs = {
-			.smmu = {
-				.reg = 0x228,
-				.bit = 15,
-			},
-			.la = {
-				.reg = 0x2e4,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x04,
-			},
+		.smmu = {
+			.reg = 0x228,
+			.bit = 15,
+		},
+		.la = {
+			.reg = 0x2e4,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x04,
 		},
 	}, {
 		.id = 0x10,
 		.name = "displayhc",
 		.swgroup = TEGRA_SWGROUP_DC,
-		.regs = {
-			.smmu = {
-				.reg = 0x228,
-				.bit = 16,
-			},
-			.la = {
-				.reg = 0x2f0,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x1e,
-			},
+		.smmu = {
+			.reg = 0x228,
+			.bit = 16,
+		},
+		.la = {
+			.reg = 0x2f0,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x1e,
 		},
 	}, {
 		.id = 0x11,
 		.name = "displayhcb",
 		.swgroup = TEGRA_SWGROUP_DCB,
-		.regs = {
-			.smmu = {
-				.reg = 0x228,
-				.bit = 17,
-			},
-			.la = {
-				.reg = 0x2fc,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x1e,
-			},
+		.smmu = {
+			.reg = 0x228,
+			.bit = 17,
+		},
+		.la = {
+			.reg = 0x2fc,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x1e,
 		},
 	}, {
 		.id = 0x15,
 		.name = "hdar",
 		.swgroup = TEGRA_SWGROUP_HDA,
-		.regs = {
-			.smmu = {
-				.reg = 0x228,
-				.bit = 21,
-			},
-			.la = {
-				.reg = 0x318,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x24,
-			},
+		.smmu = {
+			.reg = 0x228,
+			.bit = 21,
+		},
+		.la = {
+			.reg = 0x318,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x24,
 		},
 	}, {
 		.id = 0x16,
 		.name = "host1xdmar",
 		.swgroup = TEGRA_SWGROUP_HC,
-		.regs = {
-			.smmu = {
-				.reg = 0x228,
-				.bit = 22,
-			},
-			.la = {
-				.reg = 0x310,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x1e,
-			},
+		.smmu = {
+			.reg = 0x228,
+			.bit = 22,
+		},
+		.la = {
+			.reg = 0x310,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x1e,
 		},
 	}, {
 		.id = 0x17,
 		.name = "host1xr",
 		.swgroup = TEGRA_SWGROUP_HC,
-		.regs = {
-			.smmu = {
-				.reg = 0x228,
-				.bit = 23,
-			},
-			.la = {
-				.reg = 0x310,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x50,
-			},
+		.smmu = {
+			.reg = 0x228,
+			.bit = 23,
+		},
+		.la = {
+			.reg = 0x310,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x50,
 		},
 	}, {
 		.id = 0x1c,
 		.name = "nvencsrd",
 		.swgroup = TEGRA_SWGROUP_NVENC,
-		.regs = {
-			.smmu = {
-				.reg = 0x228,
-				.bit = 28,
-			},
-			.la = {
-				.reg = 0x328,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x23,
-			},
+		.smmu = {
+			.reg = 0x228,
+			.bit = 28,
+		},
+		.la = {
+			.reg = 0x328,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x23,
 		},
 	}, {
 		.id = 0x1d,
 		.name = "ppcsahbdmar",
 		.swgroup = TEGRA_SWGROUP_PPCS,
-		.regs = {
-			.smmu = {
-				.reg = 0x228,
-				.bit = 29,
-			},
-			.la = {
-				.reg = 0x344,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x49,
-			},
+		.smmu = {
+			.reg = 0x228,
+			.bit = 29,
+		},
+		.la = {
+			.reg = 0x344,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x49,
 		},
 	}, {
 		.id = 0x1e,
 		.name = "ppcsahbslvr",
 		.swgroup = TEGRA_SWGROUP_PPCS,
-		.regs = {
-			.smmu = {
-				.reg = 0x228,
-				.bit = 30,
-			},
-			.la = {
-				.reg = 0x344,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x1a,
-			},
+		.smmu = {
+			.reg = 0x228,
+			.bit = 30,
+		},
+		.la = {
+			.reg = 0x344,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x1a,
 		},
 	}, {
 		.id = 0x1f,
 		.name = "satar",
 		.swgroup = TEGRA_SWGROUP_SATA,
-		.regs = {
-			.smmu = {
-				.reg = 0x228,
-				.bit = 31,
-			},
-			.la = {
-				.reg = 0x350,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x65,
-			},
+		.smmu = {
+			.reg = 0x228,
+			.bit = 31,
+		},
+		.la = {
+			.reg = 0x350,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x65,
 		},
 	}, {
 		.id = 0x27,
 		.name = "mpcorer",
 		.swgroup = TEGRA_SWGROUP_MPCORE,
-		.regs = {
-			.la = {
-				.reg = 0x320,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x04,
-			},
+		.la = {
+			.reg = 0x320,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x04,
 		},
 	}, {
 		.id = 0x2b,
 		.name = "nvencswr",
 		.swgroup = TEGRA_SWGROUP_NVENC,
-		.regs = {
-			.smmu = {
-				.reg = 0x22c,
-				.bit = 11,
-			},
-			.la = {
-				.reg = 0x328,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x22c,
+			.bit = 11,
+		},
+		.la = {
+			.reg = 0x328,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x31,
 		.name = "afiw",
 		.swgroup = TEGRA_SWGROUP_AFI,
-		.regs = {
-			.smmu = {
-				.reg = 0x22c,
-				.bit = 17,
-			},
-			.la = {
-				.reg = 0x2e0,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x22c,
+			.bit = 17,
+		},
+		.la = {
+			.reg = 0x2e0,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x32,
 		.name = "avpcarm7w",
 		.swgroup = TEGRA_SWGROUP_AVPC,
-		.regs = {
-			.smmu = {
-				.reg = 0x22c,
-				.bit = 18,
-			},
-			.la = {
-				.reg = 0x2e4,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x22c,
+			.bit = 18,
+		},
+		.la = {
+			.reg = 0x2e4,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x35,
 		.name = "hdaw",
 		.swgroup = TEGRA_SWGROUP_HDA,
-		.regs = {
-			.smmu = {
-				.reg = 0x22c,
-				.bit = 21,
-			},
-			.la = {
-				.reg = 0x318,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x22c,
+			.bit = 21,
+		},
+		.la = {
+			.reg = 0x318,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x36,
 		.name = "host1xw",
 		.swgroup = TEGRA_SWGROUP_HC,
-		.regs = {
-			.smmu = {
-				.reg = 0x22c,
-				.bit = 22,
-			},
-			.la = {
-				.reg = 0x314,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x22c,
+			.bit = 22,
+		},
+		.la = {
+			.reg = 0x314,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x39,
 		.name = "mpcorew",
 		.swgroup = TEGRA_SWGROUP_MPCORE,
-		.regs = {
-			.la = {
-				.reg = 0x320,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.la = {
+			.reg = 0x320,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x3b,
 		.name = "ppcsahbdmaw",
 		.swgroup = TEGRA_SWGROUP_PPCS,
-		.regs = {
-			.smmu = {
-				.reg = 0x22c,
-				.bit = 27,
-			},
-			.la = {
-				.reg = 0x348,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x22c,
+			.bit = 27,
+		},
+		.la = {
+			.reg = 0x348,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x3c,
 		.name = "ppcsahbslvw",
 		.swgroup = TEGRA_SWGROUP_PPCS,
-		.regs = {
-			.smmu = {
-				.reg = 0x22c,
-				.bit = 28,
-			},
-			.la = {
-				.reg = 0x348,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x22c,
+			.bit = 28,
+		},
+		.la = {
+			.reg = 0x348,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x3d,
 		.name = "sataw",
 		.swgroup = TEGRA_SWGROUP_SATA,
-		.regs = {
-			.smmu = {
-				.reg = 0x22c,
-				.bit = 29,
-			},
-			.la = {
-				.reg = 0x350,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x22c,
+			.bit = 29,
+		},
+		.la = {
+			.reg = 0x350,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x44,
 		.name = "ispra",
 		.swgroup = TEGRA_SWGROUP_ISP2,
-		.regs = {
-			.smmu = {
-				.reg = 0x230,
-				.bit = 4,
-			},
-			.la = {
-				.reg = 0x370,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x18,
-			},
+		.smmu = {
+			.reg = 0x230,
+			.bit = 4,
+		},
+		.la = {
+			.reg = 0x370,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x18,
 		},
 	}, {
 		.id = 0x46,
 		.name = "ispwa",
 		.swgroup = TEGRA_SWGROUP_ISP2,
-		.regs = {
-			.smmu = {
-				.reg = 0x230,
-				.bit = 6,
-			},
-			.la = {
-				.reg = 0x374,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x230,
+			.bit = 6,
+		},
+		.la = {
+			.reg = 0x374,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x47,
 		.name = "ispwb",
 		.swgroup = TEGRA_SWGROUP_ISP2,
-		.regs = {
-			.smmu = {
-				.reg = 0x230,
-				.bit = 7,
-			},
-			.la = {
-				.reg = 0x374,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x230,
+			.bit = 7,
+		},
+		.la = {
+			.reg = 0x374,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x4a,
 		.name = "xusb_hostr",
 		.swgroup = TEGRA_SWGROUP_XUSB_HOST,
-		.regs = {
-			.smmu = {
-				.reg = 0x230,
-				.bit = 10,
-			},
-			.la = {
-				.reg = 0x37c,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x7a,
-			},
+		.smmu = {
+			.reg = 0x230,
+			.bit = 10,
+		},
+		.la = {
+			.reg = 0x37c,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x7a,
 		},
 	}, {
 		.id = 0x4b,
 		.name = "xusb_hostw",
 		.swgroup = TEGRA_SWGROUP_XUSB_HOST,
-		.regs = {
-			.smmu = {
-				.reg = 0x230,
-				.bit = 11,
-			},
-			.la = {
-				.reg = 0x37c,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x230,
+			.bit = 11,
+		},
+		.la = {
+			.reg = 0x37c,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x4c,
 		.name = "xusb_devr",
 		.swgroup = TEGRA_SWGROUP_XUSB_DEV,
-		.regs = {
-			.smmu = {
-				.reg = 0x230,
-				.bit = 12,
-			},
-			.la = {
-				.reg = 0x380,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x39,
-			},
+		.smmu = {
+			.reg = 0x230,
+			.bit = 12,
+		},
+		.la = {
+			.reg = 0x380,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x39,
 		},
 	}, {
 		.id = 0x4d,
 		.name = "xusb_devw",
 		.swgroup = TEGRA_SWGROUP_XUSB_DEV,
-		.regs = {
-			.smmu = {
-				.reg = 0x230,
-				.bit = 13,
-			},
-			.la = {
-				.reg = 0x380,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x230,
+			.bit = 13,
+		},
+		.la = {
+			.reg = 0x380,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x4e,
 		.name = "isprab",
 		.swgroup = TEGRA_SWGROUP_ISP2B,
-		.regs = {
-			.smmu = {
-				.reg = 0x230,
-				.bit = 14,
-			},
-			.la = {
-				.reg = 0x384,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x18,
-			},
+		.smmu = {
+			.reg = 0x230,
+			.bit = 14,
+		},
+		.la = {
+			.reg = 0x384,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x18,
 		},
 	}, {
 		.id = 0x50,
 		.name = "ispwab",
 		.swgroup = TEGRA_SWGROUP_ISP2B,
-		.regs = {
-			.smmu = {
-				.reg = 0x230,
-				.bit = 16,
-			},
-			.la = {
-				.reg = 0x388,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x230,
+			.bit = 16,
+		},
+		.la = {
+			.reg = 0x388,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x51,
 		.name = "ispwbb",
 		.swgroup = TEGRA_SWGROUP_ISP2B,
-		.regs = {
-			.smmu = {
-				.reg = 0x230,
-				.bit = 17,
-			},
-			.la = {
-				.reg = 0x388,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x230,
+			.bit = 17,
+		},
+		.la = {
+			.reg = 0x388,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x54,
 		.name = "tsecsrd",
 		.swgroup = TEGRA_SWGROUP_TSEC,
-		.regs = {
-			.smmu = {
-				.reg = 0x230,
-				.bit = 20,
-			},
-			.la = {
-				.reg = 0x390,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x9b,
-			},
+		.smmu = {
+			.reg = 0x230,
+			.bit = 20,
+		},
+		.la = {
+			.reg = 0x390,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x9b,
 		},
 	}, {
 		.id = 0x55,
 		.name = "tsecswr",
 		.swgroup = TEGRA_SWGROUP_TSEC,
-		.regs = {
-			.smmu = {
-				.reg = 0x230,
-				.bit = 21,
-			},
-			.la = {
-				.reg = 0x390,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x230,
+			.bit = 21,
+		},
+		.la = {
+			.reg = 0x390,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x56,
 		.name = "a9avpscr",
 		.swgroup = TEGRA_SWGROUP_A9AVP,
-		.regs = {
-			.smmu = {
-				.reg = 0x230,
-				.bit = 22,
-			},
-			.la = {
-				.reg = 0x3a4,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x04,
-			},
+		.smmu = {
+			.reg = 0x230,
+			.bit = 22,
+		},
+		.la = {
+			.reg = 0x3a4,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x04,
 		},
 	}, {
 		.id = 0x57,
 		.name = "a9avpscw",
 		.swgroup = TEGRA_SWGROUP_A9AVP,
-		.regs = {
-			.smmu = {
-				.reg = 0x230,
-				.bit = 23,
-			},
-			.la = {
-				.reg = 0x3a4,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x230,
+			.bit = 23,
+		},
+		.la = {
+			.reg = 0x3a4,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x58,
 		.name = "gpusrd",
 		.swgroup = TEGRA_SWGROUP_GPU,
-		.regs = {
-			.smmu = {
-				/* read-only */
-				.reg = 0x230,
-				.bit = 24,
-			},
-			.la = {
-				.reg = 0x3c8,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x1a,
-			},
+		.smmu = {
+			/* read-only */
+			.reg = 0x230,
+			.bit = 24,
+		},
+		.la = {
+			.reg = 0x3c8,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x1a,
 		},
 	}, {
 		.id = 0x59,
 		.name = "gpuswr",
 		.swgroup = TEGRA_SWGROUP_GPU,
-		.regs = {
-			.smmu = {
-				/* read-only */
-				.reg = 0x230,
-				.bit = 25,
-			},
-			.la = {
-				.reg = 0x3c8,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			/* read-only */
+			.reg = 0x230,
+			.bit = 25,
+		},
+		.la = {
+			.reg = 0x3c8,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x5a,
 		.name = "displayt",
 		.swgroup = TEGRA_SWGROUP_DC,
-		.regs = {
-			.smmu = {
-				.reg = 0x230,
-				.bit = 26,
-			},
-			.la = {
-				.reg = 0x2f0,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x1e,
-			},
+		.smmu = {
+			.reg = 0x230,
+			.bit = 26,
+		},
+		.la = {
+			.reg = 0x2f0,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x1e,
 		},
 	}, {
 		.id = 0x60,
 		.name = "sdmmcra",
 		.swgroup = TEGRA_SWGROUP_SDMMC1A,
-		.regs = {
-			.smmu = {
-				.reg = 0x234,
-				.bit = 0,
-			},
-			.la = {
-				.reg = 0x3b8,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x49,
-			},
+		.smmu = {
+			.reg = 0x234,
+			.bit = 0,
+		},
+		.la = {
+			.reg = 0x3b8,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x49,
 		},
 	}, {
 		.id = 0x61,
 		.name = "sdmmcraa",
 		.swgroup = TEGRA_SWGROUP_SDMMC2A,
-		.regs = {
-			.smmu = {
-				.reg = 0x234,
-				.bit = 1,
-			},
-			.la = {
-				.reg = 0x3bc,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x5a,
-			},
+		.smmu = {
+			.reg = 0x234,
+			.bit = 1,
+		},
+		.la = {
+			.reg = 0x3bc,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x5a,
 		},
 	}, {
 		.id = 0x62,
 		.name = "sdmmcr",
 		.swgroup = TEGRA_SWGROUP_SDMMC3A,
-		.regs = {
-			.smmu = {
-				.reg = 0x234,
-				.bit = 2,
-			},
-			.la = {
-				.reg = 0x3c0,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x49,
-			},
+		.smmu = {
+			.reg = 0x234,
+			.bit = 2,
+		},
+		.la = {
+			.reg = 0x3c0,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x49,
 		},
 	}, {
 		.id = 0x63,
 		.swgroup = TEGRA_SWGROUP_SDMMC4A,
 		.name = "sdmmcrab",
-		.regs = {
-			.smmu = {
-				.reg = 0x234,
-				.bit = 3,
-			},
-			.la = {
-				.reg = 0x3c4,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x5a,
-			},
+		.smmu = {
+			.reg = 0x234,
+			.bit = 3,
+		},
+		.la = {
+			.reg = 0x3c4,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x5a,
 		},
 	}, {
 		.id = 0x64,
 		.name = "sdmmcwa",
 		.swgroup = TEGRA_SWGROUP_SDMMC1A,
-		.regs = {
-			.smmu = {
-				.reg = 0x234,
-				.bit = 4,
-			},
-			.la = {
-				.reg = 0x3b8,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x234,
+			.bit = 4,
+		},
+		.la = {
+			.reg = 0x3b8,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x65,
 		.name = "sdmmcwaa",
 		.swgroup = TEGRA_SWGROUP_SDMMC2A,
-		.regs = {
-			.smmu = {
-				.reg = 0x234,
-				.bit = 5,
-			},
-			.la = {
-				.reg = 0x3bc,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x234,
+			.bit = 5,
+		},
+		.la = {
+			.reg = 0x3bc,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x66,
 		.name = "sdmmcw",
 		.swgroup = TEGRA_SWGROUP_SDMMC3A,
-		.regs = {
-			.smmu = {
-				.reg = 0x234,
-				.bit = 6,
-			},
-			.la = {
-				.reg = 0x3c0,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x234,
+			.bit = 6,
+		},
+		.la = {
+			.reg = 0x3c0,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x67,
 		.name = "sdmmcwab",
 		.swgroup = TEGRA_SWGROUP_SDMMC4A,
-		.regs = {
-			.smmu = {
-				.reg = 0x234,
-				.bit = 7,
-			},
-			.la = {
-				.reg = 0x3c4,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x234,
+			.bit = 7,
+		},
+		.la = {
+			.reg = 0x3c4,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x6c,
 		.name = "vicsrd",
 		.swgroup = TEGRA_SWGROUP_VIC,
-		.regs = {
-			.smmu = {
-				.reg = 0x234,
-				.bit = 12,
-			},
-			.la = {
-				.reg = 0x394,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x1a,
-			},
+		.smmu = {
+			.reg = 0x234,
+			.bit = 12,
+		},
+		.la = {
+			.reg = 0x394,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x1a,
 		},
 	}, {
 		.id = 0x6d,
 		.name = "vicswr",
 		.swgroup = TEGRA_SWGROUP_VIC,
-		.regs = {
-			.smmu = {
-				.reg = 0x234,
-				.bit = 13,
-			},
-			.la = {
-				.reg = 0x394,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x234,
+			.bit = 13,
+		},
+		.la = {
+			.reg = 0x394,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x72,
 		.name = "viw",
 		.swgroup = TEGRA_SWGROUP_VI,
-		.regs = {
-			.smmu = {
-				.reg = 0x234,
-				.bit = 18,
-			},
-			.la = {
-				.reg = 0x398,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x234,
+			.bit = 18,
+		},
+		.la = {
+			.reg = 0x398,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x73,
 		.name = "displayd",
 		.swgroup = TEGRA_SWGROUP_DC,
-		.regs = {
-			.smmu = {
-				.reg = 0x234,
-				.bit = 19,
-			},
-			.la = {
-				.reg = 0x3c8,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x50,
-			},
+		.smmu = {
+			.reg = 0x234,
+			.bit = 19,
+		},
+		.la = {
+			.reg = 0x3c8,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x50,
 		},
 	}, {
 		.id = 0x78,
 		.name = "nvdecsrd",
 		.swgroup = TEGRA_SWGROUP_NVDEC,
-		.regs = {
-			.smmu = {
-				.reg = 0x234,
-				.bit = 24,
-			},
-			.la = {
-				.reg = 0x3d8,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x23,
-			},
+		.smmu = {
+			.reg = 0x234,
+			.bit = 24,
+		},
+		.la = {
+			.reg = 0x3d8,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x23,
 		},
 	}, {
 		.id = 0x79,
 		.name = "nvdecswr",
 		.swgroup = TEGRA_SWGROUP_NVDEC,
-		.regs = {
-			.smmu = {
-				.reg = 0x234,
-				.bit = 25,
-			},
-			.la = {
-				.reg = 0x3d8,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x234,
+			.bit = 25,
+		},
+		.la = {
+			.reg = 0x3d8,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x7a,
 		.name = "aper",
 		.swgroup = TEGRA_SWGROUP_APE,
-		.regs = {
-			.smmu = {
-				.reg = 0x234,
-				.bit = 26,
-			},
-			.la = {
-				.reg = 0x3dc,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0xff,
-			},
+		.smmu = {
+			.reg = 0x234,
+			.bit = 26,
+		},
+		.la = {
+			.reg = 0x3dc,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0xff,
 		},
 	}, {
 		.id = 0x7b,
 		.name = "apew",
 		.swgroup = TEGRA_SWGROUP_APE,
-		.regs = {
-			.smmu = {
-				.reg = 0x234,
-				.bit = 27,
-			},
-			.la = {
-				.reg = 0x3dc,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x234,
+			.bit = 27,
+		},
+		.la = {
+			.reg = 0x3dc,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x7e,
 		.name = "nvjpgsrd",
 		.swgroup = TEGRA_SWGROUP_NVJPG,
-		.regs = {
-			.smmu = {
-				.reg = 0x234,
-				.bit = 30,
-			},
-			.la = {
-				.reg = 0x3e4,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x23,
-			},
+		.smmu = {
+			.reg = 0x234,
+			.bit = 30,
+		},
+		.la = {
+			.reg = 0x3e4,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x23,
 		},
 	}, {
 		.id = 0x7f,
 		.name = "nvjpgswr",
 		.swgroup = TEGRA_SWGROUP_NVJPG,
-		.regs = {
-			.smmu = {
-				.reg = 0x234,
-				.bit = 31,
-			},
-			.la = {
-				.reg = 0x3e4,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0x234,
+			.bit = 31,
+		},
+		.la = {
+			.reg = 0x3e4,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x80,
 		.name = "sesrd",
 		.swgroup = TEGRA_SWGROUP_SE,
-		.regs = {
-			.smmu = {
-				.reg = 0xb98,
-				.bit = 0,
-			},
-			.la = {
-				.reg = 0x3e0,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x2e,
-			},
+		.smmu = {
+			.reg = 0xb98,
+			.bit = 0,
+		},
+		.la = {
+			.reg = 0x3e0,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x2e,
 		},
 	}, {
 		.id = 0x81,
 		.name = "seswr",
 		.swgroup = TEGRA_SWGROUP_SE,
-		.regs = {
-			.smmu = {
-				.reg = 0xb98,
-				.bit = 1,
-			},
-			.la = {
-				.reg = 0x3e0,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0xb98,
+			.bit = 1,
+		},
+		.la = {
+			.reg = 0x3e0,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x82,
 		.name = "axiapr",
 		.swgroup = TEGRA_SWGROUP_AXIAP,
-		.regs = {
-			.smmu = {
-				.reg = 0xb98,
-				.bit = 2,
-			},
-			.la = {
-				.reg = 0x3a0,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0xff,
-			},
+		.smmu = {
+			.reg = 0xb98,
+			.bit = 2,
+		},
+		.la = {
+			.reg = 0x3a0,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0xff,
 		},
 	}, {
 		.id = 0x83,
 		.name = "axiapw",
 		.swgroup = TEGRA_SWGROUP_AXIAP,
-		.regs = {
-			.smmu = {
-				.reg = 0xb98,
-				.bit = 3,
-			},
-			.la = {
-				.reg = 0x3a0,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0xb98,
+			.bit = 3,
+		},
+		.la = {
+			.reg = 0x3a0,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x84,
 		.name = "etrr",
 		.swgroup = TEGRA_SWGROUP_ETR,
-		.regs = {
-			.smmu = {
-				.reg = 0xb98,
-				.bit = 4,
-			},
-			.la = {
-				.reg = 0x3ec,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0xff,
-			},
+		.smmu = {
+			.reg = 0xb98,
+			.bit = 4,
+		},
+		.la = {
+			.reg = 0x3ec,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0xff,
 		},
 	}, {
 		.id = 0x85,
 		.name = "etrw",
 		.swgroup = TEGRA_SWGROUP_ETR,
-		.regs = {
-			.smmu = {
-				.reg = 0xb98,
-				.bit = 5,
-			},
-			.la = {
-				.reg = 0x3ec,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0xb98,
+			.bit = 5,
+		},
+		.la = {
+			.reg = 0x3ec,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x86,
 		.name = "tsecsrdb",
 		.swgroup = TEGRA_SWGROUP_TSECB,
-		.regs = {
-			.smmu = {
-				.reg = 0xb98,
-				.bit = 6,
-			},
-			.la = {
-				.reg = 0x3f0,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x9b,
-			},
+		.smmu = {
+			.reg = 0xb98,
+			.bit = 6,
+		},
+		.la = {
+			.reg = 0x3f0,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x9b,
 		},
 	}, {
 		.id = 0x87,
 		.name = "tsecswrb",
 		.swgroup = TEGRA_SWGROUP_TSECB,
-		.regs = {
-			.smmu = {
-				.reg = 0xb98,
-				.bit = 7,
-			},
-			.la = {
-				.reg = 0x3f0,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			.reg = 0xb98,
+			.bit = 7,
+		},
+		.la = {
+			.reg = 0x3f0,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	}, {
 		.id = 0x88,
 		.name = "gpusrd2",
 		.swgroup = TEGRA_SWGROUP_GPU,
-		.regs = {
-			.smmu = {
-				/* read-only */
-				.reg = 0xb98,
-				.bit = 8,
-			},
-			.la = {
-				.reg = 0x3e8,
-				.shift = 0,
-				.mask = 0xff,
-				.def = 0x1a,
-			},
+		.smmu = {
+			/* read-only */
+			.reg = 0xb98,
+			.bit = 8,
+		},
+		.la = {
+			.reg = 0x3e8,
+			.shift = 0,
+			.mask = 0xff,
+			.def = 0x1a,
 		},
 	}, {
 		.id = 0x89,
 		.name = "gpuswr2",
 		.swgroup = TEGRA_SWGROUP_GPU,
-		.regs = {
-			.smmu = {
-				/* read-only */
-				.reg = 0xb98,
-				.bit = 9,
-			},
-			.la = {
-				.reg = 0x3e8,
-				.shift = 16,
-				.mask = 0xff,
-				.def = 0x80,
-			},
+		.smmu = {
+			/* read-only */
+			.reg = 0xb98,
+			.bit = 9,
+		},
+		.la = {
+			.reg = 0x3e8,
+			.shift = 16,
+			.mask = 0xff,
+			.def = 0x80,
 		},
 	},
 };
@@ -1286,5 +1142,4 @@ const struct tegra_mc_soc tegra210_mc_soc = {
 	.reset_ops = &tegra_mc_reset_ops_common,
 	.resets = tegra210_mc_resets,
 	.num_resets = ARRAY_SIZE(tegra210_mc_resets),
-	.ops = &tegra30_mc_ops,
 };

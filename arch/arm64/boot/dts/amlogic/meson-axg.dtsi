@@ -1871,7 +1871,6 @@
 				status = "disabled";
 				clocks = <&xtal>, <&clkc CLKID_UART0>, <&xtal>;
 				clock-names = "xtal", "pclk", "baud";
-				fifo-size = <128>;
 			};
 		};
 

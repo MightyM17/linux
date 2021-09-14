@@ -83,7 +83,7 @@ seed_unwind_frame_info(struct task_struct *tsk, struct pt_regs *regs,
 		 *    is safe-kept and BLINK at a well known location in there
 		 */
 
-		if (task_is_running(tsk))
+		if (tsk->state == TASK_RUNNING)
 			return -1;
 
 		frame_info->task = tsk;
@@ -149,7 +149,7 @@ arc_unwind_core(struct task_struct *tsk, struct pt_regs *regs,
 #else
 	/* On ARC, only Dward based unwinder works. fp based backtracing is
 	 * not possible (-fno-omit-frame-pointer) because of the way function
-	 * prologue is setup (callee regs saved and then fp set and not other
+	 * prelogue is setup (callee regs saved and then fp set and not other
 	 * way around
 	 */
 	pr_warn_once("CONFIG_ARC_DW2_UNWIND needs to be enabled\n");

@@ -345,7 +345,7 @@ static void rpm_suspend_suppliers(struct device *dev)
 static int __rpm_callback(int (*cb)(struct device *), struct device *dev)
 	__releases(&dev->power.lock) __acquires(&dev->power.lock)
 {
-	int retval = 0, idx;
+	int retval, idx;
 	bool use_links = dev->power.links_count > 0;
 
 	if (dev->power.irq_safe) {
@@ -373,8 +373,7 @@ static int __rpm_callback(int (*cb)(struct device *), struct device *dev)
 		}
 	}
 
-	if (cb)
-		retval = cb(dev);
+	retval = cb(dev);
 
 	if (dev->power.irq_safe) {
 		spin_lock(&dev->power.lock);
@@ -447,10 +446,7 @@ static int rpm_idle(struct device *dev, int rpmflags)
 	/* Pending requests need to be canceled. */
 	dev->power.request = RPM_REQ_NONE;
 
-	callback = RPM_GET_CALLBACK(dev, runtime_idle);
-
-	/* If no callback assume success. */
-	if (!callback || dev->power.no_callbacks)
+	if (dev->power.no_callbacks)
 		goto out;
 
 	/* Carry out an asynchronous or a synchronous idle notification. */
@@ -466,7 +462,10 @@ static int rpm_idle(struct device *dev, int rpmflags)
 
 	dev->power.idle_notification = true;
 
-	retval = __rpm_callback(callback, dev);
+	callback = RPM_GET_CALLBACK(dev, runtime_idle);
+
+	if (callback)
+		retval = __rpm_callback(callback, dev);
 
 	dev->power.idle_notification = false;
 	wake_up_all(&dev->power.wait_queue);
@@ -484,6 +483,9 @@ static int rpm_idle(struct device *dev, int rpmflags)
 static int rpm_callback(int (*cb)(struct device *), struct device *dev)
 {
 	int retval;
+
+	if (!cb)
+		return -ENOSYS;
 
 	if (dev->power.memalloc_noio) {
 		unsigned int noio_flag;
@@ -1446,23 +1448,6 @@ void pm_runtime_enable(struct device *dev)
 	spin_unlock_irqrestore(&dev->power.lock, flags);
 }
 EXPORT_SYMBOL_GPL(pm_runtime_enable);
-
-static void pm_runtime_disable_action(void *data)
-{
-	pm_runtime_disable(data);
-}
-
-/**
- * devm_pm_runtime_enable - devres-enabled version of pm_runtime_enable.
- * @dev: Device to handle.
- */
-int devm_pm_runtime_enable(struct device *dev)
-{
-	pm_runtime_enable(dev);
-
-	return devm_add_action_or_reset(dev, pm_runtime_disable_action, dev);
-}
-EXPORT_SYMBOL_GPL(devm_pm_runtime_enable);
 
 /**
  * pm_runtime_forbid - Block runtime PM of a device.

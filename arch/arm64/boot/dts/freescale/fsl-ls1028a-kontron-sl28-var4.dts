@@ -31,10 +31,11 @@
 			reg = <0x4>;
 			eee-broken-1000t;
 			eee-broken-100tx;
+
 			qca,clk-out-frequency = <125000000>;
 			qca,clk-out-strength = <AR803X_STRENGTH_FULL>;
-			qca,keep-pll-enabled;
-			vddio-supply = <&vddio>;
+
+			vddio-supply = <&vddh>;
 
 			vddio: vddio-regulator {
 				regulator-name = "VDDIO";

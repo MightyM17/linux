@@ -42,8 +42,9 @@ struct snd_pcsp pcsp_chip;
 
 static int snd_pcsp_create(struct snd_card *card)
 {
+	static const struct snd_device_ops ops = { };
 	unsigned int resolution = hrtimer_resolution;
-	int div, min_div, order;
+	int err, div, min_div, order;
 
 	if (!nopcm) {
 		if (resolution > PCSP_MAX_PERIOD_NS) {
@@ -82,16 +83,13 @@ static int snd_pcsp_create(struct snd_card *card)
 	pcsp_chip.port = 0x61;
 	pcsp_chip.irq = -1;
 	pcsp_chip.dma = -1;
-	card->private_data = &pcsp_chip;
+
+	/* Register device */
+	err = snd_device_new(card, SNDRV_DEV_LOWLEVEL, &pcsp_chip, &ops);
+	if (err < 0)
+		return err;
 
 	return 0;
-}
-
-static void pcsp_stop_beep(struct snd_pcsp *chip);
-
-static void alsa_card_pcsp_free(struct snd_card *card)
-{
-	pcsp_stop_beep(card->private_data);
 }
 
 static int snd_card_pcsp_probe(int devnum, struct device *dev)
@@ -105,22 +103,22 @@ static int snd_card_pcsp_probe(int devnum, struct device *dev)
 	hrtimer_init(&pcsp_chip.timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	pcsp_chip.timer.function = pcsp_do_timer;
 
-	err = snd_devm_card_new(dev, index, id, THIS_MODULE, 0, &card);
+	err = snd_card_new(dev, index, id, THIS_MODULE, 0, &card);
 	if (err < 0)
 		return err;
 
 	err = snd_pcsp_create(card);
 	if (err < 0)
-		return err;
+		goto free_card;
 
 	if (!nopcm) {
 		err = snd_pcsp_new_pcm(&pcsp_chip);
 		if (err < 0)
-			return err;
+			goto free_card;
 	}
 	err = snd_pcsp_new_mixer(&pcsp_chip, nopcm);
 	if (err < 0)
-		return err;
+		goto free_card;
 
 	strcpy(card->driver, "PC-Speaker");
 	strcpy(card->shortname, "pcsp");
@@ -129,10 +127,13 @@ static int snd_card_pcsp_probe(int devnum, struct device *dev)
 
 	err = snd_card_register(card);
 	if (err < 0)
-		return err;
-	card->private_free = alsa_card_pcsp_free;
+		goto free_card;
 
 	return 0;
+
+free_card:
+	snd_card_free(card);
+	return err;
 }
 
 static int alsa_card_pcsp_init(struct device *dev)
@@ -154,6 +155,11 @@ static int alsa_card_pcsp_init(struct device *dev)
 	return 0;
 }
 
+static void alsa_card_pcsp_exit(struct snd_pcsp *chip)
+{
+	snd_card_free(chip->card);
+}
+
 static int pcsp_probe(struct platform_device *dev)
 {
 	int err;
@@ -163,10 +169,20 @@ static int pcsp_probe(struct platform_device *dev)
 		return err;
 
 	err = alsa_card_pcsp_init(&dev->dev);
-	if (err < 0)
+	if (err < 0) {
+		pcspkr_input_remove(pcsp_chip.input_dev);
 		return err;
+	}
 
 	platform_set_drvdata(dev, &pcsp_chip);
+	return 0;
+}
+
+static int pcsp_remove(struct platform_device *dev)
+{
+	struct snd_pcsp *chip = platform_get_drvdata(dev);
+	pcspkr_input_remove(chip->input_dev);
+	alsa_card_pcsp_exit(chip);
 	return 0;
 }
 
@@ -202,6 +218,7 @@ static struct platform_driver pcsp_platform_driver = {
 		.pm	= PCSP_PM_OPS,
 	},
 	.probe		= pcsp_probe,
+	.remove		= pcsp_remove,
 	.shutdown	= pcsp_shutdown,
 };
 

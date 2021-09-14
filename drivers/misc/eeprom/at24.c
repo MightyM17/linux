@@ -714,20 +714,23 @@ static int at24_probe(struct i2c_client *client)
 	}
 
 	/*
-	 * We initialize nvmem_config.id to NVMEM_DEVID_AUTO even if the
-	 * label property is set as some platform can have multiple eeproms
-	 * with same label and we can not register each of those with same
-	 * label. Failing to register those eeproms trigger cascade failure
-	 * on such platform.
+	 * If the 'label' property is not present for the AT24 EEPROM,
+	 * then nvmem_config.id is initialised to NVMEM_DEVID_AUTO,
+	 * and this will append the 'devid' to the name of the NVMEM
+	 * device. This is purely legacy and the AT24 driver has always
+	 * defaulted to this. However, if the 'label' property is
+	 * present then this means that the name is specified by the
+	 * firmware and this name should be used verbatim and so it is
+	 * not necessary to append the 'devid'.
 	 */
-	nvmem_config.id = NVMEM_DEVID_AUTO;
-
 	if (device_property_present(dev, "label")) {
+		nvmem_config.id = NVMEM_DEVID_NONE;
 		err = device_property_read_string(dev, "label",
 						  &nvmem_config.name);
 		if (err)
 			return err;
 	} else {
+		nvmem_config.id = NVMEM_DEVID_AUTO;
 		nvmem_config.name = dev_name(dev);
 	}
 
@@ -760,8 +763,7 @@ static int at24_probe(struct i2c_client *client)
 	at24->nvmem = devm_nvmem_register(dev, &nvmem_config);
 	if (IS_ERR(at24->nvmem)) {
 		pm_runtime_disable(dev);
-		if (!pm_runtime_status_suspended(dev))
-			regulator_disable(at24->vcc_reg);
+		regulator_disable(at24->vcc_reg);
 		return PTR_ERR(at24->nvmem);
 	}
 
@@ -772,8 +774,7 @@ static int at24_probe(struct i2c_client *client)
 	err = at24_read(at24, 0, &test_byte, 1);
 	if (err) {
 		pm_runtime_disable(dev);
-		if (!pm_runtime_status_suspended(dev))
-			regulator_disable(at24->vcc_reg);
+		regulator_disable(at24->vcc_reg);
 		return -ENODEV;
 	}
 

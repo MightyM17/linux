@@ -32,6 +32,7 @@ properties:
       - description: tx channel free
       - description: wakeup source
     minItems: 2
+    maxItems: 3
 
   interrupt-names:
     items:
@@ -39,6 +40,7 @@ properties:
       - const: tx
       - const: wakeup
     minItems: 2
+    maxItems: 3
 
   wakeup-source: true
 

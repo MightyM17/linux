@@ -98,7 +98,7 @@ static int ppp_async_send(struct ppp_channel *chan, struct sk_buff *skb);
 static int ppp_async_push(struct asyncppp *ap);
 static void ppp_async_flush_output(struct asyncppp *ap);
 static void ppp_async_input(struct asyncppp *ap, const unsigned char *buf,
-			    const char *flags, int count);
+			    char *flags, int count);
 static int ppp_async_ioctl(struct ppp_channel *chan, unsigned int cmd,
 			   unsigned long arg);
 static void ppp_async_process(struct tasklet_struct *t);
@@ -340,7 +340,7 @@ ppp_asynctty_poll(struct tty_struct *tty, struct file *file, poll_table *wait)
 /* May sleep, don't call from interrupt level or with interrupts disabled */
 static void
 ppp_asynctty_receive(struct tty_struct *tty, const unsigned char *buf,
-		  const char *cflags, int count)
+		  char *cflags, int count)
 {
 	struct asyncppp *ap = ap_get(tty);
 	unsigned long flags;
@@ -372,7 +372,6 @@ ppp_asynctty_wakeup(struct tty_struct *tty)
 
 static struct tty_ldisc_ops ppp_ldisc = {
 	.owner  = THIS_MODULE,
-	.num	= N_PPP,
 	.name	= "ppp",
 	.open	= ppp_asynctty_open,
 	.close	= ppp_asynctty_close,
@@ -390,7 +389,7 @@ ppp_async_init(void)
 {
 	int err;
 
-	err = tty_register_ldisc(&ppp_ldisc);
+	err = tty_register_ldisc(N_PPP, &ppp_ldisc);
 	if (err != 0)
 		printk(KERN_ERR "PPP_async: error %d registering line disc.\n",
 		       err);
@@ -830,7 +829,7 @@ process_input_packet(struct asyncppp *ap)
 
 static void
 ppp_async_input(struct asyncppp *ap, const unsigned char *buf,
-		const char *flags, int count)
+		char *flags, int count)
 {
 	struct sk_buff *skb;
 	int c, i, j, n, s, f;
@@ -1016,7 +1015,8 @@ static void async_lcp_peek(struct asyncppp *ap, unsigned char *data,
 
 static void __exit ppp_async_cleanup(void)
 {
-	tty_unregister_ldisc(&ppp_ldisc);
+	if (tty_unregister_ldisc(N_PPP) != 0)
+		printk(KERN_ERR "failed to unregister PPP line discipline\n");
 }
 
 module_init(ppp_async_init);

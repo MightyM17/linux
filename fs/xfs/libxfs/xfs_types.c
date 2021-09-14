@@ -11,7 +11,6 @@
 #include "xfs_trans_resv.h"
 #include "xfs_bit.h"
 #include "xfs_mount.h"
-#include "xfs_ag.h"
 
 /* Find the size of the AG, in blocks. */
 inline xfs_agblock_t
@@ -169,7 +168,7 @@ xfs_internal_inum(
 	xfs_ino_t		ino)
 {
 	return ino == mp->m_sb.sb_rbmino || ino == mp->m_sb.sb_rsumino ||
-		(xfs_has_quota(mp) &&
+		(xfs_sb_version_hasquota(&mp->m_sb) &&
 		 xfs_is_quota_inode(&mp->m_sb, ino));
 }
 
@@ -223,13 +222,12 @@ xfs_icount_range(
 	unsigned long long	*max)
 {
 	unsigned long long	nr_inos = 0;
-	struct xfs_perag	*pag;
 	xfs_agnumber_t		agno;
 
 	/* root, rtbitmap, rtsum all live in the first chunk */
 	*min = XFS_INODES_PER_CHUNK;
 
-	for_each_perag(mp, agno, pag) {
+	for (agno = 0; agno < mp->m_sb.sb_agcount; agno++) {
 		xfs_agino_t	first, last;
 
 		xfs_agino_range(mp, agno, &first, &last);

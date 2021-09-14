@@ -93,7 +93,7 @@ static int pvpanic_mmio_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	pi = devm_kmalloc(dev, sizeof(*pi), GFP_KERNEL);
+	pi = kmalloc(sizeof(*pi), GFP_ATOMIC);
 	if (!pi)
 		return -ENOMEM;
 
@@ -104,7 +104,19 @@ static int pvpanic_mmio_probe(struct platform_device *pdev)
 	pi->capability &= ioread8(base);
 	pi->events = pi->capability;
 
-	return devm_pvpanic_probe(dev, pi);
+	dev_set_drvdata(dev, pi);
+
+	return pvpanic_probe(pi);
+}
+
+static int pvpanic_mmio_remove(struct platform_device *pdev)
+{
+	struct pvpanic_instance *pi = dev_get_drvdata(&pdev->dev);
+
+	pvpanic_remove(pi);
+	kfree(pi);
+
+	return 0;
 }
 
 static const struct of_device_id pvpanic_mmio_match[] = {
@@ -127,5 +139,6 @@ static struct platform_driver pvpanic_mmio_driver = {
 		.dev_groups = pvpanic_mmio_dev_groups,
 	},
 	.probe = pvpanic_mmio_probe,
+	.remove = pvpanic_mmio_remove,
 };
 module_platform_driver(pvpanic_mmio_driver);

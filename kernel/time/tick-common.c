@@ -373,7 +373,7 @@ out_bc:
 	/*
 	 * Can the new device be used as a broadcast device ?
 	 */
-	tick_install_broadcast_device(newdev, cpu);
+	tick_install_broadcast_device(newdev);
 }
 
 /**
@@ -470,13 +470,6 @@ void tick_resume_local(void)
 		else
 			tick_resume_oneshot();
 	}
-
-	/*
-	 * Ensure that hrtimers are up to date and the clockevents device
-	 * is reprogrammed correctly when high resolution timers are
-	 * enabled.
-	 */
-	hrtimers_resume_local();
 }
 
 /**

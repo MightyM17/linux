@@ -25,74 +25,8 @@ struct fpga_mgr_devres {
 	struct fpga_manager *mgr;
 };
 
-static inline void fpga_mgr_fpga_remove(struct fpga_manager *mgr)
-{
-	if (mgr->mops->fpga_remove)
-		mgr->mops->fpga_remove(mgr);
-}
-
-static inline enum fpga_mgr_states fpga_mgr_state(struct fpga_manager *mgr)
-{
-	if (mgr->mops->state)
-		return  mgr->mops->state(mgr);
-	return FPGA_MGR_STATE_UNKNOWN;
-}
-
-static inline u64 fpga_mgr_status(struct fpga_manager *mgr)
-{
-	if (mgr->mops->status)
-		return mgr->mops->status(mgr);
-	return 0;
-}
-
-static inline int fpga_mgr_write(struct fpga_manager *mgr, const char *buf, size_t count)
-{
-	if (mgr->mops->write)
-		return  mgr->mops->write(mgr, buf, count);
-	return -EOPNOTSUPP;
-}
-
-/*
- * After all the FPGA image has been written, do the device specific steps to
- * finish and set the FPGA into operating mode.
- */
-static inline int fpga_mgr_write_complete(struct fpga_manager *mgr,
-					  struct fpga_image_info *info)
-{
-	int ret = 0;
-
-	mgr->state = FPGA_MGR_STATE_WRITE_COMPLETE;
-	if (mgr->mops->write_complete)
-		ret = mgr->mops->write_complete(mgr, info);
-	if (ret) {
-		dev_err(&mgr->dev, "Error after writing image data to FPGA\n");
-		mgr->state = FPGA_MGR_STATE_WRITE_COMPLETE_ERR;
-		return ret;
-	}
-	mgr->state = FPGA_MGR_STATE_OPERATING;
-
-	return 0;
-}
-
-static inline int fpga_mgr_write_init(struct fpga_manager *mgr,
-				      struct fpga_image_info *info,
-				      const char *buf, size_t count)
-{
-	if (mgr->mops->write_init)
-		return  mgr->mops->write_init(mgr, info, buf, count);
-	return 0;
-}
-
-static inline int fpga_mgr_write_sg(struct fpga_manager *mgr,
-				    struct sg_table *sgt)
-{
-	if (mgr->mops->write_sg)
-		return  mgr->mops->write_sg(mgr, sgt);
-	return -EOPNOTSUPP;
-}
-
 /**
- * fpga_image_info_alloc - Allocate an FPGA image info struct
+ * fpga_image_info_alloc - Allocate a FPGA image info struct
  * @dev: owning device
  *
  * Return: struct fpga_image_info or NULL
@@ -116,7 +50,7 @@ struct fpga_image_info *fpga_image_info_alloc(struct device *dev)
 EXPORT_SYMBOL_GPL(fpga_image_info_alloc);
 
 /**
- * fpga_image_info_free - Free an FPGA image info struct
+ * fpga_image_info_free - Free a FPGA image info struct
  * @info: FPGA image info struct to free
  */
 void fpga_image_info_free(struct fpga_image_info *info)
@@ -149,9 +83,9 @@ static int fpga_mgr_write_init_buf(struct fpga_manager *mgr,
 
 	mgr->state = FPGA_MGR_STATE_WRITE_INIT;
 	if (!mgr->mops->initial_header_size)
-		ret = fpga_mgr_write_init(mgr, info, NULL, 0);
+		ret = mgr->mops->write_init(mgr, info, NULL, 0);
 	else
-		ret = fpga_mgr_write_init(
+		ret = mgr->mops->write_init(
 		    mgr, info, buf, min(mgr->mops->initial_header_size, count));
 
 	if (ret) {
@@ -203,6 +137,27 @@ static int fpga_mgr_write_init_sg(struct fpga_manager *mgr,
 	return ret;
 }
 
+/*
+ * After all the FPGA image has been written, do the device specific steps to
+ * finish and set the FPGA into operating mode.
+ */
+static int fpga_mgr_write_complete(struct fpga_manager *mgr,
+				   struct fpga_image_info *info)
+{
+	int ret;
+
+	mgr->state = FPGA_MGR_STATE_WRITE_COMPLETE;
+	ret = mgr->mops->write_complete(mgr, info);
+	if (ret) {
+		dev_err(&mgr->dev, "Error after writing image data to FPGA\n");
+		mgr->state = FPGA_MGR_STATE_WRITE_COMPLETE_ERR;
+		return ret;
+	}
+	mgr->state = FPGA_MGR_STATE_OPERATING;
+
+	return 0;
+}
+
 /**
  * fpga_mgr_buf_load_sg - load fpga from image in buffer from a scatter list
  * @mgr:	fpga manager
@@ -233,13 +188,13 @@ static int fpga_mgr_buf_load_sg(struct fpga_manager *mgr,
 	/* Write the FPGA image to the FPGA. */
 	mgr->state = FPGA_MGR_STATE_WRITE;
 	if (mgr->mops->write_sg) {
-		ret = fpga_mgr_write_sg(mgr, sgt);
+		ret = mgr->mops->write_sg(mgr, sgt);
 	} else {
 		struct sg_mapping_iter miter;
 
 		sg_miter_start(&miter, sgt->sgl, sgt->nents, SG_MITER_FROM_SG);
 		while (sg_miter_next(&miter)) {
-			ret = fpga_mgr_write(mgr, miter.addr, miter.length);
+			ret = mgr->mops->write(mgr, miter.addr, miter.length);
 			if (ret)
 				break;
 		}
@@ -269,7 +224,7 @@ static int fpga_mgr_buf_load_mapped(struct fpga_manager *mgr,
 	 * Write the FPGA image to the FPGA.
 	 */
 	mgr->state = FPGA_MGR_STATE_WRITE;
-	ret = fpga_mgr_write(mgr, buf, count);
+	ret = mgr->mops->write(mgr, buf, count);
 	if (ret) {
 		dev_err(&mgr->dev, "Error while writing image data to FPGA\n");
 		mgr->state = FPGA_MGR_STATE_WRITE_ERR;
@@ -462,7 +417,10 @@ static ssize_t status_show(struct device *dev,
 	u64 status;
 	int len = 0;
 
-	status = fpga_mgr_status(mgr);
+	if (!mgr->mops->status)
+		return -ENOENT;
+
+	status = mgr->mops->status(mgr);
 
 	if (status & FPGA_MGR_STATUS_OPERATION_ERR)
 		len += sprintf(buf + len, "reconfig operation error\n");
@@ -512,7 +470,7 @@ static int fpga_mgr_dev_match(struct device *dev, const void *data)
 }
 
 /**
- * fpga_mgr_get - Given a device, get a reference to an fpga mgr.
+ * fpga_mgr_get - Given a device, get a reference to a fpga mgr.
  * @dev:	parent device that fpga mgr was registered with
  *
  * Return: fpga manager struct or IS_ERR() condition containing error code.
@@ -529,7 +487,7 @@ struct fpga_manager *fpga_mgr_get(struct device *dev)
 EXPORT_SYMBOL_GPL(fpga_mgr_get);
 
 /**
- * of_fpga_mgr_get - Given a device node, get a reference to an fpga mgr.
+ * of_fpga_mgr_get - Given a device node, get a reference to a fpga mgr.
  *
  * @node:	device node
  *
@@ -548,7 +506,7 @@ struct fpga_manager *of_fpga_mgr_get(struct device_node *node)
 EXPORT_SYMBOL_GPL(of_fpga_mgr_get);
 
 /**
- * fpga_mgr_put - release a reference to an fpga manager
+ * fpga_mgr_put - release a reference to a fpga manager
  * @mgr:	fpga manager structure
  */
 void fpga_mgr_put(struct fpga_manager *mgr)
@@ -592,8 +550,8 @@ void fpga_mgr_unlock(struct fpga_manager *mgr)
 EXPORT_SYMBOL_GPL(fpga_mgr_unlock);
 
 /**
- * fpga_mgr_create - create and initialize an FPGA manager struct
- * @parent:	fpga manager device from pdev
+ * fpga_mgr_create - create and initialize a FPGA manager struct
+ * @dev:	fpga manager device from pdev
  * @name:	fpga manager name
  * @mops:	pointer to structure of fpga manager ops
  * @priv:	fpga manager private data
@@ -603,20 +561,22 @@ EXPORT_SYMBOL_GPL(fpga_mgr_unlock);
  *
  * Return: pointer to struct fpga_manager or NULL
  */
-struct fpga_manager *fpga_mgr_create(struct device *parent, const char *name,
+struct fpga_manager *fpga_mgr_create(struct device *dev, const char *name,
 				     const struct fpga_manager_ops *mops,
 				     void *priv)
 {
 	struct fpga_manager *mgr;
 	int id, ret;
 
-	if (!mops) {
-		dev_err(parent, "Attempt to register without fpga_manager_ops\n");
+	if (!mops || !mops->write_complete || !mops->state ||
+	    !mops->write_init || (!mops->write && !mops->write_sg) ||
+	    (mops->write && mops->write_sg)) {
+		dev_err(dev, "Attempt to register without fpga_manager_ops\n");
 		return NULL;
 	}
 
 	if (!name || !strlen(name)) {
-		dev_err(parent, "Attempt to register with no name!\n");
+		dev_err(dev, "Attempt to register with no name!\n");
 		return NULL;
 	}
 
@@ -637,8 +597,8 @@ struct fpga_manager *fpga_mgr_create(struct device *parent, const char *name,
 	device_initialize(&mgr->dev);
 	mgr->dev.class = fpga_mgr_class;
 	mgr->dev.groups = mops->groups;
-	mgr->dev.parent = parent;
-	mgr->dev.of_node = parent->of_node;
+	mgr->dev.parent = dev;
+	mgr->dev.of_node = dev->of_node;
 	mgr->dev.id = id;
 
 	ret = dev_set_name(&mgr->dev, "fpga%d", id);
@@ -657,7 +617,7 @@ error_kfree:
 EXPORT_SYMBOL_GPL(fpga_mgr_create);
 
 /**
- * fpga_mgr_free - free an FPGA manager created with fpga_mgr_create()
+ * fpga_mgr_free - free a FPGA manager created with fpga_mgr_create()
  * @mgr:	fpga manager struct
  */
 void fpga_mgr_free(struct fpga_manager *mgr)
@@ -676,12 +636,12 @@ static void devm_fpga_mgr_release(struct device *dev, void *res)
 
 /**
  * devm_fpga_mgr_create - create and initialize a managed FPGA manager struct
- * @parent:	fpga manager device from pdev
+ * @dev:	fpga manager device from pdev
  * @name:	fpga manager name
  * @mops:	pointer to structure of fpga manager ops
  * @priv:	fpga manager private data
  *
- * This function is intended for use in an FPGA manager driver's probe function.
+ * This function is intended for use in a FPGA manager driver's probe function.
  * After the manager driver creates the manager struct with
  * devm_fpga_mgr_create(), it should register it with fpga_mgr_register().  The
  * manager driver's remove function should call fpga_mgr_unregister().  The
@@ -691,7 +651,7 @@ static void devm_fpga_mgr_release(struct device *dev, void *res)
  *
  * Return: pointer to struct fpga_manager or NULL
  */
-struct fpga_manager *devm_fpga_mgr_create(struct device *parent, const char *name,
+struct fpga_manager *devm_fpga_mgr_create(struct device *dev, const char *name,
 					  const struct fpga_manager_ops *mops,
 					  void *priv)
 {
@@ -701,20 +661,20 @@ struct fpga_manager *devm_fpga_mgr_create(struct device *parent, const char *nam
 	if (!dr)
 		return NULL;
 
-	dr->mgr = fpga_mgr_create(parent, name, mops, priv);
+	dr->mgr = fpga_mgr_create(dev, name, mops, priv);
 	if (!dr->mgr) {
 		devres_free(dr);
 		return NULL;
 	}
 
-	devres_add(parent, dr);
+	devres_add(dev, dr);
 
 	return dr->mgr;
 }
 EXPORT_SYMBOL_GPL(devm_fpga_mgr_create);
 
 /**
- * fpga_mgr_register - register an FPGA manager
+ * fpga_mgr_register - register a FPGA manager
  * @mgr: fpga manager struct
  *
  * Return: 0 on success, negative error code otherwise.
@@ -728,7 +688,7 @@ int fpga_mgr_register(struct fpga_manager *mgr)
 	 * from device.  FPGA may be in reset mode or may have been programmed
 	 * by bootloader or EEPROM.
 	 */
-	mgr->state = fpga_mgr_state(mgr);
+	mgr->state = mgr->mops->state(mgr);
 
 	ret = device_add(&mgr->dev);
 	if (ret)
@@ -746,10 +706,10 @@ error_device:
 EXPORT_SYMBOL_GPL(fpga_mgr_register);
 
 /**
- * fpga_mgr_unregister - unregister an FPGA manager
+ * fpga_mgr_unregister - unregister a FPGA manager
  * @mgr: fpga manager struct
  *
- * This function is intended for use in an FPGA manager driver's remove function.
+ * This function is intended for use in a FPGA manager driver's remove function.
  */
 void fpga_mgr_unregister(struct fpga_manager *mgr)
 {
@@ -759,7 +719,8 @@ void fpga_mgr_unregister(struct fpga_manager *mgr)
 	 * If the low level driver provides a method for putting fpga into
 	 * a desired state upon unregister, do it.
 	 */
-	fpga_mgr_fpga_remove(mgr);
+	if (mgr->mops->fpga_remove)
+		mgr->mops->fpga_remove(mgr);
 
 	device_unregister(&mgr->dev);
 }

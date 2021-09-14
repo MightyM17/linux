@@ -1,7 +1,3 @@
-.. raw:: latex
-
-	\kerneldocCJKoff
-
 NOTE:
 This is a version of Documentation/process/howto.rst translated into Japanese.
 This document is maintained by Tsugikazu Shibata <tshibata@ab.jp.nec.com>
@@ -14,10 +10,6 @@ a fork. So if you have any comments or updates for this file, please
 try to update the original English file first.
 
 ----------------------------------
-
-.. raw:: latex
-
-	\kerneldocCJKon
 
 この文書は、
 Documentation/process/howto.rst

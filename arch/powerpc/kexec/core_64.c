@@ -64,18 +64,15 @@ int default_machine_kexec_prepare(struct kimage *image)
 			begin = image->segment[i].mem;
 			end = begin + image->segment[i].memsz;
 
-			if ((begin < high) && (end > low)) {
-				of_node_put(node);
+			if ((begin < high) && (end > low))
 				return -ETXTBSY;
-			}
 		}
 	}
 
 	return 0;
 }
 
-/* Called during kexec sequence with MMU off */
-static notrace void copy_segments(unsigned long ind)
+static void copy_segments(unsigned long ind)
 {
 	unsigned long entry;
 	unsigned long *ptr;
@@ -108,8 +105,7 @@ static notrace void copy_segments(unsigned long ind)
 	}
 }
 
-/* Called during kexec sequence with MMU off */
-notrace void kexec_copy_flush(struct kimage *image)
+void kexec_copy_flush(struct kimage *image)
 {
 	long i, nr_segments = image->nr_segments;
 	struct  kexec_segment ranges[KEXEC_SEGMENT_MAX];

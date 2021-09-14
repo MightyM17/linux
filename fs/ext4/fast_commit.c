@@ -775,27 +775,28 @@ static bool ext4_fc_add_tlv(struct super_block *sb, u16 tag, u16 len, u8 *val,
 }
 
 /* Same as above, but adds dentry tlv. */
-static bool ext4_fc_add_dentry_tlv(struct super_block *sb, u32 *crc,
-				   struct ext4_fc_dentry_update *fc_dentry)
+static  bool ext4_fc_add_dentry_tlv(struct super_block *sb, u16 tag,
+					int parent_ino, int ino, int dlen,
+					const unsigned char *dname,
+					u32 *crc)
 {
 	struct ext4_fc_dentry_info fcd;
 	struct ext4_fc_tl tl;
-	int dlen = fc_dentry->fcd_name.len;
 	u8 *dst = ext4_fc_reserve_space(sb, sizeof(tl) + sizeof(fcd) + dlen,
 					crc);
 
 	if (!dst)
 		return false;
 
-	fcd.fc_parent_ino = cpu_to_le32(fc_dentry->fcd_parent);
-	fcd.fc_ino = cpu_to_le32(fc_dentry->fcd_ino);
-	tl.fc_tag = cpu_to_le16(fc_dentry->fcd_op);
+	fcd.fc_parent_ino = cpu_to_le32(parent_ino);
+	fcd.fc_ino = cpu_to_le32(ino);
+	tl.fc_tag = cpu_to_le16(tag);
 	tl.fc_len = cpu_to_le16(sizeof(fcd) + dlen);
 	ext4_fc_memcpy(sb, dst, &tl, sizeof(tl), crc);
 	dst += sizeof(tl);
 	ext4_fc_memcpy(sb, dst, &fcd, sizeof(fcd), crc);
 	dst += sizeof(fcd);
-	ext4_fc_memcpy(sb, dst, fc_dentry->fcd_name.name, dlen, crc);
+	ext4_fc_memcpy(sb, dst, dname, dlen, crc);
 	dst += dlen;
 
 	return true;
@@ -991,7 +992,11 @@ __releases(&sbi->s_fc_lock)
 				 &sbi->s_fc_dentry_q[FC_Q_MAIN], fcd_list) {
 		if (fc_dentry->fcd_op != EXT4_FC_TAG_CREAT) {
 			spin_unlock(&sbi->s_fc_lock);
-			if (!ext4_fc_add_dentry_tlv(sb, crc, fc_dentry)) {
+			if (!ext4_fc_add_dentry_tlv(
+				sb, fc_dentry->fcd_op,
+				fc_dentry->fcd_parent, fc_dentry->fcd_ino,
+				fc_dentry->fcd_name.len,
+				fc_dentry->fcd_name.name, crc)) {
 				ret = -ENOSPC;
 				goto lock_and_exit;
 			}
@@ -1030,7 +1035,11 @@ __releases(&sbi->s_fc_lock)
 		if (ret)
 			goto lock_and_exit;
 
-		if (!ext4_fc_add_dentry_tlv(sb, crc, fc_dentry)) {
+		if (!ext4_fc_add_dentry_tlv(
+			sb, fc_dentry->fcd_op,
+			fc_dentry->fcd_parent, fc_dentry->fcd_ino,
+			fc_dentry->fcd_name.len,
+			fc_dentry->fcd_name.name, crc)) {
 			ret = -ENOSPC;
 			goto lock_and_exit;
 		}
@@ -1279,29 +1288,28 @@ struct dentry_info_args {
 };
 
 static inline void tl_to_darg(struct dentry_info_args *darg,
-			      struct  ext4_fc_tl *tl, u8 *val)
+				struct  ext4_fc_tl *tl)
 {
-	struct ext4_fc_dentry_info fcd;
+	struct ext4_fc_dentry_info *fcd;
 
-	memcpy(&fcd, val, sizeof(fcd));
+	fcd = (struct ext4_fc_dentry_info *)ext4_fc_tag_val(tl);
 
-	darg->parent_ino = le32_to_cpu(fcd.fc_parent_ino);
-	darg->ino = le32_to_cpu(fcd.fc_ino);
-	darg->dname = val + offsetof(struct ext4_fc_dentry_info, fc_dname);
-	darg->dname_len = le16_to_cpu(tl->fc_len) -
-		sizeof(struct ext4_fc_dentry_info);
+	darg->parent_ino = le32_to_cpu(fcd->fc_parent_ino);
+	darg->ino = le32_to_cpu(fcd->fc_ino);
+	darg->dname = fcd->fc_dname;
+	darg->dname_len = ext4_fc_tag_len(tl) -
+			sizeof(struct ext4_fc_dentry_info);
 }
 
 /* Unlink replay function */
-static int ext4_fc_replay_unlink(struct super_block *sb, struct ext4_fc_tl *tl,
-				 u8 *val)
+static int ext4_fc_replay_unlink(struct super_block *sb, struct ext4_fc_tl *tl)
 {
 	struct inode *inode, *old_parent;
 	struct qstr entry;
 	struct dentry_info_args darg;
 	int ret = 0;
 
-	tl_to_darg(&darg, tl, val);
+	tl_to_darg(&darg, tl);
 
 	trace_ext4_fc_replay(sb, EXT4_FC_TAG_UNLINK, darg.ino,
 			darg.parent_ino, darg.dname_len);
@@ -1391,14 +1399,13 @@ out:
 }
 
 /* Link replay function */
-static int ext4_fc_replay_link(struct super_block *sb, struct ext4_fc_tl *tl,
-			       u8 *val)
+static int ext4_fc_replay_link(struct super_block *sb, struct ext4_fc_tl *tl)
 {
 	struct inode *inode;
 	struct dentry_info_args darg;
 	int ret = 0;
 
-	tl_to_darg(&darg, tl, val);
+	tl_to_darg(&darg, tl);
 	trace_ext4_fc_replay(sb, EXT4_FC_TAG_LINK, darg.ino,
 			darg.parent_ino, darg.dname_len);
 
@@ -1443,10 +1450,9 @@ static int ext4_fc_record_modified_inode(struct super_block *sb, int ino)
 /*
  * Inode replay function
  */
-static int ext4_fc_replay_inode(struct super_block *sb, struct ext4_fc_tl *tl,
-				u8 *val)
+static int ext4_fc_replay_inode(struct super_block *sb, struct ext4_fc_tl *tl)
 {
-	struct ext4_fc_inode fc_inode;
+	struct ext4_fc_inode *fc_inode;
 	struct ext4_inode *raw_inode;
 	struct ext4_inode *raw_fc_inode;
 	struct inode *inode = NULL;
@@ -1454,9 +1460,9 @@ static int ext4_fc_replay_inode(struct super_block *sb, struct ext4_fc_tl *tl,
 	int inode_len, ino, ret, tag = le16_to_cpu(tl->fc_tag);
 	struct ext4_extent_header *eh;
 
-	memcpy(&fc_inode, val, sizeof(fc_inode));
+	fc_inode = (struct ext4_fc_inode *)ext4_fc_tag_val(tl);
 
-	ino = le32_to_cpu(fc_inode.fc_ino);
+	ino = le32_to_cpu(fc_inode->fc_ino);
 	trace_ext4_fc_replay(sb, tag, ino, 0, 0);
 
 	inode = ext4_iget(sb, ino, EXT4_IGET_NORMAL);
@@ -1468,13 +1474,12 @@ static int ext4_fc_replay_inode(struct super_block *sb, struct ext4_fc_tl *tl,
 
 	ext4_fc_record_modified_inode(sb, ino);
 
-	raw_fc_inode = (struct ext4_inode *)
-		(val + offsetof(struct ext4_fc_inode, fc_raw_inode));
+	raw_fc_inode = (struct ext4_inode *)fc_inode->fc_raw_inode;
 	ret = ext4_get_fc_inode_loc(sb, ino, &iloc);
 	if (ret)
 		goto out;
 
-	inode_len = le16_to_cpu(tl->fc_len) - sizeof(struct ext4_fc_inode);
+	inode_len = ext4_fc_tag_len(tl) - sizeof(struct ext4_fc_inode);
 	raw_inode = ext4_raw_inode(&iloc);
 
 	memcpy(raw_inode, raw_fc_inode, offsetof(struct ext4_inode, i_block));
@@ -1542,15 +1547,14 @@ out:
  * inode for which we are trying to create a dentry here, should already have
  * been replayed before we start here.
  */
-static int ext4_fc_replay_create(struct super_block *sb, struct ext4_fc_tl *tl,
-				 u8 *val)
+static int ext4_fc_replay_create(struct super_block *sb, struct ext4_fc_tl *tl)
 {
 	int ret = 0;
 	struct inode *inode = NULL;
 	struct inode *dir = NULL;
 	struct dentry_info_args darg;
 
-	tl_to_darg(&darg, tl, val);
+	tl_to_darg(&darg, tl);
 
 	trace_ext4_fc_replay(sb, EXT4_FC_TAG_CREAT, darg.ino,
 			darg.parent_ino, darg.dname_len);
@@ -1629,9 +1633,9 @@ static int ext4_fc_record_regions(struct super_block *sb, int ino,
 
 /* Replay add range tag */
 static int ext4_fc_replay_add_range(struct super_block *sb,
-				    struct ext4_fc_tl *tl, u8 *val)
+				struct ext4_fc_tl *tl)
 {
-	struct ext4_fc_add_range fc_add_ex;
+	struct ext4_fc_add_range *fc_add_ex;
 	struct ext4_extent newex, *ex;
 	struct inode *inode;
 	ext4_lblk_t start, cur;
@@ -1641,14 +1645,15 @@ static int ext4_fc_replay_add_range(struct super_block *sb,
 	struct ext4_ext_path *path = NULL;
 	int ret;
 
-	memcpy(&fc_add_ex, val, sizeof(fc_add_ex));
-	ex = (struct ext4_extent *)&fc_add_ex.fc_ex;
+	fc_add_ex = (struct ext4_fc_add_range *)ext4_fc_tag_val(tl);
+	ex = (struct ext4_extent *)&fc_add_ex->fc_ex;
 
 	trace_ext4_fc_replay(sb, EXT4_FC_TAG_ADD_RANGE,
-		le32_to_cpu(fc_add_ex.fc_ino), le32_to_cpu(ex->ee_block),
+		le32_to_cpu(fc_add_ex->fc_ino), le32_to_cpu(ex->ee_block),
 		ext4_ext_get_actual_len(ex));
 
-	inode = ext4_iget(sb, le32_to_cpu(fc_add_ex.fc_ino), EXT4_IGET_NORMAL);
+	inode = ext4_iget(sb, le32_to_cpu(fc_add_ex->fc_ino),
+				EXT4_IGET_NORMAL);
 	if (IS_ERR(inode)) {
 		jbd_debug(1, "Inode not found.");
 		return 0;
@@ -1757,33 +1762,32 @@ next:
 
 /* Replay DEL_RANGE tag */
 static int
-ext4_fc_replay_del_range(struct super_block *sb, struct ext4_fc_tl *tl,
-			 u8 *val)
+ext4_fc_replay_del_range(struct super_block *sb, struct ext4_fc_tl *tl)
 {
 	struct inode *inode;
-	struct ext4_fc_del_range lrange;
+	struct ext4_fc_del_range *lrange;
 	struct ext4_map_blocks map;
 	ext4_lblk_t cur, remaining;
 	int ret;
 
-	memcpy(&lrange, val, sizeof(lrange));
-	cur = le32_to_cpu(lrange.fc_lblk);
-	remaining = le32_to_cpu(lrange.fc_len);
+	lrange = (struct ext4_fc_del_range *)ext4_fc_tag_val(tl);
+	cur = le32_to_cpu(lrange->fc_lblk);
+	remaining = le32_to_cpu(lrange->fc_len);
 
 	trace_ext4_fc_replay(sb, EXT4_FC_TAG_DEL_RANGE,
-		le32_to_cpu(lrange.fc_ino), cur, remaining);
+		le32_to_cpu(lrange->fc_ino), cur, remaining);
 
-	inode = ext4_iget(sb, le32_to_cpu(lrange.fc_ino), EXT4_IGET_NORMAL);
+	inode = ext4_iget(sb, le32_to_cpu(lrange->fc_ino), EXT4_IGET_NORMAL);
 	if (IS_ERR(inode)) {
-		jbd_debug(1, "Inode %d not found", le32_to_cpu(lrange.fc_ino));
+		jbd_debug(1, "Inode %d not found", le32_to_cpu(lrange->fc_ino));
 		return 0;
 	}
 
 	ret = ext4_fc_record_modified_inode(sb, inode->i_ino);
 
 	jbd_debug(1, "DEL_RANGE, inode %ld, lblk %d, len %d\n",
-			inode->i_ino, le32_to_cpu(lrange.fc_lblk),
-			le32_to_cpu(lrange.fc_len));
+			inode->i_ino, le32_to_cpu(lrange->fc_lblk),
+			le32_to_cpu(lrange->fc_len));
 	while (remaining > 0) {
 		map.m_lblk = cur;
 		map.m_len = remaining;
@@ -1804,8 +1808,8 @@ ext4_fc_replay_del_range(struct super_block *sb, struct ext4_fc_tl *tl,
 	}
 
 	ret = ext4_punch_hole(inode,
-		le32_to_cpu(lrange.fc_lblk) << sb->s_blocksize_bits,
-		le32_to_cpu(lrange.fc_len) <<  sb->s_blocksize_bits);
+		le32_to_cpu(lrange->fc_lblk) << sb->s_blocksize_bits,
+		le32_to_cpu(lrange->fc_len) <<  sb->s_blocksize_bits);
 	if (ret)
 		jbd_debug(1, "ext4_punch_hole returned %d", ret);
 	ext4_ext_replay_shrink_inode(inode,
@@ -1921,11 +1925,11 @@ static int ext4_fc_replay_scan(journal_t *journal,
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
 	struct ext4_fc_replay_state *state;
 	int ret = JBD2_FC_REPLAY_CONTINUE;
-	struct ext4_fc_add_range ext;
-	struct ext4_fc_tl tl;
-	struct ext4_fc_tail tail;
-	__u8 *start, *end, *cur, *val;
-	struct ext4_fc_head head;
+	struct ext4_fc_add_range *ext;
+	struct ext4_fc_tl *tl;
+	struct ext4_fc_tail *tail;
+	__u8 *start, *end;
+	struct ext4_fc_head *head;
 	struct ext4_extent *ex;
 
 	state = &sbi->s_fc_replay_state;
@@ -1952,17 +1956,15 @@ static int ext4_fc_replay_scan(journal_t *journal,
 	}
 
 	state->fc_replay_expected_off++;
-	for (cur = start; cur < end; cur = cur + sizeof(tl) + le16_to_cpu(tl.fc_len)) {
-		memcpy(&tl, cur, sizeof(tl));
-		val = cur + sizeof(tl);
+	fc_for_each_tl(start, end, tl) {
 		jbd_debug(3, "Scan phase, tag:%s, blk %lld\n",
-			  tag2str(le16_to_cpu(tl.fc_tag)), bh->b_blocknr);
-		switch (le16_to_cpu(tl.fc_tag)) {
+			  tag2str(le16_to_cpu(tl->fc_tag)), bh->b_blocknr);
+		switch (le16_to_cpu(tl->fc_tag)) {
 		case EXT4_FC_TAG_ADD_RANGE:
-			memcpy(&ext, val, sizeof(ext));
-			ex = (struct ext4_extent *)&ext.fc_ex;
+			ext = (struct ext4_fc_add_range *)ext4_fc_tag_val(tl);
+			ex = (struct ext4_extent *)&ext->fc_ex;
 			ret = ext4_fc_record_regions(sb,
-				le32_to_cpu(ext.fc_ino),
+				le32_to_cpu(ext->fc_ino),
 				le32_to_cpu(ex->ee_block), ext4_ext_pblock(ex),
 				ext4_ext_get_actual_len(ex));
 			if (ret < 0)
@@ -1976,18 +1978,18 @@ static int ext4_fc_replay_scan(journal_t *journal,
 		case EXT4_FC_TAG_INODE:
 		case EXT4_FC_TAG_PAD:
 			state->fc_cur_tag++;
-			state->fc_crc = ext4_chksum(sbi, state->fc_crc, cur,
-					sizeof(tl) + le16_to_cpu(tl.fc_len));
+			state->fc_crc = ext4_chksum(sbi, state->fc_crc, tl,
+					sizeof(*tl) + ext4_fc_tag_len(tl));
 			break;
 		case EXT4_FC_TAG_TAIL:
 			state->fc_cur_tag++;
-			memcpy(&tail, val, sizeof(tail));
-			state->fc_crc = ext4_chksum(sbi, state->fc_crc, cur,
-						sizeof(tl) +
+			tail = (struct ext4_fc_tail *)ext4_fc_tag_val(tl);
+			state->fc_crc = ext4_chksum(sbi, state->fc_crc, tl,
+						sizeof(*tl) +
 						offsetof(struct ext4_fc_tail,
 						fc_crc));
-			if (le32_to_cpu(tail.fc_tid) == expected_tid &&
-				le32_to_cpu(tail.fc_crc) == state->fc_crc) {
+			if (le32_to_cpu(tail->fc_tid) == expected_tid &&
+				le32_to_cpu(tail->fc_crc) == state->fc_crc) {
 				state->fc_replay_num_tags = state->fc_cur_tag;
 				state->fc_regions_valid =
 					state->fc_regions_used;
@@ -1998,19 +2000,19 @@ static int ext4_fc_replay_scan(journal_t *journal,
 			state->fc_crc = 0;
 			break;
 		case EXT4_FC_TAG_HEAD:
-			memcpy(&head, val, sizeof(head));
-			if (le32_to_cpu(head.fc_features) &
+			head = (struct ext4_fc_head *)ext4_fc_tag_val(tl);
+			if (le32_to_cpu(head->fc_features) &
 				~EXT4_FC_SUPPORTED_FEATURES) {
 				ret = -EOPNOTSUPP;
 				break;
 			}
-			if (le32_to_cpu(head.fc_tid) != expected_tid) {
+			if (le32_to_cpu(head->fc_tid) != expected_tid) {
 				ret = JBD2_FC_REPLAY_STOP;
 				break;
 			}
 			state->fc_cur_tag++;
-			state->fc_crc = ext4_chksum(sbi, state->fc_crc, cur,
-					    sizeof(tl) + le16_to_cpu(tl.fc_len));
+			state->fc_crc = ext4_chksum(sbi, state->fc_crc, tl,
+					sizeof(*tl) + ext4_fc_tag_len(tl));
 			break;
 		default:
 			ret = state->fc_replay_num_tags ?
@@ -2034,11 +2036,11 @@ static int ext4_fc_replay(journal_t *journal, struct buffer_head *bh,
 {
 	struct super_block *sb = journal->j_private;
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
-	struct ext4_fc_tl tl;
-	__u8 *start, *end, *cur, *val;
+	struct ext4_fc_tl *tl;
+	__u8 *start, *end;
 	int ret = JBD2_FC_REPLAY_CONTINUE;
 	struct ext4_fc_replay_state *state = &sbi->s_fc_replay_state;
-	struct ext4_fc_tail tail;
+	struct ext4_fc_tail *tail;
 
 	if (pass == PASS_SCAN) {
 		state->fc_current_pass = PASS_SCAN;
@@ -2065,52 +2067,49 @@ static int ext4_fc_replay(journal_t *journal, struct buffer_head *bh,
 	start = (u8 *)bh->b_data;
 	end = (__u8 *)bh->b_data + journal->j_blocksize - 1;
 
-	for (cur = start; cur < end; cur = cur + sizeof(tl) + le16_to_cpu(tl.fc_len)) {
-		memcpy(&tl, cur, sizeof(tl));
-		val = cur + sizeof(tl);
-
+	fc_for_each_tl(start, end, tl) {
 		if (state->fc_replay_num_tags == 0) {
 			ret = JBD2_FC_REPLAY_STOP;
 			ext4_fc_set_bitmaps_and_counters(sb);
 			break;
 		}
 		jbd_debug(3, "Replay phase, tag:%s\n",
-				tag2str(le16_to_cpu(tl.fc_tag)));
+				tag2str(le16_to_cpu(tl->fc_tag)));
 		state->fc_replay_num_tags--;
-		switch (le16_to_cpu(tl.fc_tag)) {
+		switch (le16_to_cpu(tl->fc_tag)) {
 		case EXT4_FC_TAG_LINK:
-			ret = ext4_fc_replay_link(sb, &tl, val);
+			ret = ext4_fc_replay_link(sb, tl);
 			break;
 		case EXT4_FC_TAG_UNLINK:
-			ret = ext4_fc_replay_unlink(sb, &tl, val);
+			ret = ext4_fc_replay_unlink(sb, tl);
 			break;
 		case EXT4_FC_TAG_ADD_RANGE:
-			ret = ext4_fc_replay_add_range(sb, &tl, val);
+			ret = ext4_fc_replay_add_range(sb, tl);
 			break;
 		case EXT4_FC_TAG_CREAT:
-			ret = ext4_fc_replay_create(sb, &tl, val);
+			ret = ext4_fc_replay_create(sb, tl);
 			break;
 		case EXT4_FC_TAG_DEL_RANGE:
-			ret = ext4_fc_replay_del_range(sb, &tl, val);
+			ret = ext4_fc_replay_del_range(sb, tl);
 			break;
 		case EXT4_FC_TAG_INODE:
-			ret = ext4_fc_replay_inode(sb, &tl, val);
+			ret = ext4_fc_replay_inode(sb, tl);
 			break;
 		case EXT4_FC_TAG_PAD:
 			trace_ext4_fc_replay(sb, EXT4_FC_TAG_PAD, 0,
-					     le16_to_cpu(tl.fc_len), 0);
+				ext4_fc_tag_len(tl), 0);
 			break;
 		case EXT4_FC_TAG_TAIL:
 			trace_ext4_fc_replay(sb, EXT4_FC_TAG_TAIL, 0,
-					     le16_to_cpu(tl.fc_len), 0);
-			memcpy(&tail, val, sizeof(tail));
-			WARN_ON(le32_to_cpu(tail.fc_tid) != expected_tid);
+				ext4_fc_tag_len(tl), 0);
+			tail = (struct ext4_fc_tail *)ext4_fc_tag_val(tl);
+			WARN_ON(le32_to_cpu(tail->fc_tid) != expected_tid);
 			break;
 		case EXT4_FC_TAG_HEAD:
 			break;
 		default:
-			trace_ext4_fc_replay(sb, le16_to_cpu(tl.fc_tag), 0,
-					     le16_to_cpu(tl.fc_len), 0);
+			trace_ext4_fc_replay(sb, le16_to_cpu(tl->fc_tag), 0,
+				ext4_fc_tag_len(tl), 0);
 			ret = -ECANCELED;
 			break;
 		}

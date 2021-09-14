@@ -278,9 +278,9 @@ int dcdbas_smi_request(struct smi_cmd *smi_cmd)
 	}
 
 	/* SMI requires CPU 0 */
-	cpus_read_lock();
+	get_online_cpus();
 	ret = smp_call_on_cpu(0, raise_smi, smi_cmd, true);
-	cpus_read_unlock();
+	put_online_cpus();
 
 	return ret;
 }
@@ -394,7 +394,8 @@ static int host_control_smi(void)
 
 		/* wait a few to see if it executed */
 		num_ticks = TIMEOUT_USEC_SHORT_SEMA_BLOCKING;
-		while ((s8)inb(PCAT_APM_STATUS_PORT) == ESM_STATUS_CMD_UNSUCCESSFUL) {
+		while ((cmd_status = inb(PCAT_APM_STATUS_PORT))
+		       == ESM_STATUS_CMD_UNSUCCESSFUL) {
 			num_ticks--;
 			if (num_ticks == EXPIRED_TIMER)
 				return -ETIME;

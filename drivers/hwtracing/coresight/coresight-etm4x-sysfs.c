@@ -9,7 +9,6 @@
 #include <linux/sysfs.h>
 #include "coresight-etm4x.h"
 #include "coresight-priv.h"
-#include "coresight-syscfg.h"
 
 static int etm4_set_mode_exclude(struct etmv4_drvdata *drvdata, bool exclude)
 {
@@ -269,8 +268,6 @@ static ssize_t reset_store(struct device *dev,
 	drvdata->trcid = drvdata->cpu + 1;
 
 	spin_unlock(&drvdata->spinlock);
-
-	cscfg_csdev_reset_feats(to_coresight_device(dev));
 
 	return size;
 }

@@ -28,7 +28,6 @@ static int mt7615_start(struct ieee80211_hw *hw)
 {
 	struct mt7615_dev *dev = mt7615_hw_dev(hw);
 	struct mt7615_phy *phy = mt7615_hw_phy(hw);
-	unsigned long timeout;
 	bool running;
 	int ret;
 
@@ -79,8 +78,8 @@ static int mt7615_start(struct ieee80211_hw *hw)
 
 	set_bit(MT76_STATE_RUNNING, &phy->mt76->state);
 
-	timeout = mt7615_get_macwork_timeout(dev);
-	ieee80211_queue_delayed_work(hw, &phy->mt76->mac_work, timeout);
+	ieee80211_queue_delayed_work(hw, &phy->mt76->mac_work,
+				     MT7615_WATCHDOG_TIME);
 
 	if (!running)
 		mt7615_mac_reset_counters(dev);
@@ -241,6 +240,8 @@ static int mt7615_add_interface(struct ieee80211_hw *hw,
 	}
 
 	ret = mt7615_mcu_add_dev_info(phy, vif, true);
+	if (ret)
+		goto out;
 out:
 	mt7615_mutex_release(dev);
 
@@ -351,12 +352,10 @@ out:
 	mt7615_mutex_release(dev);
 
 	mt76_worker_schedule(&dev->mt76.tx_worker);
-	if (!mt76_testmode_enabled(phy->mt76)) {
-		unsigned long timeout = mt7615_get_macwork_timeout(dev);
-
+	if (!mt76_testmode_enabled(phy->mt76))
 		ieee80211_queue_delayed_work(phy->mt76->hw,
-					     &phy->mt76->mac_work, timeout);
-	}
+					     &phy->mt76->mac_work,
+					     MT7615_WATCHDOG_TIME);
 
 	return ret;
 }
@@ -696,7 +695,7 @@ static void mt7615_sta_rate_tbl_update(struct ieee80211_hw *hw,
 	msta->n_rates = i;
 	if (mt76_connac_pm_ref(phy->mt76, &dev->pm)) {
 		mt7615_mac_set_rates(phy, msta, NULL, msta->rates);
-		mt76_connac_pm_unref(phy->mt76, &dev->pm);
+		mt76_connac_pm_unref(&dev->pm);
 	}
 	spin_unlock_bh(&dev->mt76.lock);
 }
@@ -712,7 +711,7 @@ void mt7615_tx_worker(struct mt76_worker *w)
 	}
 
 	mt76_tx_worker_run(&dev->mt76);
-	mt76_connac_pm_unref(&dev->mphy, &dev->pm);
+	mt76_connac_pm_unref(&dev->pm);
 }
 
 static void mt7615_tx(struct ieee80211_hw *hw,
@@ -742,7 +741,7 @@ static void mt7615_tx(struct ieee80211_hw *hw,
 
 	if (mt76_connac_pm_ref(mphy, &dev->pm)) {
 		mt76_tx(mphy, control->sta, wcid, skb);
-		mt76_connac_pm_unref(mphy, &dev->pm);
+		mt76_connac_pm_unref(&dev->pm);
 		return;
 	}
 
@@ -882,8 +881,7 @@ mt7615_get_tsf(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 
 	mt7615_mutex_acquire(dev);
 
-	/* TSF read */
-	mt76_rmw(dev, reg, MT_LPON_TCR_MODE, MT_LPON_TCR_READ);
+	mt76_set(dev, reg, MT_LPON_TCR_MODE); /* TSF read */
 	tsf.t32[0] = mt76_rr(dev, MT_LPON_UTTR0);
 	tsf.t32[1] = mt76_rr(dev, MT_LPON_UTTR1);
 
@@ -913,33 +911,7 @@ mt7615_set_tsf(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	mt76_wr(dev, MT_LPON_UTTR0, tsf.t32[0]);
 	mt76_wr(dev, MT_LPON_UTTR1, tsf.t32[1]);
 	/* TSF software overwrite */
-	mt76_rmw(dev, reg, MT_LPON_TCR_MODE, MT_LPON_TCR_WRITE);
-
-	mt7615_mutex_release(dev);
-}
-
-static void
-mt7615_offset_tsf(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
-		  s64 timestamp)
-{
-	struct mt7615_vif *mvif = (struct mt7615_vif *)vif->drv_priv;
-	struct mt7615_dev *dev = mt7615_hw_dev(hw);
-	union {
-		u64 t64;
-		u32 t32[2];
-	} tsf = { .t64 = timestamp, };
-	u16 idx = mvif->mt76.omac_idx;
-	u32 reg;
-
-	idx = idx > HW_BSSID_MAX ? HW_BSSID_0 : idx;
-	reg = idx > 1 ? MT_LPON_TCR2(idx): MT_LPON_TCR0(idx);
-
-	mt7615_mutex_acquire(dev);
-
-	mt76_wr(dev, MT_LPON_UTTR0, tsf.t32[0]);
-	mt76_wr(dev, MT_LPON_UTTR1, tsf.t32[1]);
-	/* TSF software adjust*/
-	mt76_rmw(dev, reg, MT_LPON_TCR_MODE, MT_LPON_TCR_ADJUST);
+	mt76_set(dev, reg, MT_LPON_TCR_WRITE);
 
 	mt7615_mutex_release(dev);
 }
@@ -1190,7 +1162,7 @@ static void mt7615_sta_set_decap_offload(struct ieee80211_hw *hw,
 	else
 		clear_bit(MT_WCID_FLAG_HDR_TRANS, &msta->wcid.flags);
 
-	mt7615_mcu_set_sta_decap_offload(dev, vif, sta);
+	mt7615_mcu_sta_update_hdr_trans(dev, vif, sta);
 }
 
 #ifdef CONFIG_PM
@@ -1228,7 +1200,6 @@ static int mt7615_resume(struct ieee80211_hw *hw)
 {
 	struct mt7615_phy *phy = mt7615_hw_phy(hw);
 	struct mt7615_dev *dev = mt7615_hw_dev(hw);
-	unsigned long timeout;
 	bool running;
 
 	mt7615_mutex_acquire(dev);
@@ -1252,8 +1223,8 @@ static int mt7615_resume(struct ieee80211_hw *hw)
 					    mt76_connac_mcu_set_suspend_iter,
 					    phy->mt76);
 
-	timeout = mt7615_get_macwork_timeout(dev);
-	ieee80211_queue_delayed_work(hw, &phy->mt76->mac_work, timeout);
+	ieee80211_queue_delayed_work(hw, &phy->mt76->mac_work,
+				     MT7615_WATCHDOG_TIME);
 
 	mt7615_mutex_release(dev);
 
@@ -1307,7 +1278,6 @@ const struct ieee80211_ops mt7615_ops = {
 	.get_stats = mt7615_get_stats,
 	.get_tsf = mt7615_get_tsf,
 	.set_tsf = mt7615_set_tsf,
-	.offset_tsf = mt7615_offset_tsf,
 	.get_survey = mt76_get_survey,
 	.get_antenna = mt76_get_antenna,
 	.set_antenna = mt7615_set_antenna,

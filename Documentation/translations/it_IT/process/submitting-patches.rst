@@ -14,15 +14,14 @@ una certa familiarità col "sistema".  Questo testo è una raccolta di
 suggerimenti che aumenteranno significativamente le probabilità di vedere le
 vostre patch accettate.
 
-Questo documento contiene un vasto numero di suggerimenti concisi. Per maggiori
-dettagli su come funziona il processo di sviluppo del kernel leggete
-Documentation/translations/it_IT/process/development-process.rst. Leggete anche
-Documentation/translations/it_IT/process/submit-checklist.rst per una lista di
-punti da verificare prima di inviare del codice. Se state inviando un driver,
-allora leggete anche
-Documentation/translations/it_IT/process/submitting-drivers.rst; per delle patch
+Questo documento contiene un vasto numero di suggerimenti concisi.  Per
+maggiori dettagli su come funziona il processo di sviluppo del kernel leggete
+:doc:`development-process`.
+Leggete anche :doc:`submit-checklist` per una lista di punti da
+verificare prima di inviare del codice.  Se state inviando un driver,
+allora leggete anche :doc:`submitting-drivers`; per delle patch
 relative alle associazioni per Device Tree leggete
-Documentation/translations/it_IT/process/submitting-patches.rst.
+:doc:`submitting-patches`.
 
 Questa documentazione assume che sappiate usare ``git`` per preparare le patch.
 Se non siete pratici di ``git``, allora è bene che lo impariate;
@@ -194,7 +193,7 @@ ed integrate.
 ---------------------------------------------
 
 Controllate che la vostra patch non violi lo stile del codice, maggiori
-dettagli sono disponibili in Documentation/translations/it_IT/process/coding-style.rst.
+dettagli sono disponibili in :ref:`Documentation/translations/it_IT/process/coding-style.rst <it_codingstyle>`.
 Non farlo porta semplicemente a una perdita di tempo da parte dei revisori e
 voi vedrete la vostra patch rifiutata, probabilmente senza nemmeno essere stata
 letta.
@@ -231,13 +230,13 @@ scripts/get_maintainer.pl può esservi d'aiuto.  Se non riuscite a trovare un
 manutentore per il sottosistema su cui state lavorando, allora Andrew Morton
 (akpm@linux-foundation.org) sarà la vostra ultima possibilità.
 
-Normalmente, dovreste anche scegliere una lista di discussione a cui inviare la
-vostra serie di patch. La lista di discussione linux-kernel@vger.kernel.org
-dovrebbe essere usata per inviare tutte le patch, ma il traffico è tale per cui
-diversi sviluppatori la trascurano. Guardate nel file MAINTAINERS per trovare la
-lista di discussione dedicata ad un sottosistema; probabilmente lì la vostra
-patch riceverà molta più attenzione. Tuttavia, per favore, non spammate le liste
-di discussione che non sono interessate al vostro lavoro.
+Normalmente, dovreste anche scegliere una lista di discussione a cui inviare
+la vostra serie di patch.  La lista di discussione linux-kernel@vger.kernel.org
+è proprio l'ultima spiaggia, il volume di email su questa lista fa si che
+diversi sviluppatori non la seguano.  Guardate nel file MAINTAINERS per trovare
+la lista di discussione dedicata ad un sottosistema; probabilmente lì la vostra
+patch riceverà molta più attenzione.  Tuttavia, per favore, non spammate le
+liste di discussione che non sono interessate al vostro lavoro.
 
 Molte delle liste di discussione relative al kernel vengono ospitate su
 vger.kernel.org; potete trovare un loro elenco alla pagina
@@ -258,7 +257,7 @@ embargo potrebbe essere preso in considerazione per dare il tempo alle
 distribuzioni di prendere la patch e renderla disponibile ai loro utenti;
 in questo caso, ovviamente, la patch non dovrebbe essere inviata su alcuna
 lista di discussione pubblica. Leggete anche
-Documentation/admin-guide/security-bugs.rst.
+:doc:`/admin-guide/security-bugs`.
 
 Patch che correggono bachi importanti su un kernel già rilasciato, dovrebbero
 essere inviate ai manutentori dei kernel stabili aggiungendo la seguente riga::
@@ -267,7 +266,12 @@ essere inviate ai manutentori dei kernel stabili aggiungendo la seguente riga::
 
 nella vostra patch, nell'area dedicata alle firme (notate, NON come destinatario
 delle e-mail).  In aggiunta a questo file, dovreste leggere anche
-Documentation/translations/it_IT/process/stable-kernel-rules.rst.
+:ref:`Documentation/translations/it_IT/process/stable-kernel-rules.rst <it_stable_kernel_rules>`
+
+Tuttavia, notate, che alcuni manutentori di sottosistema preferiscono avere
+l'ultima parola su quali patch dovrebbero essere aggiunte ai kernel stabili.
+La rete di manutentori, in particolare, non vorrebbe vedere i singoli
+sviluppatori aggiungere alle loro patch delle righe come quella sopracitata.
 
 Se le modifiche hanno effetti sull'interfaccia con lo spazio utente, per favore
 inviate una patch per le pagine man ai manutentori di suddette pagine (elencati
@@ -326,7 +330,7 @@ così la possibilità che il vostro allegato-MIME venga accettato.
 Eccezione: se il vostro servizio di posta storpia le patch, allora qualcuno
 potrebbe chiedervi di rinviarle come allegato MIME.
 
-Leggete Documentation/translations/it_IT/process/email-clients.rst
+Leggete :doc:`/translations/it_IT/process/email-clients`
 per dei suggerimenti sulla configurazione del programmi di posta elettronica
 per l'invio di patch intatte.
 
@@ -347,7 +351,7 @@ richiede molto tempo, e a volte i revisori diventano burberi.  Tuttavia, anche
 in questo caso, rispondete con educazione e concentratevi sul problema che
 hanno evidenziato.
 
-Leggete Documentation/translations/it_IT/process/email-clients.rst per
+Leggete :doc:`/translations/it_IT/process/email-clients` per
 le raccomandazioni sui programmi di posta elettronica e l'etichetta da usare
 sulle liste di discussione.
 
@@ -364,16 +368,6 @@ in una settimana o poco più; se questo non dovesse accadere, assicuratevi di
 aver inviato le patch correttamente.  Aspettate almeno una settimana prima di
 rinviare le modifiche o sollecitare i revisori - probabilmente anche di più
 durante la finestra d'integrazione.
-
-Potete anche rinviare la patch, o la serie di patch, dopo un paio di settimane
-aggiungendo la parola "RESEND" nel titolo::
-
-    [PATCH Vx RESEND] sub/sys: Condensed patch summary
-
-Ma non aggiungete "RESEND" quando state sottomettendo una versione modificata
-della vostra patch, o serie di patch - "RESEND" si applica solo alla
-sottomissione di patch, o serie di patch, che non hanno subito modifiche
-dall'ultima volta che sono state inviate.
 
 Aggiungete PATCH nell'oggetto
 -----------------------------
@@ -801,7 +795,8 @@ Greg Kroah-Hartman, "Come scocciare un manutentore di un sottosistema"
 No!!!! Basta gigantesche bombe patch alle persone sulla lista linux-kernel@vger.kernel.org!
   <https://lore.kernel.org/r/20050711.125305.08322243.davem@davemloft.net>
 
-Kernel Documentation/translations/it_IT/process/coding-style.rst.
+Kernel Documentation/translations/it_IT/process/coding-style.rst:
+  :ref:`Documentation/translations/it_IT/process/coding-style.rst <it_codingstyle>`
 
 E-mail di Linus Torvalds sul formato canonico di una patch:
   <https://lore.kernel.org/r/Pine.LNX.4.58.0504071023190.28951@ppc970.osdl.org>

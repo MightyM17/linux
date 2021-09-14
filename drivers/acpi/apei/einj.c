@@ -673,7 +673,7 @@ static int __init einj_init(void)
 	struct apei_exec_context ctx;
 
 	if (acpi_disabled) {
-		pr_info("ACPI disabled.\n");
+		pr_warn("ACPI disabled.\n");
 		return -ENODEV;
 	}
 

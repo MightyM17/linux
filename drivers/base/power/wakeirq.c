@@ -12,11 +12,14 @@
 /**
  * dev_pm_attach_wake_irq - Attach device interrupt as a wake IRQ
  * @dev: Device entry
+ * @irq: Device wake-up capable interrupt
  * @wirq: Wake irq specific data
  *
- * Internal function to attach a dedicated wake-up interrupt as a wake IRQ.
+ * Internal function to attach either a device IO interrupt or a
+ * dedicated wake-up interrupt as a wake IRQ.
  */
-static int dev_pm_attach_wake_irq(struct device *dev, struct wake_irq *wirq)
+static int dev_pm_attach_wake_irq(struct device *dev, int irq,
+				  struct wake_irq *wirq)
 {
 	unsigned long flags;
 
@@ -62,7 +65,7 @@ int dev_pm_set_wake_irq(struct device *dev, int irq)
 	wirq->dev = dev;
 	wirq->irq = irq;
 
-	err = dev_pm_attach_wake_irq(dev, wirq);
+	err = dev_pm_attach_wake_irq(dev, irq, wirq);
 	if (err)
 		kfree(wirq);
 
@@ -179,6 +182,7 @@ int dev_pm_set_dedicated_wake_irq(struct device *dev, int irq)
 
 	wirq->dev = dev;
 	wirq->irq = irq;
+	irq_set_status_flags(irq, IRQ_NOAUTOEN);
 
 	/* Prevent deferred spurious wakeirqs with disable_irq_nosync() */
 	irq_set_status_flags(irq, IRQ_DISABLE_UNLAZY);
@@ -188,12 +192,11 @@ int dev_pm_set_dedicated_wake_irq(struct device *dev, int irq)
 	 * so we use a threaded irq.
 	 */
 	err = request_threaded_irq(irq, NULL, handle_threaded_wake_irq,
-				   IRQF_ONESHOT | IRQF_NO_AUTOEN,
-				   wirq->name, wirq);
+				   IRQF_ONESHOT, wirq->name, wirq);
 	if (err)
 		goto err_free_name;
 
-	err = dev_pm_attach_wake_irq(dev, wirq);
+	err = dev_pm_attach_wake_irq(dev, irq, wirq);
 	if (err)
 		goto err_free_irq;
 

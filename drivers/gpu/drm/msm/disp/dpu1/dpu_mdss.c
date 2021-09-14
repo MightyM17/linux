@@ -45,13 +45,20 @@ static void dpu_mdss_irq(struct irq_desc *desc)
 
 	while (interrupts) {
 		irq_hw_number_t hwirq = fls(interrupts) - 1;
+		unsigned int mapping;
 		int rc;
 
-		rc = generic_handle_domain_irq(dpu_mdss->irq_controller.domain,
-					       hwirq);
+		mapping = irq_find_mapping(dpu_mdss->irq_controller.domain,
+					   hwirq);
+		if (mapping == 0) {
+			DRM_ERROR("couldn't find irq mapping for %lu\n", hwirq);
+			break;
+		}
+
+		rc = generic_handle_irq(mapping);
 		if (rc < 0) {
-			DRM_ERROR("handle irq fail: irq=%lu rc=%d\n",
-				  hwirq, rc);
+			DRM_ERROR("handle irq fail: irq=%lu mapping=%u rc=%d\n",
+				  hwirq, mapping, rc);
 			break;
 		}
 
@@ -218,7 +225,7 @@ int dpu_mdss_init(struct drm_device *dev)
 	struct msm_drm_private *priv = dev->dev_private;
 	struct dpu_mdss *dpu_mdss;
 	struct dss_module_power *mp;
-	int ret;
+	int ret = 0;
 	int irq;
 
 	dpu_mdss = devm_kzalloc(dev->dev, sizeof(*dpu_mdss), GFP_KERNEL);
@@ -246,10 +253,8 @@ int dpu_mdss_init(struct drm_device *dev)
 		goto irq_domain_error;
 
 	irq = platform_get_irq(pdev, 0);
-	if (irq < 0) {
-		ret = irq;
+	if (irq < 0)
 		goto irq_error;
-	}
 
 	irq_set_chained_handler_and_data(irq, dpu_mdss_irq,
 					 dpu_mdss);
@@ -258,7 +263,7 @@ int dpu_mdss_init(struct drm_device *dev)
 
 	pm_runtime_enable(dev->dev);
 
-	return 0;
+	return ret;
 
 irq_error:
 	_dpu_mdss_irq_domain_fini(dpu_mdss);

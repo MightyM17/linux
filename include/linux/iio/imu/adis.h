@@ -55,7 +55,6 @@ struct adis_timeout {
  *			this should be the minimum size supported by the device.
  * @burst_max_len:	Holds the maximum burst size when the device supports
  *			more than one burst mode with different sizes
- * @burst_max_speed_hz:	Maximum spi speed that can be used in burst mode
  */
 struct adis_data {
 	unsigned int read_delay;
@@ -84,7 +83,6 @@ struct adis_data {
 	unsigned int burst_reg_cmd;
 	unsigned int burst_len;
 	unsigned int burst_max_len;
-	unsigned int burst_max_speed_hz;
 };
 
 /**

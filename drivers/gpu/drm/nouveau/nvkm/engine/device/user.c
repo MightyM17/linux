@@ -397,7 +397,7 @@ nvkm_udevice_new(const struct nvkm_oclass *oclass, void *data, u32 size,
 		return ret;
 
 	/* give priviledged clients register access */
-	if (args->v0.priv)
+	if (client->super)
 		func = &nvkm_udevice_super;
 	else
 		func = &nvkm_udevice;

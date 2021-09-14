@@ -26,7 +26,8 @@ void sun8i_ce_prng_exit(struct crypto_tfm *tfm)
 {
 	struct sun8i_ce_rng_tfm_ctx *ctx = crypto_tfm_ctx(tfm);
 
-	kfree_sensitive(ctx->seed);
+	memzero_explicit(ctx->seed, ctx->slen);
+	kfree(ctx->seed);
 	ctx->seed = NULL;
 	ctx->slen = 0;
 }
@@ -37,7 +38,8 @@ int sun8i_ce_prng_seed(struct crypto_rng *tfm, const u8 *seed,
 	struct sun8i_ce_rng_tfm_ctx *ctx = crypto_rng_ctx(tfm);
 
 	if (ctx->seed && ctx->slen != slen) {
-		kfree_sensitive(ctx->seed);
+		memzero_explicit(ctx->seed, ctx->slen);
+		kfree(ctx->seed);
 		ctx->slen = 0;
 		ctx->seed = NULL;
 	}
@@ -155,8 +157,9 @@ err_dst:
 		memcpy(dst, d, dlen);
 		memcpy(ctx->seed, d + dlen, ctx->slen);
 	}
+	memzero_explicit(d, todo);
 err_iv:
-	kfree_sensitive(d);
+	kfree(d);
 err_mem:
 	return err;
 }

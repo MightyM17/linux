@@ -38,6 +38,7 @@
 #include <linux/uaccess.h>
 
 #include <drm/drm.h>
+#include <drm/drm_agpsupport.h>
 #include <drm/drm_device.h>
 #include <drm/drm_file.h>
 #include <drm/via_drm.h>

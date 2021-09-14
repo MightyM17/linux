@@ -56,7 +56,6 @@ properties:
   wakeup-source: true
 
   vcc-supply: true
-  iovcc-supply: true
 
   gain:
     description: Allows setting the sensitivity in the range from 0 to 31.

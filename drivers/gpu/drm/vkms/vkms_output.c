@@ -39,7 +39,7 @@ int vkms_output_init(struct vkms_device *vkmsdev, int index)
 	struct drm_connector *connector = &output->connector;
 	struct drm_encoder *encoder = &output->encoder;
 	struct drm_crtc *crtc = &output->crtc;
-	struct vkms_plane *primary, *cursor = NULL, *overlay = NULL;
+	struct drm_plane *primary, *cursor = NULL;
 	int ret;
 	int writeback;
 
@@ -47,24 +47,17 @@ int vkms_output_init(struct vkms_device *vkmsdev, int index)
 	if (IS_ERR(primary))
 		return PTR_ERR(primary);
 
-	if (vkmsdev->config->overlay) {
-		overlay = vkms_plane_init(vkmsdev, DRM_PLANE_TYPE_OVERLAY, index);
-		if (IS_ERR(overlay))
-			return PTR_ERR(overlay);
-
-		if (!overlay->base.possible_crtcs)
-			overlay->base.possible_crtcs = drm_crtc_mask(crtc);
-	}
-
 	if (vkmsdev->config->cursor) {
 		cursor = vkms_plane_init(vkmsdev, DRM_PLANE_TYPE_CURSOR, index);
-		if (IS_ERR(cursor))
-			return PTR_ERR(cursor);
+		if (IS_ERR(cursor)) {
+			ret = PTR_ERR(cursor);
+			goto err_cursor;
+		}
 	}
 
-	ret = vkms_crtc_init(dev, crtc, &primary->base, &cursor->base);
+	ret = vkms_crtc_init(dev, crtc, primary, cursor);
 	if (ret)
-		return ret;
+		goto err_crtc;
 
 	ret = drm_connector_init(dev, connector, &vkms_connector_funcs,
 				 DRM_MODE_CONNECTOR_VIRTUAL);
@@ -106,6 +99,13 @@ err_encoder:
 
 err_connector:
 	drm_crtc_cleanup(crtc);
+
+err_crtc:
+	if (vkmsdev->config->cursor)
+		drm_plane_cleanup(cursor);
+
+err_cursor:
+	drm_plane_cleanup(primary);
 
 	return ret;
 }

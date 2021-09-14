@@ -173,11 +173,21 @@ static int crystalcove_pwm_probe(struct platform_device *pdev)
 	/* get the PMIC regmap */
 	pwm->regmap = pmic->regmap;
 
-	return devm_pwmchip_add(&pdev->dev, &pwm->chip);
+	platform_set_drvdata(pdev, pwm);
+
+	return pwmchip_add(&pwm->chip);
+}
+
+static int crystalcove_pwm_remove(struct platform_device *pdev)
+{
+	struct crystalcove_pwm *pwm = platform_get_drvdata(pdev);
+
+	return pwmchip_remove(&pwm->chip);
 }
 
 static struct platform_driver crystalcove_pwm_driver = {
 	.probe = crystalcove_pwm_probe,
+	.remove = crystalcove_pwm_remove,
 	.driver = {
 		.name = "crystal_cove_pwm",
 	},

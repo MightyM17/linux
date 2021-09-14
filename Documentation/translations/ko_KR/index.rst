@@ -1,9 +1,7 @@
 .. raw:: latex
 
-	\renewcommand\thesection*
-	\renewcommand\thesubsection*
-	\kerneldocCJKon
-	\kerneldocBeginKR
+        \renewcommand\thesection*
+        \renewcommand\thesubsection*
 
 한국어 번역
 ===========
@@ -27,4 +25,3 @@
 .. raw:: latex
 
     \normalsize
-    \kerneldocEndKR

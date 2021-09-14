@@ -38,6 +38,7 @@
 #include <linux/pci.h>
 #include <linux/vmalloc.h>
 
+#include <drm/drm_agpsupport.h>
 #include <drm/drm_cache.h>
 #include <drm/drm_device.h>
 

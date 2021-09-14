@@ -51,6 +51,7 @@ properties:
 
   clocks:
     minItems: 2
+    maxItems: 4
     items:
       - description: High Frequency Oscillator (usually at 24MHz)
       - description: Low Frequency Oscillator (usually at 32kHz)
@@ -59,6 +60,7 @@ properties:
 
   clock-names:
     minItems: 2
+    maxItems: 4
     items:
       - const: hosc
       - const: losc

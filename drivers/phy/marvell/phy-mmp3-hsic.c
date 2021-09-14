@@ -47,8 +47,10 @@ static int mmp3_hsic_phy_probe(struct platform_device *pdev)
 
 	resource = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	base = devm_ioremap_resource(dev, resource);
-	if (IS_ERR(base))
+	if (IS_ERR(base)) {
+		dev_err(dev, "failed to remap PHY regs\n");
 		return PTR_ERR(base);
+	}
 
 	phy = devm_phy_create(dev, NULL, &mmp3_hsic_phy_ops);
 	if (IS_ERR(phy)) {

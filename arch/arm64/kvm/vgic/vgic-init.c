@@ -482,16 +482,6 @@ static irqreturn_t vgic_maintenance_handler(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
-static struct gic_kvm_info *gic_kvm_info;
-
-void __init vgic_set_kvm_info(const struct gic_kvm_info *info)
-{
-	BUG_ON(gic_kvm_info != NULL);
-	gic_kvm_info = kmalloc(sizeof(*info), GFP_KERNEL);
-	if (gic_kvm_info)
-		*gic_kvm_info = *info;
-}
-
 /**
  * kvm_vgic_init_cpu_hardware - initialize the GIC VE hardware
  *
@@ -519,27 +509,16 @@ void kvm_vgic_init_cpu_hardware(void)
  */
 int kvm_vgic_hyp_init(void)
 {
-	bool has_mask;
+	const struct gic_kvm_info *gic_kvm_info;
 	int ret;
 
+	gic_kvm_info = gic_get_kvm_info();
 	if (!gic_kvm_info)
 		return -ENODEV;
 
-	has_mask = !gic_kvm_info->no_maint_irq_mask;
-
-	if (has_mask && !gic_kvm_info->maint_irq) {
+	if (!gic_kvm_info->maint_irq) {
 		kvm_err("No vgic maintenance irq\n");
 		return -ENXIO;
-	}
-
-	/*
-	 * If we get one of these oddball non-GICs, taint the kernel,
-	 * as we have no idea of how they *really* behave.
-	 */
-	if (gic_kvm_info->no_hw_deactivation) {
-		kvm_info("Non-architectural vgic, tainting kernel\n");
-		add_taint(TAINT_CPU_OUT_OF_SPEC, LOCKDEP_STILL_OK);
-		kvm_vgic_global_state.no_hw_deactivation = true;
 	}
 
 	switch (gic_kvm_info->type) {
@@ -557,17 +536,10 @@ int kvm_vgic_hyp_init(void)
 		ret = -ENODEV;
 	}
 
-	kvm_vgic_global_state.maint_irq = gic_kvm_info->maint_irq;
-
-	kfree(gic_kvm_info);
-	gic_kvm_info = NULL;
-
 	if (ret)
 		return ret;
 
-	if (!has_mask)
-		return 0;
-
+	kvm_vgic_global_state.maint_irq = gic_kvm_info->maint_irq;
 	ret = request_percpu_irq(kvm_vgic_global_state.maint_irq,
 				 vgic_maintenance_handler,
 				 "vgic", kvm_get_running_vcpus());

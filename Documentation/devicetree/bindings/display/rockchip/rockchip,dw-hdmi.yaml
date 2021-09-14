@@ -29,6 +29,7 @@ properties:
 
   clocks:
     minItems: 2
+    maxItems: 5
     items:
       - {}
       - {}
@@ -40,6 +41,7 @@ properties:
 
   clock-names:
     minItems: 2
+    maxItems: 5
     items:
       - {}
       - {}

@@ -385,7 +385,7 @@ static irqreturn_t xilinx_pcie_intr_handler(int irq, void *data)
 	}
 
 	if (status & (XILINX_PCIE_INTR_INTX | XILINX_PCIE_INTR_MSI)) {
-		struct irq_domain *domain;
+		unsigned int irq;
 
 		val = pcie_read(port, XILINX_PCIE_REG_RPIFR1);
 
@@ -399,18 +399,19 @@ static irqreturn_t xilinx_pcie_intr_handler(int irq, void *data)
 		if (val & XILINX_PCIE_RPIFR1_MSI_INTR) {
 			val = pcie_read(port, XILINX_PCIE_REG_RPIFR2) &
 				XILINX_PCIE_RPIFR2_MSG_DATA;
-			domain = port->msi_domain->parent;
+			irq = irq_find_mapping(port->msi_domain->parent, val);
 		} else {
 			val = (val & XILINX_PCIE_RPIFR1_INTR_MASK) >>
 				XILINX_PCIE_RPIFR1_INTR_SHIFT;
-			domain = port->leg_domain;
+			irq = irq_find_mapping(port->leg_domain, val);
 		}
 
 		/* Clear interrupt FIFO register 1 */
 		pcie_write(port, XILINX_PCIE_RPIFR1_ALL_MASK,
 			   XILINX_PCIE_REG_RPIFR1);
 
-		generic_handle_domain_irq(domain, val);
+		if (irq)
+			generic_handle_irq(irq);
 	}
 
 	if (status & XILINX_PCIE_INTR_SLV_UNSUPP)

@@ -19,7 +19,7 @@
  */
 int devmem_is_allowed(unsigned long pfn)
 {
-	if (iomem_is_exclusive(PFN_PHYS(pfn)))
+	if (iomem_is_exclusive(pfn << PAGE_SHIFT))
 		return 0;
 	if (!page_is_ram(pfn))
 		return 1;

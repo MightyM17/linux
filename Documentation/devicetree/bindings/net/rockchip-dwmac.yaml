@@ -19,12 +19,10 @@ select:
           - rockchip,rk3128-gmac
           - rockchip,rk3228-gmac
           - rockchip,rk3288-gmac
-          - rockchip,rk3308-gmac
           - rockchip,rk3328-gmac
           - rockchip,rk3366-gmac
           - rockchip,rk3368-gmac
           - rockchip,rk3399-gmac
-          - rockchip,rk3568-gmac
           - rockchip,rv1108-gmac
   required:
     - compatible
@@ -34,23 +32,17 @@ allOf:
 
 properties:
   compatible:
-    oneOf:
-      - items:
-          - enum:
-              - rockchip,px30-gmac
-              - rockchip,rk3128-gmac
-              - rockchip,rk3228-gmac
-              - rockchip,rk3288-gmac
-              - rockchip,rk3308-gmac
-              - rockchip,rk3328-gmac
-              - rockchip,rk3366-gmac
-              - rockchip,rk3368-gmac
-              - rockchip,rk3399-gmac
-              - rockchip,rv1108-gmac
-      - items:
-          - enum:
-              - rockchip,rk3568-gmac
-          - const: snps,dwmac-4.20a
+    items:
+      - enum:
+          - rockchip,px30-gmac
+          - rockchip,rk3128-gmac
+          - rockchip,rk3228-gmac
+          - rockchip,rk3288-gmac
+          - rockchip,rk3328-gmac
+          - rockchip,rk3366-gmac
+          - rockchip,rk3368-gmac
+          - rockchip,rk3399-gmac
+          - rockchip,rv1108-gmac
 
   clocks:
     minItems: 5

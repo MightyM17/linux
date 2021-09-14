@@ -20,17 +20,8 @@
 #include <linux/osq_lock.h>
 #include <linux/debug_locks.h>
 
-#ifdef CONFIG_DEBUG_LOCK_ALLOC
-# define __DEP_MAP_MUTEX_INITIALIZER(lockname)			\
-		, .dep_map = {					\
-			.name = #lockname,			\
-			.wait_type_inner = LD_WAIT_SLEEP,	\
-		}
-#else
-# define __DEP_MAP_MUTEX_INITIALIZER(lockname)
-#endif
-
-#ifndef CONFIG_PREEMPT_RT
+struct ww_class;
+struct ww_acquire_ctx;
 
 /*
  * Simple, straightforward mutexes with strict semantics:
@@ -62,7 +53,7 @@
  */
 struct mutex {
 	atomic_long_t		owner;
-	raw_spinlock_t		wait_lock;
+	spinlock_t		wait_lock;
 #ifdef CONFIG_MUTEX_SPIN_ON_OWNER
 	struct optimistic_spin_queue osq; /* Spinner MCS lock */
 #endif
@@ -72,6 +63,27 @@ struct mutex {
 #endif
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 	struct lockdep_map	dep_map;
+#endif
+};
+
+struct ww_mutex {
+	struct mutex base;
+	struct ww_acquire_ctx *ctx;
+#ifdef CONFIG_DEBUG_MUTEXES
+	struct ww_class *ww_class;
+#endif
+};
+
+/*
+ * This is the control structure for tasks blocked on mutex,
+ * which resides on the blocked task's kernel stack:
+ */
+struct mutex_waiter {
+	struct list_head	list;
+	struct task_struct	*task;
+	struct ww_acquire_ctx	*ww_ctx;
+#ifdef CONFIG_DEBUG_MUTEXES
+	void			*magic;
 #endif
 };
 
@@ -105,9 +117,19 @@ do {									\
 	__mutex_init((mutex), #mutex, &__key);				\
 } while (0)
 
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+# define __DEP_MAP_MUTEX_INITIALIZER(lockname)			\
+		, .dep_map = {					\
+			.name = #lockname,			\
+			.wait_type_inner = LD_WAIT_SLEEP,	\
+		}
+#else
+# define __DEP_MAP_MUTEX_INITIALIZER(lockname)
+#endif
+
 #define __MUTEX_INITIALIZER(lockname) \
 		{ .owner = ATOMIC_LONG_INIT(0) \
-		, .wait_lock = __RAW_SPIN_LOCK_UNLOCKED(lockname.wait_lock) \
+		, .wait_lock = __SPIN_LOCK_UNLOCKED(lockname.wait_lock) \
 		, .wait_list = LIST_HEAD_INIT(lockname.wait_list) \
 		__DEBUG_MUTEX_INITIALIZER(lockname) \
 		__DEP_MAP_MUTEX_INITIALIZER(lockname) }
@@ -125,50 +147,6 @@ extern void __mutex_init(struct mutex *lock, const char *name,
  * Returns true if the mutex is locked, false if unlocked.
  */
 extern bool mutex_is_locked(struct mutex *lock);
-
-#else /* !CONFIG_PREEMPT_RT */
-/*
- * Preempt-RT variant based on rtmutexes.
- */
-#include <linux/rtmutex.h>
-
-struct mutex {
-	struct rt_mutex_base	rtmutex;
-#ifdef CONFIG_DEBUG_LOCK_ALLOC
-	struct lockdep_map	dep_map;
-#endif
-};
-
-#define __MUTEX_INITIALIZER(mutexname)					\
-{									\
-	.rtmutex = __RT_MUTEX_BASE_INITIALIZER(mutexname.rtmutex)	\
-	__DEP_MAP_MUTEX_INITIALIZER(mutexname)				\
-}
-
-#define DEFINE_MUTEX(mutexname)						\
-	struct mutex mutexname = __MUTEX_INITIALIZER(mutexname)
-
-extern void __mutex_rt_init(struct mutex *lock, const char *name,
-			    struct lock_class_key *key);
-extern int mutex_trylock(struct mutex *lock);
-
-static inline void mutex_destroy(struct mutex *lock) { }
-
-#define mutex_is_locked(l)	rt_mutex_base_is_locked(&(l)->rtmutex)
-
-#define __mutex_init(mutex, name, key)			\
-do {							\
-	rt_mutex_base_init(&(mutex)->rtmutex);		\
-	__mutex_rt_init((mutex), name, key);		\
-} while (0)
-
-#define mutex_init(mutex)				\
-do {							\
-	static struct lock_class_key __key;		\
-							\
-	__mutex_init((mutex), #mutex, &__key);		\
-} while (0)
-#endif /* CONFIG_PREEMPT_RT */
 
 /*
  * See kernel/locking/mutex.c for detailed documentation of these APIs.

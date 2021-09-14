@@ -19,7 +19,6 @@
 #include <linux/console.h>
 #include <linux/interrupt.h>
 #include <linux/err.h>
-#include <linux/panic_notifier.h>
 #include <linux/reboot.h>
 #include <linux/serial.h> /* ASYNC_* flags */
 #include <linux/slab.h>
@@ -925,7 +924,7 @@ static void tty3215_close(struct tty_struct *tty, struct file * filp)
 /*
  * Returns the amount of free space in the output buffer.
  */
-static unsigned int tty3215_write_room(struct tty_struct *tty)
+static int tty3215_write_room(struct tty_struct *tty)
 {
 	struct raw3215_info *raw = tty->driver_data;
 
@@ -981,7 +980,7 @@ static void tty3215_flush_chars(struct tty_struct *tty)
 /*
  * Returns the number of characters in the output buffer
  */
-static unsigned int tty3215_chars_in_buffer(struct tty_struct *tty)
+static int tty3215_chars_in_buffer(struct tty_struct *tty)
 {
 	struct raw3215_info *raw = tty->driver_data;
 
@@ -1076,13 +1075,13 @@ static int __init tty3215_init(void)
 	if (!CONSOLE_IS_3215)
 		return 0;
 
-	driver = tty_alloc_driver(NR_3215, TTY_DRIVER_REAL_RAW);
-	if (IS_ERR(driver))
-		return PTR_ERR(driver);
+	driver = alloc_tty_driver(NR_3215);
+	if (!driver)
+		return -ENOMEM;
 
 	ret = ccw_driver_register(&raw3215_ccw_driver);
 	if (ret) {
-		tty_driver_kref_put(driver);
+		put_tty_driver(driver);
 		return ret;
 	}
 	/*
@@ -1101,10 +1100,11 @@ static int __init tty3215_init(void)
 	driver->init_termios.c_iflag = IGNBRK | IGNPAR;
 	driver->init_termios.c_oflag = ONLCR;
 	driver->init_termios.c_lflag = ISIG;
+	driver->flags = TTY_DRIVER_REAL_RAW;
 	tty_set_operations(driver, &tty3215_ops);
 	ret = tty_register_driver(driver);
 	if (ret) {
-		tty_driver_kref_put(driver);
+		put_tty_driver(driver);
 		return ret;
 	}
 	tty3215_driver = driver;

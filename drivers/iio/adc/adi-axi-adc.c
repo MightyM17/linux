@@ -202,25 +202,29 @@ static void adi_axi_adc_conv_unregister(struct adi_axi_adc_conv *conv)
 	kfree(cl);
 }
 
-static void devm_adi_axi_adc_conv_release(void *conv)
+static void devm_adi_axi_adc_conv_release(struct device *dev, void *res)
 {
-	adi_axi_adc_conv_unregister(conv);
+	adi_axi_adc_conv_unregister(*(struct adi_axi_adc_conv **)res);
 }
 
 struct adi_axi_adc_conv *devm_adi_axi_adc_conv_register(struct device *dev,
 							size_t sizeof_priv)
 {
-	struct adi_axi_adc_conv *conv;
-	int ret;
+	struct adi_axi_adc_conv **ptr, *conv;
+
+	ptr = devres_alloc(devm_adi_axi_adc_conv_release, sizeof(*ptr),
+			   GFP_KERNEL);
+	if (!ptr)
+		return ERR_PTR(-ENOMEM);
 
 	conv = adi_axi_adc_conv_register(dev, sizeof_priv);
-	if (IS_ERR(conv))
-		return conv;
+	if (IS_ERR(conv)) {
+		devres_free(ptr);
+		return ERR_CAST(conv);
+	}
 
-	ret = devm_add_action_or_reset(dev, devm_adi_axi_adc_conv_release,
-				       conv);
-	if (ret)
-		return ERR_PTR(ret);
+	*ptr = conv;
+	devres_add(dev, ptr);
 
 	return conv;
 }

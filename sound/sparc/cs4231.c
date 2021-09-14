@@ -1828,9 +1828,8 @@ static int snd_cs4231_sbus_create(struct snd_card *card,
 	}
 	snd_cs4231_init(chip);
 
-	err = snd_device_new(card, SNDRV_DEV_LOWLEVEL,
-			     chip, &snd_cs4231_sbus_dev_ops);
-	if (err < 0) {
+	if ((err = snd_device_new(card, SNDRV_DEV_LOWLEVEL,
+				  chip, &snd_cs4231_sbus_dev_ops)) < 0) {
 		snd_cs4231_sbus_free(chip);
 		return err;
 	}
@@ -2021,9 +2020,8 @@ static int snd_cs4231_ebus_create(struct snd_card *card,
 	}
 	snd_cs4231_init(chip);
 
-	err = snd_device_new(card, SNDRV_DEV_LOWLEVEL,
-			     chip, &snd_cs4231_ebus_dev_ops);
-	if (err < 0) {
+	if ((err = snd_device_new(card, SNDRV_DEV_LOWLEVEL,
+				  chip, &snd_cs4231_ebus_dev_ops)) < 0) {
 		snd_cs4231_ebus_free(chip);
 		return err;
 	}

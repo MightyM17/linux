@@ -65,12 +65,8 @@ struct icp_ops {
 
 extern const struct icp_ops *icp_ops;
 
-#ifdef CONFIG_PPC_ICS_NATIVE
 /* Native ICS */
 extern int ics_native_init(void);
-#else
-static inline int ics_native_init(void) { return -ENODEV; }
-#endif
 
 /* RTAS ICS */
 #ifdef CONFIG_PPC_ICS_RTAS
@@ -89,11 +85,10 @@ static inline int ics_opal_init(void) { return -ENODEV; }
 /* ICS instance, hooked up to chip_data of an irq */
 struct ics {
 	struct list_head link;
-	int (*check)(struct ics *ics, unsigned int hwirq);
+	int (*map)(struct ics *ics, unsigned int virq);
 	void (*mask_unknown)(struct ics *ics, unsigned long vec);
 	long (*get_server)(struct ics *ics, unsigned long vec);
 	int (*host_match)(struct ics *ics, struct device_node *node);
-	struct irq_chip *chip;
 	char data[];
 };
 

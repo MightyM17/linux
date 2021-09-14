@@ -52,17 +52,18 @@
 	};
 };
 
-&davinci_mdio_sw {
+&davinci_mdio {
 	phy0: ethernet-phy@4 {
 		reg = <4>;
 	};
 };
 
-&cpsw_port1 {
+&cpsw_emac0 {
+	status = "okay";
 	phy-handle = <&phy0>;
 	phy-mode = "rmii";
 };
 
-&cpsw_port2 {
+&cpsw_emac1 {
 	status = "disabled";
 };

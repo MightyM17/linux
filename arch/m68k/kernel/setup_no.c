@@ -87,7 +87,10 @@ void __init setup_arch(char **cmdline_p)
 	memory_start = PAGE_ALIGN(_ramstart);
 	memory_end = _ramend;
 
-	setup_initial_init_mm(_stext, _etext, _edata, NULL);
+	init_mm.start_code = (unsigned long) &_stext;
+	init_mm.end_code = (unsigned long) &_etext;
+	init_mm.end_data = (unsigned long) &_edata;
+	init_mm.brk = (unsigned long) 0;
 
 	config_BSP(&command_line[0], sizeof(command_line));
 

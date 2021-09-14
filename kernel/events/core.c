@@ -132,7 +132,6 @@ task_function_call(struct task_struct *p, remote_function_f func, void *info)
 
 /**
  * cpu_function_call - call a function on the cpu
- * @cpu:	target cpu to queue this function
  * @func:	the function to be called
  * @info:	the function call argument
  *
@@ -3822,16 +3821,9 @@ static void perf_event_context_sched_in(struct perf_event_context *ctx,
 					struct task_struct *task)
 {
 	struct perf_cpu_context *cpuctx;
-	struct pmu *pmu;
+	struct pmu *pmu = ctx->pmu;
 
 	cpuctx = __get_cpu_context(ctx);
-
-	/*
-	 * HACK: for HETEROGENEOUS the task context might have switched to a
-	 * different PMU, force (re)set the context,
-	 */
-	pmu = ctx->pmu = cpuctx->ctx.pmu;
-
 	if (cpuctx->task_ctx == ctx) {
 		if (cpuctx->sched_cb_usage)
 			__perf_pmu_sched_task(cpuctx, true);
@@ -4617,9 +4609,7 @@ find_get_context(struct pmu *pmu, struct task_struct *task,
 		cpuctx = per_cpu_ptr(pmu->pmu_cpu_context, cpu);
 		ctx = &cpuctx->ctx;
 		get_ctx(ctx);
-		raw_spin_lock_irqsave(&ctx->lock, flags);
 		++ctx->pin_count;
-		raw_spin_unlock_irqrestore(&ctx->lock, flags);
 
 		return ctx;
 	}
@@ -4697,6 +4687,7 @@ errout:
 }
 
 static void perf_event_free_filter(struct perf_event *event);
+static void perf_event_free_bpf_prog(struct perf_event *event);
 
 static void free_event_rcu(struct rcu_head *head)
 {
@@ -5573,6 +5564,7 @@ static inline int perf_fget_light(int fd, struct fd *p)
 static int perf_event_set_output(struct perf_event *event,
 				 struct perf_event *output_event);
 static int perf_event_set_filter(struct perf_event *event, void __user *arg);
+static int perf_event_set_bpf_prog(struct perf_event *event, u32 prog_fd);
 static int perf_copy_attr(struct perf_event_attr __user *uattr,
 			  struct perf_event_attr *attr);
 
@@ -5635,22 +5627,7 @@ static long _perf_ioctl(struct perf_event *event, unsigned int cmd, unsigned lon
 		return perf_event_set_filter(event, (void __user *)arg);
 
 	case PERF_EVENT_IOC_SET_BPF:
-	{
-		struct bpf_prog *prog;
-		int err;
-
-		prog = bpf_prog_get(arg);
-		if (IS_ERR(prog))
-			return PTR_ERR(prog);
-
-		err = perf_event_set_bpf_prog(event, prog, 0);
-		if (err) {
-			bpf_prog_put(prog);
-			return err;
-		}
-
-		return 0;
-	}
+		return perf_event_set_bpf_prog(event, arg);
 
 	case PERF_EVENT_IOC_PAUSE_OUTPUT: {
 		struct perf_buffer *rb;
@@ -6412,6 +6389,8 @@ void perf_event_wakeup(struct perf_event *event)
 
 static void perf_sigtrap(struct perf_event *event)
 {
+	struct kernel_siginfo info;
+
 	/*
 	 * We'd expect this to only occur if the irq_work is delayed and either
 	 * ctx->task or current has changed in the meantime. This can be the
@@ -6426,8 +6405,13 @@ static void perf_sigtrap(struct perf_event *event)
 	if (current->flags & PF_EXITING)
 		return;
 
-	force_sig_perf((void __user *)event->pending_addr,
-		       event->attr.type, event->attr.sig_data);
+	clear_siginfo(&info);
+	info.si_signo = SIGTRAP;
+	info.si_code = TRAP_PERF;
+	info.si_errno = event->attr.type;
+	info.si_perf = event->attr.sig_data;
+	info.si_addr = (void __user *)event->pending_addr;
+	force_sig_info(&info);
 }
 
 static void perf_pending_event_disable(struct perf_event *event)
@@ -6690,10 +6674,10 @@ out:
 	return data->aux_size;
 }
 
-static long perf_pmu_snapshot_aux(struct perf_buffer *rb,
-                                 struct perf_event *event,
-                                 struct perf_output_handle *handle,
-                                 unsigned long size)
+long perf_pmu_snapshot_aux(struct perf_buffer *rb,
+			   struct perf_event *event,
+			   struct perf_output_handle *handle,
+			   unsigned long size)
 {
 	unsigned long flags;
 	long ret;
@@ -8320,6 +8304,10 @@ static void perf_event_mmap_event(struct perf_mmap_event *mmap_event)
 	else
 		flags = MAP_PRIVATE;
 
+	if (vma->vm_flags & VM_DENYWRITE)
+		flags |= MAP_DENYWRITE;
+	if (vma->vm_flags & VM_MAYEXEC)
+		flags |= MAP_EXECUTABLE;
 	if (vma->vm_flags & VM_LOCKED)
 		flags |= MAP_LOCKED;
 	if (is_vm_hugetlb_page(vma))
@@ -8699,12 +8687,13 @@ static void perf_event_switch(struct task_struct *task,
 		},
 	};
 
-	if (!sched_in && task->on_rq) {
+	if (!sched_in && task->state == TASK_RUNNING)
 		switch_event.event_id.header.misc |=
 				PERF_RECORD_MISC_SWITCH_OUT_PREEMPT;
-	}
 
-	perf_iterate_sb(perf_event_switch_output, &switch_event, NULL);
+	perf_iterate_sb(perf_event_switch_output,
+		       &switch_event,
+		       NULL);
 }
 
 /*
@@ -9918,16 +9907,13 @@ static void bpf_overflow_handler(struct perf_event *event,
 		.data = data,
 		.event = event,
 	};
-	struct bpf_prog *prog;
 	int ret = 0;
 
 	ctx.regs = perf_arch_bpf_user_pt_regs(regs);
 	if (unlikely(__this_cpu_inc_return(bpf_prog_active) != 1))
 		goto out;
 	rcu_read_lock();
-	prog = READ_ONCE(event->prog);
-	if (prog)
-		ret = bpf_prog_run(prog, &ctx);
+	ret = BPF_PROG_RUN(event->prog, &ctx);
 	rcu_read_unlock();
 out:
 	__this_cpu_dec(bpf_prog_active);
@@ -9937,10 +9923,10 @@ out:
 	event->orig_overflow_handler(event, data, regs);
 }
 
-static int perf_event_set_bpf_handler(struct perf_event *event,
-				      struct bpf_prog *prog,
-				      u64 bpf_cookie)
+static int perf_event_set_bpf_handler(struct perf_event *event, u32 prog_fd)
 {
+	struct bpf_prog *prog;
+
 	if (event->overflow_handler_context)
 		/* hw breakpoint or kernel counter */
 		return -EINVAL;
@@ -9948,8 +9934,9 @@ static int perf_event_set_bpf_handler(struct perf_event *event,
 	if (event->prog)
 		return -EEXIST;
 
-	if (prog->type != BPF_PROG_TYPE_PERF_EVENT)
-		return -EINVAL;
+	prog = bpf_prog_get_type(prog_fd, BPF_PROG_TYPE_PERF_EVENT);
+	if (IS_ERR(prog))
+		return PTR_ERR(prog);
 
 	if (event->attr.precise_ip &&
 	    prog->call_get_stack &&
@@ -9965,11 +9952,11 @@ static int perf_event_set_bpf_handler(struct perf_event *event,
 		 * attached to perf_sample_data, do not allow attaching BPF
 		 * program that calls bpf_get_[stack|stackid].
 		 */
+		bpf_prog_put(prog);
 		return -EPROTO;
 	}
 
 	event->prog = prog;
-	event->bpf_cookie = bpf_cookie;
 	event->orig_overflow_handler = READ_ONCE(event->overflow_handler);
 	WRITE_ONCE(event->overflow_handler, bpf_overflow_handler);
 	return 0;
@@ -9987,9 +9974,7 @@ static void perf_event_free_bpf_handler(struct perf_event *event)
 	bpf_prog_put(prog);
 }
 #else
-static int perf_event_set_bpf_handler(struct perf_event *event,
-				      struct bpf_prog *prog,
-				      u64 bpf_cookie)
+static int perf_event_set_bpf_handler(struct perf_event *event, u32 prog_fd)
 {
 	return -EOPNOTSUPP;
 }
@@ -10017,13 +10002,14 @@ static inline bool perf_event_is_tracing(struct perf_event *event)
 	return false;
 }
 
-int perf_event_set_bpf_prog(struct perf_event *event, struct bpf_prog *prog,
-			    u64 bpf_cookie)
+static int perf_event_set_bpf_prog(struct perf_event *event, u32 prog_fd)
 {
 	bool is_kprobe, is_tracepoint, is_syscall_tp;
+	struct bpf_prog *prog;
+	int ret;
 
 	if (!perf_event_is_tracing(event))
-		return perf_event_set_bpf_handler(event, prog, bpf_cookie);
+		return perf_event_set_bpf_handler(event, prog_fd);
 
 	is_kprobe = event->tp_event->flags & TRACE_EVENT_FL_UKPROBE;
 	is_tracepoint = event->tp_event->flags & TRACE_EVENT_FL_TRACEPOINT;
@@ -10032,27 +10018,41 @@ int perf_event_set_bpf_prog(struct perf_event *event, struct bpf_prog *prog,
 		/* bpf programs can only be attached to u/kprobe or tracepoint */
 		return -EINVAL;
 
+	prog = bpf_prog_get(prog_fd);
+	if (IS_ERR(prog))
+		return PTR_ERR(prog);
+
 	if ((is_kprobe && prog->type != BPF_PROG_TYPE_KPROBE) ||
 	    (is_tracepoint && prog->type != BPF_PROG_TYPE_TRACEPOINT) ||
-	    (is_syscall_tp && prog->type != BPF_PROG_TYPE_TRACEPOINT))
+	    (is_syscall_tp && prog->type != BPF_PROG_TYPE_TRACEPOINT)) {
+		/* valid fd, but invalid bpf program type */
+		bpf_prog_put(prog);
 		return -EINVAL;
+	}
 
 	/* Kprobe override only works for kprobes, not uprobes. */
 	if (prog->kprobe_override &&
-	    !(event->tp_event->flags & TRACE_EVENT_FL_KPROBE))
+	    !(event->tp_event->flags & TRACE_EVENT_FL_KPROBE)) {
+		bpf_prog_put(prog);
 		return -EINVAL;
+	}
 
 	if (is_tracepoint || is_syscall_tp) {
 		int off = trace_event_get_offsets(event->tp_event);
 
-		if (prog->aux->max_ctx_offset > off)
+		if (prog->aux->max_ctx_offset > off) {
+			bpf_prog_put(prog);
 			return -EACCES;
+		}
 	}
 
-	return perf_event_attach_bpf_prog(event, prog, bpf_cookie);
+	ret = perf_event_attach_bpf_prog(event, prog);
+	if (ret)
+		bpf_prog_put(prog);
+	return ret;
 }
 
-void perf_event_free_bpf_prog(struct perf_event *event)
+static void perf_event_free_bpf_prog(struct perf_event *event)
 {
 	if (!perf_event_is_tracing(event)) {
 		perf_event_free_bpf_handler(event);
@@ -10071,13 +10071,12 @@ static void perf_event_free_filter(struct perf_event *event)
 {
 }
 
-int perf_event_set_bpf_prog(struct perf_event *event, struct bpf_prog *prog,
-			    u64 bpf_cookie)
+static int perf_event_set_bpf_prog(struct perf_event *event, u32 prog_fd)
 {
 	return -ENOENT;
 }
 
-void perf_event_free_bpf_prog(struct perf_event *event)
+static void perf_event_free_bpf_prog(struct perf_event *event)
 {
 }
 #endif /* CONFIG_EVENT_TRACING */
@@ -11918,37 +11917,6 @@ again:
 	return gctx;
 }
 
-static bool
-perf_check_permission(struct perf_event_attr *attr, struct task_struct *task)
-{
-	unsigned int ptrace_mode = PTRACE_MODE_READ_REALCREDS;
-	bool is_capable = perfmon_capable();
-
-	if (attr->sigtrap) {
-		/*
-		 * perf_event_attr::sigtrap sends signals to the other task.
-		 * Require the current task to also have CAP_KILL.
-		 */
-		rcu_read_lock();
-		is_capable &= ns_capable(__task_cred(task)->user_ns, CAP_KILL);
-		rcu_read_unlock();
-
-		/*
-		 * If the required capabilities aren't available, checks for
-		 * ptrace permissions: upgrade to ATTACH, since sending signals
-		 * can effectively change the target task.
-		 */
-		ptrace_mode = PTRACE_MODE_ATTACH_REALCREDS;
-	}
-
-	/*
-	 * Preserve ptrace permission check for backwards compatibility. The
-	 * ptrace check also includes checks that the current task and other
-	 * task have matching uids, and is therefore not done here explicitly.
-	 */
-	return is_capable || ptrace_may_access(task, ptrace_mode);
-}
-
 /**
  * sys_perf_event_open - open a performance event, associate it to a task/cpu
  *
@@ -11956,7 +11924,6 @@ perf_check_permission(struct perf_event_attr *attr, struct task_struct *task)
  * @pid:		target pid
  * @cpu:		target cpu
  * @group_fd:		group leader event fd
- * @flags:		perf event open flags
  */
 SYSCALL_DEFINE5(perf_event_open,
 		struct perf_event_attr __user *, attr_uptr,
@@ -12195,13 +12162,15 @@ SYSCALL_DEFINE5(perf_event_open,
 			goto err_file;
 
 		/*
+		 * Preserve ptrace permission check for backwards compatibility.
+		 *
 		 * We must hold exec_update_lock across this and any potential
 		 * perf_install_in_context() call for this new event to
 		 * serialize against exec() altering our credentials (and the
 		 * perf_event_exit_task() that could imply).
 		 */
 		err = -EACCES;
-		if (!perf_check_permission(&attr, task))
+		if (!perfmon_capable() && !ptrace_may_access(task, PTRACE_MODE_READ_REALCREDS))
 			goto err_cred;
 	}
 
@@ -12411,8 +12380,6 @@ err_fd:
  * @attr: attributes of the counter to create
  * @cpu: cpu in which the counter is bound
  * @task: task to profile (NULL for percpu)
- * @overflow_handler: callback to trigger when we hit the event
- * @context: context data could be used in overflow_handler callback
  */
 struct perf_event *
 perf_event_create_kernel_counter(struct perf_event_attr *attr, int cpu,

@@ -144,7 +144,6 @@
 						 <1200000>, <1200000>,
 						 <1200000>, <1200000>,
 						 <1200000>, <1200000>;
-		wakeup-source;
 
 		s5m8767_osc: clocks {
 			compatible = "samsung,s5m8767-clk";

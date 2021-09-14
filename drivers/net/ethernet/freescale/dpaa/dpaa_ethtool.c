@@ -513,9 +513,7 @@ static int dpaa_get_ts_info(struct net_device *net_dev,
 }
 
 static int dpaa_get_coalesce(struct net_device *dev,
-			     struct ethtool_coalesce *c,
-			     struct kernel_ethtool_coalesce *kernel_coal,
-			     struct netlink_ext_ack *extack)
+			     struct ethtool_coalesce *c)
 {
 	struct qman_portal *portal;
 	u32 period;
@@ -532,9 +530,7 @@ static int dpaa_get_coalesce(struct net_device *dev,
 }
 
 static int dpaa_set_coalesce(struct net_device *dev,
-			     struct ethtool_coalesce *c,
-			     struct kernel_ethtool_coalesce *kernel_coal,
-			     struct netlink_ext_ack *extack)
+			     struct ethtool_coalesce *c)
 {
 	const cpumask_t *cpus = qman_affine_cpus();
 	bool needs_revert[NR_CPUS] = {false};

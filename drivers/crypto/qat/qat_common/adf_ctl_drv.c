@@ -406,7 +406,7 @@ static long adf_ctl_ioctl(struct file *fp, unsigned int cmd, unsigned long arg)
 		ret = adf_ctl_ioctl_get_status(fp, cmd, arg);
 		break;
 	default:
-		pr_err_ratelimited("QAT: Invalid ioctl %d\n", cmd);
+		pr_err("QAT: Invalid ioctl\n");
 		ret = -EFAULT;
 		break;
 	}

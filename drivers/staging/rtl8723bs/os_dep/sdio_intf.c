@@ -4,6 +4,8 @@
  * Copyright(c) 2007 - 2012 Realtek Corporation. All rights reserved.
  *
  ******************************************************************************/
+#define _HCI_INTF_C_
+
 #include <drv_types.h>
 #include <rtw_debug.h>
 #include <hal_btcoex.h>
@@ -447,9 +449,7 @@ static int rtw_sdio_suspend(struct device *dev)
 		return 0;
 	}
 
-	rtw_suspend_common(padapter);
-
-	return 0;
+	return rtw_suspend_common(padapter);
 }
 
 static int rtw_resume_process(struct adapter *padapter)

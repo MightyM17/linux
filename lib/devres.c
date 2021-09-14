@@ -157,10 +157,8 @@ __devm_ioremap_resource(struct device *dev, const struct resource *res,
 					     dev_name(dev), res->name);
 	else
 		pretty_name = devm_kstrdup(dev, dev_name(dev), GFP_KERNEL);
-	if (!pretty_name) {
-		dev_err(dev, "can't generate pretty name for resource %pR\n", res);
+	if (!pretty_name)
 		return IOMEM_ERR_PTR(-ENOMEM);
-	}
 
 	if (!devm_request_mem_region(dev, res->start, size, pretty_name)) {
 		dev_err(dev, "can't request region for resource %pR\n", res);
@@ -355,7 +353,7 @@ static void pcim_iomap_release(struct device *gendev, void *res)
  * detach.
  *
  * This function might sleep when the table is first allocated but can
- * be safely called without context and guaranteed to succeed once
+ * be safely called without context and guaranteed to succed once
  * allocated.
  */
 void __iomem * const *pcim_iomap_table(struct pci_dev *pdev)

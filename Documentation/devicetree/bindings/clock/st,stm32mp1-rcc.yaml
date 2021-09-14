@@ -54,9 +54,7 @@ properties:
 
   compatible:
     items:
-      - enum:
-          - st,stm32mp1-rcc-secure
-          - st,stm32mp1-rcc
+      - const: st,stm32mp1-rcc
       - const: syscon
 
   reg:
@@ -73,7 +71,7 @@ additionalProperties: false
 examples:
   - |
     rcc: rcc@50000000 {
-        compatible = "st,stm32mp1-rcc-secure", "syscon";
+        compatible = "st,stm32mp1-rcc", "syscon";
         reg = <0x50000000 0x1000>;
         #clock-cells = <1>;
         #reset-cells = <1>;

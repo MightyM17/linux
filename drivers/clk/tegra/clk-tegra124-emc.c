@@ -249,10 +249,8 @@ static int emc_set_timing(struct tegra_clk_emc *tegra,
 	div = timing->parent_rate / (timing->rate / 2) - 2;
 
 	err = tegra->prepare_timing_change(emc, timing->rate);
-	if (err) {
-		clk_disable_unprepare(timing->parent);
+	if (err)
 		return err;
-	}
 
 	spin_lock_irqsave(tegra->lock, flags);
 

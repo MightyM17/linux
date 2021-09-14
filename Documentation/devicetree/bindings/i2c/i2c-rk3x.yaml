@@ -36,7 +36,6 @@ properties:
               - rockchip,px30-i2c
               - rockchip,rk3308-i2c
               - rockchip,rk3328-i2c
-              - rockchip,rk3568-i2c
           - const: rockchip,rk3399-i2c
 
   reg:

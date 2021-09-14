@@ -51,13 +51,15 @@ mt7663s_mcu_send_message(struct mt76_dev *mdev, struct sk_buff *skb,
 	return ret;
 }
 
-static int __mt7663s_mcu_drv_pmctrl(struct mt7615_dev *dev)
+static int mt7663s_mcu_drv_pmctrl(struct mt7615_dev *dev)
 {
 	struct sdio_func *func = dev->mt76.sdio.func;
 	struct mt76_phy *mphy = &dev->mt76.phy;
-	struct mt76_connac_pm *pm = &dev->pm;
 	u32 status;
 	int ret;
+
+	if (!test_and_clear_bit(MT76_STATE_PM, &mphy->state))
+		goto out;
 
 	sdio_claim_host(func);
 
@@ -67,45 +69,29 @@ static int __mt7663s_mcu_drv_pmctrl(struct mt7615_dev *dev)
 				 status & WHLPCR_IS_DRIVER_OWN, 2000, 1000000);
 	if (ret < 0) {
 		dev_err(dev->mt76.dev, "Cannot get ownership from device");
-	} else {
-		clear_bit(MT76_STATE_PM, &mphy->state);
+		set_bit(MT76_STATE_PM, &mphy->state);
+		sdio_release_host(func);
 
-		pm->stats.last_wake_event = jiffies;
-		pm->stats.doze_time += pm->stats.last_wake_event -
-				       pm->stats.last_doze_event;
+		return ret;
 	}
+
 	sdio_release_host(func);
 
-	return ret;
-}
+out:
+	dev->pm.last_activity = jiffies;
 
-static int mt7663s_mcu_drv_pmctrl(struct mt7615_dev *dev)
-{
-	struct mt76_phy *mphy = &dev->mt76.phy;
-	int ret = 0;
-
-	mutex_lock(&dev->pm.mutex);
-
-	if (test_bit(MT76_STATE_PM, &mphy->state))
-		ret = __mt7663s_mcu_drv_pmctrl(dev);
-
-	mutex_unlock(&dev->pm.mutex);
-
-	return ret;
+	return 0;
 }
 
 static int mt7663s_mcu_fw_pmctrl(struct mt7615_dev *dev)
 {
 	struct sdio_func *func = dev->mt76.sdio.func;
 	struct mt76_phy *mphy = &dev->mt76.phy;
-	struct mt76_connac_pm *pm = &dev->pm;
-	int ret = 0;
 	u32 status;
+	int ret;
 
-	mutex_lock(&pm->mutex);
-
-	if (mt76_connac_skip_fw_pmctrl(mphy, pm))
-		goto out;
+	if (test_and_set_bit(MT76_STATE_PM, &mphy->state))
+		return 0;
 
 	sdio_claim_host(func);
 
@@ -116,15 +102,9 @@ static int mt7663s_mcu_fw_pmctrl(struct mt7615_dev *dev)
 	if (ret < 0) {
 		dev_err(dev->mt76.dev, "Cannot set ownership to device");
 		clear_bit(MT76_STATE_PM, &mphy->state);
-	} else {
-		pm->stats.last_doze_event = jiffies;
-		pm->stats.awake_time += pm->stats.last_doze_event -
-					pm->stats.last_wake_event;
 	}
 
 	sdio_release_host(func);
-out:
-	mutex_unlock(&pm->mutex);
 
 	return ret;
 }
@@ -143,7 +123,7 @@ int mt7663s_mcu_init(struct mt7615_dev *dev)
 	struct mt7615_mcu_ops *mcu_ops;
 	int ret;
 
-	ret = __mt7663s_mcu_drv_pmctrl(dev);
+	ret = mt7663s_mcu_drv_pmctrl(dev);
 	if (ret)
 		return ret;
 

@@ -24,10 +24,6 @@ Available fault injection capabilities
 
   injects futex deadlock and uaddr fault errors.
 
-- fail_sunrpc
-
-  injects kernel RPC client and server failures.
-
 - fail_make_request
 
   injects disk IO errors on devices permitted by setting
@@ -82,10 +78,8 @@ configuration of fault-injection capabilities.
 
 - /sys/kernel/debug/fail*/times:
 
-	specifies how many times failures may happen at most. A value of -1
-	means "no limit". Note, though, that this file only accepts unsigned
-	values. So, if you want to specify -1, you better use 'printf' instead
-	of 'echo', e.g.: $ printf %#x -1 > times
+	specifies how many times failures may happen at most.
+	A value of -1 means "no limit".
 
 - /sys/kernel/debug/fail*/space:
 
@@ -155,20 +149,6 @@ configuration of fault-injection capabilities.
 	default is 'N', setting it to 'Y' will disable failure injections
 	when dealing with private (address space) futexes.
 
-- /sys/kernel/debug/fail_sunrpc/ignore-client-disconnect:
-
-	Format: { 'Y' | 'N' }
-
-	default is 'N', setting it to 'Y' will disable disconnect
-	injection on the RPC client.
-
-- /sys/kernel/debug/fail_sunrpc/ignore-server-disconnect:
-
-	Format: { 'Y' | 'N' }
-
-	default is 'N', setting it to 'Y' will disable disconnect
-	injection on the RPC server.
-
 - /sys/kernel/debug/fail_function/inject:
 
 	Format: { 'function-name' | '!function-name' | '' }
@@ -187,13 +167,11 @@ configuration of fault-injection capabilities.
 	- ERRNO: retval must be -1 to -MAX_ERRNO (-4096).
 	- ERR_NULL: retval must be 0 or -1 to -MAX_ERRNO (-4096).
 
-- /sys/kernel/debug/fail_function/<function-name>/retval:
+- /sys/kernel/debug/fail_function/<functiuon-name>/retval:
 
-	specifies the "error" return value to inject to the given function.
-	This will be created when the user specifies a new injection entry.
-	Note that this file only accepts unsigned values. So, if you want to
-	use a negative errno, you better use 'printf' instead of 'echo', e.g.:
-	$ printf %#x -12 > retval
+	specifies the "error" return value to inject to the given
+	function for given function. This will be created when
+	user specifies new injection entry.
 
 Boot option
 ^^^^^^^^^^^
@@ -277,7 +255,7 @@ Application Examples
     echo Y > /sys/kernel/debug/$FAILTYPE/task-filter
     echo 10 > /sys/kernel/debug/$FAILTYPE/probability
     echo 100 > /sys/kernel/debug/$FAILTYPE/interval
-    printf %#x -1 > /sys/kernel/debug/$FAILTYPE/times
+    echo -1 > /sys/kernel/debug/$FAILTYPE/times
     echo 0 > /sys/kernel/debug/$FAILTYPE/space
     echo 2 > /sys/kernel/debug/$FAILTYPE/verbose
     echo 1 > /sys/kernel/debug/$FAILTYPE/ignore-gfp-wait
@@ -331,7 +309,7 @@ Application Examples
     echo N > /sys/kernel/debug/$FAILTYPE/task-filter
     echo 10 > /sys/kernel/debug/$FAILTYPE/probability
     echo 100 > /sys/kernel/debug/$FAILTYPE/interval
-    printf %#x -1 > /sys/kernel/debug/$FAILTYPE/times
+    echo -1 > /sys/kernel/debug/$FAILTYPE/times
     echo 0 > /sys/kernel/debug/$FAILTYPE/space
     echo 2 > /sys/kernel/debug/$FAILTYPE/verbose
     echo 1 > /sys/kernel/debug/$FAILTYPE/ignore-gfp-wait
@@ -358,11 +336,11 @@ Application Examples
     FAILTYPE=fail_function
     FAILFUNC=open_ctree
     echo $FAILFUNC > /sys/kernel/debug/$FAILTYPE/inject
-    printf %#x -12 > /sys/kernel/debug/$FAILTYPE/$FAILFUNC/retval
+    echo -12 > /sys/kernel/debug/$FAILTYPE/$FAILFUNC/retval
     echo N > /sys/kernel/debug/$FAILTYPE/task-filter
     echo 100 > /sys/kernel/debug/$FAILTYPE/probability
     echo 0 > /sys/kernel/debug/$FAILTYPE/interval
-    printf %#x -1 > /sys/kernel/debug/$FAILTYPE/times
+    echo -1 > /sys/kernel/debug/$FAILTYPE/times
     echo 0 > /sys/kernel/debug/$FAILTYPE/space
     echo 1 > /sys/kernel/debug/$FAILTYPE/verbose
 

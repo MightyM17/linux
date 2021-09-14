@@ -37,9 +37,6 @@
 #
 # server / client nomenclature relative to ns-A
 
-# Kselftest framework requirement - SKIP code is 4.
-ksft_skip=4
-
 VERBOSE=0
 
 NSA_DEV=eth1
@@ -3882,32 +3879,6 @@ use_case_ping_lla_multi()
 	log_test_addr ${MCAST}%${NSC_DEV} $? 0 "Post cycle ${NSA} ${NSA_DEV2}, ping out ns-C"
 }
 
-# Perform IPv{4,6} SNAT on ns-A, and verify TCP connection is successfully
-# established with ns-B.
-use_case_snat_on_vrf()
-{
-	setup "yes"
-
-	local port="12345"
-
-	run_cmd iptables -t nat -A POSTROUTING -p tcp -m tcp --dport ${port} -j SNAT --to-source ${NSA_LO_IP} -o ${VRF}
-	run_cmd ip6tables -t nat -A POSTROUTING -p tcp -m tcp --dport ${port} -j SNAT --to-source ${NSA_LO_IP6} -o ${VRF}
-
-	run_cmd_nsb nettest -s -l ${NSB_IP} -p ${port} &
-	sleep 1
-	run_cmd nettest -d ${VRF} -r ${NSB_IP} -p ${port}
-	log_test $? 0 "IPv4 TCP connection over VRF with SNAT"
-
-	run_cmd_nsb nettest -6 -s -l ${NSB_IP6} -p ${port} &
-	sleep 1
-	run_cmd nettest -6 -d ${VRF} -r ${NSB_IP6} -p ${port}
-	log_test $? 0 "IPv6 TCP connection over VRF with SNAT"
-
-	# Cleanup
-	run_cmd iptables -t nat -D POSTROUTING -p tcp -m tcp --dport ${port} -j SNAT --to-source ${NSA_LO_IP} -o ${VRF}
-	run_cmd ip6tables -t nat -D POSTROUTING -p tcp -m tcp --dport ${port} -j SNAT --to-source ${NSA_LO_IP6} -o ${VRF}
-}
-
 use_cases()
 {
 	log_section "Use cases"
@@ -3915,8 +3886,6 @@ use_cases()
 	use_case_br
 	log_subsection "Ping LLA with multiple interfaces"
 	use_case_ping_lla_multi
-	log_subsection "SNAT on VRF"
-	use_case_snat_on_vrf
 }
 
 ################################################################################
@@ -3977,7 +3946,7 @@ fi
 which nettest >/dev/null
 if [ $? -ne 0 ]; then
 	echo "'nettest' command not found; skipping tests"
-	exit $ksft_skip
+	exit 0
 fi
 
 declare -i nfail=0

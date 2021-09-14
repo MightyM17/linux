@@ -115,7 +115,3 @@
 &vhub {
 	status = "okay";
 };
-
-&adc {
-	status = "okay";
-};

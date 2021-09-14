@@ -860,7 +860,7 @@ repeat:
 	spin_unlock_irq(&kernfs_notify_lock);
 
 	/* kick fsnotify */
-	down_write(&kernfs_rwsem);
+	mutex_lock(&kernfs_mutex);
 
 	list_for_each_entry(info, &kernfs_root(kn)->supers, node) {
 		struct kernfs_node *parent;
@@ -898,7 +898,7 @@ repeat:
 		iput(inode);
 	}
 
-	up_write(&kernfs_rwsem);
+	mutex_unlock(&kernfs_mutex);
 	kernfs_put(kn);
 	goto repeat;
 }

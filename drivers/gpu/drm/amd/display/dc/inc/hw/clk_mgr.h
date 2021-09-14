@@ -91,7 +91,6 @@ struct clk_limit_table_entry {
 	unsigned int dispclk_mhz;
 	unsigned int dppclk_mhz;
 	unsigned int phyclk_mhz;
-	unsigned int wck_ratio;
 };
 
 /* This table is contiguous */

@@ -8,14 +8,16 @@
 #include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/skbuff.h>
+#include <linux/spinlock.h>
 #include <linux/interrupt.h>
 
 #include <linux/netfilter/x_tables.h>
 #include <linux/netfilter/xt_limit.h>
 
 struct xt_limit_priv {
+	spinlock_t lock;
 	unsigned long prev;
-	u32 credit;
+	uint32_t credit;
 };
 
 MODULE_LICENSE("GPL");
@@ -64,31 +66,22 @@ limit_mt(const struct sk_buff *skb, struct xt_action_param *par)
 {
 	const struct xt_rateinfo *r = par->matchinfo;
 	struct xt_limit_priv *priv = r->master;
-	unsigned long now;
-	u32 old_credit, new_credit, credit_increase = 0;
-	bool ret;
+	unsigned long now = jiffies;
 
-	/* fastpath if there is nothing to update */
-	if ((READ_ONCE(priv->credit) < r->cost) && (READ_ONCE(priv->prev) == jiffies))
-		return false;
+	spin_lock_bh(&priv->lock);
+	priv->credit += (now - xchg(&priv->prev, now)) * CREDITS_PER_JIFFY;
+	if (priv->credit > r->credit_cap)
+		priv->credit = r->credit_cap;
 
-	do {
-		now = jiffies;
-		credit_increase += (now - xchg(&priv->prev, now)) * CREDITS_PER_JIFFY;
-		old_credit = READ_ONCE(priv->credit);
-		new_credit = old_credit;
-		new_credit += credit_increase;
-		if (new_credit > r->credit_cap)
-			new_credit = r->credit_cap;
-		if (new_credit >= r->cost) {
-			ret = true;
-			new_credit -= r->cost;
-		} else {
-			ret = false;
-		}
-	} while (cmpxchg(&priv->credit, old_credit, new_credit) != old_credit);
+	if (priv->credit >= r->cost) {
+		/* We're not limited. */
+		priv->credit -= r->cost;
+		spin_unlock_bh(&priv->lock);
+		return true;
+	}
 
-	return ret;
+	spin_unlock_bh(&priv->lock);
+	return false;
 }
 
 /* Precision saver. */
@@ -129,6 +122,7 @@ static int limit_mt_check(const struct xt_mtchk_param *par)
 		r->credit_cap = priv->credit; /* Credits full. */
 		r->cost = user2credits(r->avg);
 	}
+	spin_lock_init(&priv->lock);
 
 	return 0;
 }

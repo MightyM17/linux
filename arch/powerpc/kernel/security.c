@@ -11,10 +11,10 @@
 #include <linux/nospec.h>
 #include <linux/prctl.h>
 #include <linux/seq_buf.h>
-#include <linux/debugfs.h>
 
 #include <asm/asm-prototypes.h>
 #include <asm/code-patching.h>
+#include <asm/debugfs.h>
 #include <asm/security_features.h>
 #include <asm/setup.h>
 #include <asm/inst.h>
@@ -106,7 +106,7 @@ DEFINE_DEBUGFS_ATTRIBUTE(fops_barrier_nospec, barrier_nospec_get,
 static __init int barrier_nospec_debugfs_init(void)
 {
 	debugfs_create_file_unsafe("barrier_nospec", 0600,
-				   arch_debugfs_dir, NULL,
+				   powerpc_debugfs_root, NULL,
 				   &fops_barrier_nospec);
 	return 0;
 }
@@ -114,7 +114,7 @@ device_initcall(barrier_nospec_debugfs_init);
 
 static __init int security_feature_debugfs_init(void)
 {
-	debugfs_create_x64("security_features", 0400, arch_debugfs_dir,
+	debugfs_create_x64("security_features", 0400, powerpc_debugfs_root,
 			   &powerpc_security_features);
 	return 0;
 }
@@ -300,7 +300,9 @@ static void stf_barrier_enable(bool enable)
 void setup_stf_barrier(void)
 {
 	enum stf_barrier_type type;
-	bool enable;
+	bool enable, hv;
+
+	hv = cpu_has_feature(CPU_FTR_HVMODE);
 
 	/* Default to fallback in case fw-features are not available */
 	if (cpu_has_feature(CPU_FTR_ARCH_300))
@@ -313,7 +315,8 @@ void setup_stf_barrier(void)
 		type = STF_BARRIER_NONE;
 
 	enable = security_ftr_enabled(SEC_FTR_FAVOUR_SECURITY) &&
-		 security_ftr_enabled(SEC_FTR_STF_BARRIER);
+		(security_ftr_enabled(SEC_FTR_L1D_FLUSH_PR) ||
+		 (security_ftr_enabled(SEC_FTR_L1D_FLUSH_HV) && hv));
 
 	if (type == STF_BARRIER_FALLBACK) {
 		pr_info("stf-barrier: fallback barrier available\n");
@@ -420,7 +423,7 @@ DEFINE_DEBUGFS_ATTRIBUTE(fops_stf_barrier, stf_barrier_get, stf_barrier_set,
 
 static __init int stf_barrier_debugfs_init(void)
 {
-	debugfs_create_file_unsafe("stf_barrier", 0600, arch_debugfs_dir,
+	debugfs_create_file_unsafe("stf_barrier", 0600, powerpc_debugfs_root,
 				   NULL, &fops_stf_barrier);
 	return 0;
 }
@@ -429,29 +432,26 @@ device_initcall(stf_barrier_debugfs_init);
 
 static void update_branch_cache_flush(void)
 {
-	u32 *site, __maybe_unused *site2;
+	u32 *site;
 
 #ifdef CONFIG_KVM_BOOK3S_HV_POSSIBLE
 	site = &patch__call_kvm_flush_link_stack;
-	site2 = &patch__call_kvm_flush_link_stack_p9;
 	// This controls the branch from guest_exit_cont to kvm_flush_link_stack
 	if (link_stack_flush_type == BRANCH_CACHE_FLUSH_NONE) {
-		patch_instruction_site(site, ppc_inst(PPC_RAW_NOP()));
-		patch_instruction_site(site2, ppc_inst(PPC_RAW_NOP()));
+		patch_instruction_site(site, ppc_inst(PPC_INST_NOP));
 	} else {
 		// Could use HW flush, but that could also flush count cache
 		patch_branch_site(site, (u64)&kvm_flush_link_stack, BRANCH_SET_LINK);
-		patch_branch_site(site2, (u64)&kvm_flush_link_stack, BRANCH_SET_LINK);
 	}
 #endif
 
 	// Patch out the bcctr first, then nop the rest
 	site = &patch__call_flush_branch_caches3;
-	patch_instruction_site(site, ppc_inst(PPC_RAW_NOP()));
+	patch_instruction_site(site, ppc_inst(PPC_INST_NOP));
 	site = &patch__call_flush_branch_caches2;
-	patch_instruction_site(site, ppc_inst(PPC_RAW_NOP()));
+	patch_instruction_site(site, ppc_inst(PPC_INST_NOP));
 	site = &patch__call_flush_branch_caches1;
-	patch_instruction_site(site, ppc_inst(PPC_RAW_NOP()));
+	patch_instruction_site(site, ppc_inst(PPC_INST_NOP));
 
 	// This controls the branch from _switch to flush_branch_caches
 	if (count_cache_flush_type == BRANCH_CACHE_FLUSH_NONE &&
@@ -474,12 +474,12 @@ static void update_branch_cache_flush(void)
 		// If we just need to flush the link stack, early return
 		if (count_cache_flush_type == BRANCH_CACHE_FLUSH_NONE) {
 			patch_instruction_site(&patch__flush_link_stack_return,
-					       ppc_inst(PPC_RAW_BLR()));
+					       ppc_inst(PPC_INST_BLR));
 
 		// If we have flush instruction, early return
 		} else if (count_cache_flush_type == BRANCH_CACHE_FLUSH_HW) {
 			patch_instruction_site(&patch__flush_count_cache_return,
-					       ppc_inst(PPC_RAW_BLR()));
+					       ppc_inst(PPC_INST_BLR));
 		}
 	}
 }
@@ -748,7 +748,7 @@ DEFINE_DEBUGFS_ATTRIBUTE(fops_count_cache_flush, count_cache_flush_get,
 static __init int count_cache_flush_debugfs_init(void)
 {
 	debugfs_create_file_unsafe("count_cache_flush", 0600,
-				   arch_debugfs_dir, NULL,
+				   powerpc_debugfs_root, NULL,
 				   &fops_count_cache_flush);
 	return 0;
 }
@@ -834,9 +834,9 @@ DEFINE_SIMPLE_ATTRIBUTE(fops_uaccess_flush, uaccess_flush_get, uaccess_flush_set
 
 static __init int rfi_flush_debugfs_init(void)
 {
-	debugfs_create_file("rfi_flush", 0600, arch_debugfs_dir, NULL, &fops_rfi_flush);
-	debugfs_create_file("entry_flush", 0600, arch_debugfs_dir, NULL, &fops_entry_flush);
-	debugfs_create_file("uaccess_flush", 0600, arch_debugfs_dir, NULL, &fops_uaccess_flush);
+	debugfs_create_file("rfi_flush", 0600, powerpc_debugfs_root, NULL, &fops_rfi_flush);
+	debugfs_create_file("entry_flush", 0600, powerpc_debugfs_root, NULL, &fops_entry_flush);
+	debugfs_create_file("uaccess_flush", 0600, powerpc_debugfs_root, NULL, &fops_uaccess_flush);
 	return 0;
 }
 device_initcall(rfi_flush_debugfs_init);

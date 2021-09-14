@@ -91,7 +91,7 @@ void drm_mode_object_register(struct drm_device *dev,
 }
 
 /**
- * drm_mode_object_unregister - free a modeset identifier
+ * drm_mode_object_unregister - free a modeset identifer
  * @dev: DRM device
  * @object: object to free
  *

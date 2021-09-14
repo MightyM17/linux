@@ -585,9 +585,7 @@ static void enetc_get_ringparam(struct net_device *ndev,
 }
 
 static int enetc_get_coalesce(struct net_device *ndev,
-			      struct ethtool_coalesce *ic,
-			      struct kernel_ethtool_coalesce *kernel_coal,
-			      struct netlink_ext_ack *extack)
+			      struct ethtool_coalesce *ic)
 {
 	struct enetc_ndev_priv *priv = netdev_priv(ndev);
 	struct enetc_int_vector *v = priv->int_vector[0];
@@ -604,9 +602,7 @@ static int enetc_get_coalesce(struct net_device *ndev,
 }
 
 static int enetc_set_coalesce(struct net_device *ndev,
-			      struct ethtool_coalesce *ic,
-			      struct kernel_ethtool_coalesce *kernel_coal,
-			      struct netlink_ext_ack *extack)
+			      struct ethtool_coalesce *ic)
 {
 	struct enetc_ndev_priv *priv = netdev_priv(ndev);
 	u32 rx_ictt, tx_ictt;

@@ -950,8 +950,7 @@ static int snd_mts64_probe(struct platform_device *pdev)
 		goto free_pardev;
 	}
 
-	err = snd_mts64_create(card, pardev, &mts);
-	if (err < 0) {
+	if ((err = snd_mts64_create(card, pardev, &mts)) < 0) {
 		snd_printd("Cannot create main component\n");
 		goto release_pardev;
 	}
@@ -964,22 +963,19 @@ static int snd_mts64_probe(struct platform_device *pdev)
 		goto __err;
 	}
 	
-	err = snd_mts64_rawmidi_create(card);
-	if (err < 0) {
+	if ((err = snd_mts64_rawmidi_create(card)) < 0) {
 		snd_printd("Creating Rawmidi component failed\n");
 		goto __err;
 	}
 
 	/* init device */
-	err = mts64_device_init(p);
-	if (err < 0)
+	if ((err = mts64_device_init(p)) < 0)
 		goto __err;
 
 	platform_set_drvdata(pdev, card);
 
 	/* At this point card will be usable */
-	err = snd_card_register(card);
-	if (err < 0) {
+	if ((err = snd_card_register(card)) < 0) {
 		snd_printd("Cannot register card\n");
 		goto __err;
 	}
@@ -1035,8 +1031,7 @@ static int __init snd_mts64_module_init(void)
 {
 	int err;
 
-	err = platform_driver_register(&snd_mts64_driver);
-	if (err < 0)
+	if ((err = platform_driver_register(&snd_mts64_driver)) < 0)
 		return err;
 
 	if (parport_register_driver(&mts64_parport_driver) != 0) {

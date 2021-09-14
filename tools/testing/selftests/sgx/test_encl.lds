@@ -18,10 +18,9 @@ SECTIONS
 	.text : {
 		*(.text*)
 		*(.rodata*)
-		FILL(0xDEADBEEF);
-		. = ALIGN(4096);
 	} : text
 
+	. = ALIGN(4096);
 	.data : {
 		*(.data*)
 	} : data

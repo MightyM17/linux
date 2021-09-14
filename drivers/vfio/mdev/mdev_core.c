@@ -94,11 +94,9 @@ static void mdev_device_remove_common(struct mdev_device *mdev)
 	mdev_remove_sysfs_files(mdev);
 	device_del(&mdev->dev);
 	lockdep_assert_held(&parent->unreg_sem);
-	if (parent->ops->remove) {
-		ret = parent->ops->remove(mdev);
-		if (ret)
-			dev_err(&mdev->dev, "Remove failed: err=%d\n", ret);
-	}
+	ret = parent->ops->remove(mdev);
+	if (ret)
+		dev_err(&mdev->dev, "Remove failed: err=%d\n", ret);
 
 	/* Balances with device_initialize() */
 	put_device(&mdev->dev);
@@ -129,14 +127,16 @@ int mdev_register_device(struct device *dev, const struct mdev_parent_ops *ops)
 	char *envp[] = { env_string, NULL };
 
 	/* check for mandatory ops */
-	if (!ops || !ops->supported_type_groups)
-		return -EINVAL;
-	if (!ops->device_driver && (!ops->create || !ops->remove))
+	if (!ops || !ops->create || !ops->remove || !ops->supported_type_groups)
 		return -EINVAL;
 
 	dev = get_device(dev);
 	if (!dev)
 		return -EINVAL;
+
+	/* Not mandatory, but its absence could be a problem */
+	if (!ops->request)
+		dev_info(dev, "Driver cannot be asked to release device\n");
 
 	mutex_lock(&parent_list_lock);
 
@@ -256,7 +256,6 @@ int mdev_device_create(struct mdev_type *type, const guid_t *uuid)
 	int ret;
 	struct mdev_device *mdev, *tmp;
 	struct mdev_parent *parent = type->parent;
-	struct mdev_driver *drv = parent->ops->device_driver;
 
 	mutex_lock(&mdev_list_lock);
 
@@ -297,21 +296,13 @@ int mdev_device_create(struct mdev_type *type, const guid_t *uuid)
 		goto out_put_device;
 	}
 
-	if (parent->ops->create) {
-		ret = parent->ops->create(mdev);
-		if (ret)
-			goto out_unlock;
-	}
+	ret = parent->ops->create(mdev);
+	if (ret)
+		goto out_unlock;
 
 	ret = device_add(&mdev->dev);
 	if (ret)
 		goto out_remove;
-
-	if (!drv)
-		drv = &vfio_mdev_driver;
-	ret = device_driver_attach(&drv->driver, &mdev->dev);
-	if (ret)
-		goto out_del;
 
 	ret = mdev_create_sysfs_files(mdev);
 	if (ret)
@@ -326,8 +317,7 @@ int mdev_device_create(struct mdev_type *type, const guid_t *uuid)
 out_del:
 	device_del(&mdev->dev);
 out_remove:
-	if (parent->ops->remove)
-		parent->ops->remove(mdev);
+	parent->ops->remove(mdev);
 out_unlock:
 	up_read(&parent->unreg_sem);
 out_put_device:
@@ -370,34 +360,22 @@ int mdev_device_remove(struct mdev_device *mdev)
 
 static int __init mdev_init(void)
 {
-	int rc;
-
-	rc = mdev_bus_register();
-	if (rc)
-		return rc;
-	rc = mdev_register_driver(&vfio_mdev_driver);
-	if (rc)
-		goto err_bus;
-	return 0;
-err_bus:
-	mdev_bus_unregister();
-	return rc;
+	return mdev_bus_register();
 }
 
 static void __exit mdev_exit(void)
 {
-	mdev_unregister_driver(&vfio_mdev_driver);
-
 	if (mdev_bus_compat_class)
 		class_compat_unregister(mdev_bus_compat_class);
 
 	mdev_bus_unregister();
 }
 
-subsys_initcall(mdev_init)
+module_init(mdev_init)
 module_exit(mdev_exit)
 
 MODULE_VERSION(DRIVER_VERSION);
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR(DRIVER_AUTHOR);
 MODULE_DESCRIPTION(DRIVER_DESC);
+MODULE_SOFTDEP("post: vfio_mdev");

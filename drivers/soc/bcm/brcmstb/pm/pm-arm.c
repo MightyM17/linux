@@ -28,7 +28,6 @@
 #include <linux/notifier.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
-#include <linux/panic_notifier.h>
 #include <linux/platform_device.h>
 #include <linux/pm.h>
 #include <linux/printk.h>

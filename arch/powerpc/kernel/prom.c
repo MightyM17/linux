@@ -11,6 +11,7 @@
 
 #undef DEBUG
 
+#include <stdarg.h>
 #include <linux/kernel.h>
 #include <linux/string.h>
 #include <linux/init.h>
@@ -639,9 +640,7 @@ static void __init early_reserve_mem(void)
 	}
 #endif /* CONFIG_BLK_DEV_INITRD */
 
-	if (!IS_ENABLED(CONFIG_PPC32))
-		return;
-
+#ifdef CONFIG_PPC32
 	/* 
 	 * Handle the case where we might be booting from an old kexec
 	 * image that setup the mem_rsvmap as pairs of 32-bit values
@@ -662,6 +661,7 @@ static void __init early_reserve_mem(void)
 		}
 		return;
 	}
+#endif
 }
 
 #ifdef CONFIG_PPC_TRANSACTIONAL_MEM
@@ -758,7 +758,7 @@ void __init early_init_devtree(void *params)
 		first_memblock_size = min_t(u64, first_memblock_size, memory_limit);
 	setup_initial_memory_limit(memstart_addr, first_memblock_size);
 	/* Reserve MEMBLOCK regions used by kernel, initrd, dt, etc... */
-	memblock_reserve(PHYSICAL_START, __pa(_end) - PHYSICAL_START);
+	memblock_reserve(PHYSICAL_START, __pa(klimit) - PHYSICAL_START);
 	/* If relocatable, reserve first 32k for interrupt vectors etc. */
 	if (PHYSICAL_START > MEMORY_START)
 		memblock_reserve(MEMORY_START, 0x8000);

@@ -37,8 +37,7 @@ enum idh_request {
 	IDH_REQ_GPU_RESET_ACCESS,
 	IDH_REQ_GPU_INIT_DATA,
 
-	IDH_LOG_VF_ERROR	= 200,
-	IDH_READY_TO_RESET 	= 201,
+	IDH_LOG_VF_ERROR       = 200,
 };
 
 enum idh_event {

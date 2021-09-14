@@ -6,6 +6,7 @@
 /dts-v1/;
 
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
+#include <dt-bindings/gpio/gpio.h>
 #include "sm8250.dtsi"
 #include "pm8150.dtsi"
 #include "pm8150b.dtsi"
@@ -364,26 +365,22 @@
 	};
 };
 
-&gmu {
-	status = "okay";
-};
-
-&gpu {
-	status = "okay";
-};
-
-&pon_pwrkey {
-	status = "okay";
-};
-
-&pon_resin {
-	status = "okay";
-
-	linux,code = <KEY_VOLUMEDOWN>;
-};
-
 &qupv3_id_1 {
 	status = "okay";
+};
+
+&pon {
+	pwrkey {
+		status = "okay";
+	};
+
+	resin {
+		compatible = "qcom,pm8941-resin";
+		interrupts = <0x0 0x8 0x1 IRQ_TYPE_EDGE_BOTH>;
+		debounce = <15625>;
+		bias-pull-up;
+		linux,code = <KEY_VOLUMEDOWN>;
+	};
 };
 
 &tlmm {
@@ -454,8 +451,4 @@
 
 &usb_2_dwc3 {
 	dr_mode = "host";
-};
-
-&venus {
-	status = "okay";
 };

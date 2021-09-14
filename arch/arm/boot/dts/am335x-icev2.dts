@@ -458,14 +458,14 @@
 };
 
 &gpio3 {
-	pr1-mii-ctl-hog {
+	p4 {
 		gpio-hog;
 		gpios = <4 GPIO_ACTIVE_HIGH>;
 		output-high;
 		line-name = "PR1_MII_CTRL";
 	};
 
-	mux-mii-hog {
+	p10 {
 		gpio-hog;
 		gpios = <10 GPIO_ACTIVE_HIGH>;
 		/* ETH1 mux: Low for MII-PRU, high for RMII-CPSW */
@@ -507,8 +507,4 @@
 	ethphy1: ethernet-phy@3 {
 		reg = <3>;
 	};
-};
-
-&pruss_tm {
-	status = "okay";
 };

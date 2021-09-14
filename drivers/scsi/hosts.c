@@ -220,9 +220,6 @@ int scsi_add_host_with_dma(struct Scsi_Host *shost, struct device *dev,
 		goto fail;
 	}
 
-	shost->cmd_per_lun = min_t(short, shost->cmd_per_lun,
-				   shost->can_queue);
-
 	error = scsi_init_sense_cache(shost);
 	if (error)
 		goto fail;
@@ -257,10 +254,11 @@ int scsi_add_host_with_dma(struct Scsi_Host *shost, struct device *dev,
 
 	device_enable_async_suspend(&shost->shost_dev);
 
-	get_device(&shost->shost_gendev);
 	error = device_add(&shost->shost_dev);
 	if (error)
 		goto out_del_gendev;
+
+	get_device(&shost->shost_gendev);
 
 	if (shost->transportt->host_size) {
 		shost->shost_data = kzalloc(shost->transportt->host_size,
@@ -280,36 +278,33 @@ int scsi_add_host_with_dma(struct Scsi_Host *shost, struct device *dev,
 
 		if (!shost->work_q) {
 			error = -EINVAL;
-			goto out_del_dev;
+			goto out_free_shost_data;
 		}
 	}
 
 	error = scsi_sysfs_add_host(shost);
 	if (error)
-		goto out_del_dev;
+		goto out_destroy_host;
 
 	scsi_proc_host_add(shost);
 	scsi_autopm_put_host(shost);
 	return error;
 
-	/*
-	 * Any host allocation in this function will be freed in
-	 * scsi_host_dev_release().
-	 */
+ out_destroy_host:
+	if (shost->work_q)
+		destroy_workqueue(shost->work_q);
+ out_free_shost_data:
+	kfree(shost->shost_data);
  out_del_dev:
 	device_del(&shost->shost_dev);
  out_del_gendev:
-	/*
-	 * Host state is SHOST_RUNNING so we have to explicitly release
-	 * ->shost_dev.
-	 */
-	put_device(&shost->shost_dev);
 	device_del(&shost->shost_gendev);
  out_disable_runtime_pm:
 	device_disable_async_suspend(&shost->shost_gendev);
 	pm_runtime_disable(&shost->shost_gendev);
 	pm_runtime_set_suspended(&shost->shost_gendev);
 	pm_runtime_put_noidle(&shost->shost_gendev);
+	scsi_mq_destroy_tags(shost);
  fail:
 	return error;
 }
@@ -322,7 +317,7 @@ static void scsi_host_dev_release(struct device *dev)
 
 	scsi_proc_hostdir_rm(shost->hostt);
 
-	/* Wait for functions invoked through call_rcu(&scmd->rcu, ...) */
+	/* Wait for functions invoked through call_rcu(&shost->rcu, ...) */
 	rcu_barrier();
 
 	if (shost->tmf_work_q)
@@ -350,7 +345,7 @@ static void scsi_host_dev_release(struct device *dev)
 
 	ida_simple_remove(&host_index_ida, shost->host_no);
 
-	if (shost->shost_state != SHOST_CREATED)
+	if (parent)
 		put_device(parent);
 	kfree(shost);
 }
@@ -393,10 +388,8 @@ struct Scsi_Host *scsi_host_alloc(struct scsi_host_template *sht, int privsize)
 	mutex_init(&shost->scan_mutex);
 
 	index = ida_simple_get(&host_index_ida, 0, 0, GFP_KERNEL);
-	if (index < 0) {
-		kfree(shost);
-		return NULL;
-	}
+	if (index < 0)
+		goto fail_kfree;
 	shost->host_no = index;
 
 	shost->dma_channel = 0xff;
@@ -488,8 +481,7 @@ struct Scsi_Host *scsi_host_alloc(struct scsi_host_template *sht, int privsize)
 		shost_printk(KERN_WARNING, shost,
 			"error handler thread failed to spawn, error = %ld\n",
 			PTR_ERR(shost->ehandler));
-		shost->ehandler = NULL;
-		goto fail;
+		goto fail_index_remove;
 	}
 
 	shost->tmf_work_q = alloc_workqueue("scsi_tmf_%d",
@@ -498,18 +490,17 @@ struct Scsi_Host *scsi_host_alloc(struct scsi_host_template *sht, int privsize)
 	if (!shost->tmf_work_q) {
 		shost_printk(KERN_WARNING, shost,
 			     "failed to create tmf workq\n");
-		goto fail;
+		goto fail_kthread;
 	}
 	scsi_proc_hostdir_add(shost->hostt);
 	return shost;
- fail:
-	/*
-	 * Host state is still SHOST_CREATED and that is enough to release
-	 * ->shost_gendev. scsi_host_dev_release() will free
-	 * dev_name(&shost->shost_dev).
-	 */
-	put_device(&shost->shost_gendev);
 
+ fail_kthread:
+	kthread_stop(shost->ehandler);
+ fail_index_remove:
+	ida_simple_remove(&host_index_ida, shost->host_no);
+ fail_kfree:
+	kfree(shost);
 	return NULL;
 }
 EXPORT_SYMBOL(scsi_host_alloc);
@@ -661,11 +652,10 @@ EXPORT_SYMBOL_GPL(scsi_flush_work);
 static bool complete_all_cmds_iter(struct request *rq, void *data, bool rsvd)
 {
 	struct scsi_cmnd *scmd = blk_mq_rq_to_pdu(rq);
-	enum scsi_host_status status = *(enum scsi_host_status *)data;
+	int status = *(int *)data;
 
 	scsi_dma_unmap(scmd);
-	scmd->result = 0;
-	set_host_byte(scmd, status);
+	scmd->result = status << 16;
 	scmd->scsi_done(scmd);
 	return true;
 }
@@ -680,8 +670,7 @@ static bool complete_all_cmds_iter(struct request *rq, void *data, bool rsvd)
  * caller to ensure that concurrent I/O submission and/or
  * completion is stopped when calling this function.
  */
-void scsi_host_complete_all_commands(struct Scsi_Host *shost,
-				     enum scsi_host_status status)
+void scsi_host_complete_all_commands(struct Scsi_Host *shost, int status)
 {
 	blk_mq_tagset_busy_iter(&shost->tag_set, complete_all_cmds_iter,
 				&status);

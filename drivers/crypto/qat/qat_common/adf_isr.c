@@ -15,14 +15,6 @@
 #include "adf_transport_access_macros.h"
 #include "adf_transport_internal.h"
 
-#define ADF_MAX_NUM_VFS	32
-#define ADF_ERRSOU3	(0x3A000 + 0x0C)
-#define ADF_ERRSOU5	(0x3A000 + 0xD8)
-#define ADF_ERRMSK3	(0x3A000 + 0x1C)
-#define ADF_ERRMSK5	(0x3A000 + 0xDC)
-#define ADF_ERR_REG_VF2PF_L(vf_src)	(((vf_src) & 0x01FFFE00) >> 9)
-#define ADF_ERR_REG_VF2PF_U(vf_src)	(((vf_src) & 0x0000FFFF) << 16)
-
 static int adf_enable_msix(struct adf_accel_dev *accel_dev)
 {
 	struct adf_accel_pci *pci_dev_info = &accel_dev->accel_pci_dev;
@@ -79,23 +71,14 @@ static irqreturn_t adf_msix_isr_ae(int irq, void *dev_ptr)
 		struct adf_hw_device_data *hw_data = accel_dev->hw_device;
 		struct adf_bar *pmisc =
 			&GET_BARS(accel_dev)[hw_data->get_misc_bar_id(hw_data)];
-		void __iomem *pmisc_addr = pmisc->virt_addr;
-		u32 errsou3, errsou5, errmsk3, errmsk5;
-		unsigned long vf_mask;
+		void __iomem *pmisc_bar_addr = pmisc->virt_addr;
+		u32 vf_mask;
 
 		/* Get the interrupt sources triggered by VFs */
-		errsou3 = ADF_CSR_RD(pmisc_addr, ADF_ERRSOU3);
-		errsou5 = ADF_CSR_RD(pmisc_addr, ADF_ERRSOU5);
-		vf_mask = ADF_ERR_REG_VF2PF_L(errsou3);
-		vf_mask |= ADF_ERR_REG_VF2PF_U(errsou5);
-
-		/* To avoid adding duplicate entries to work queue, clear
-		 * vf_int_mask_sets bits that are already masked in ERRMSK register.
-		 */
-		errmsk3 = ADF_CSR_RD(pmisc_addr, ADF_ERRMSK3);
-		errmsk5 = ADF_CSR_RD(pmisc_addr, ADF_ERRMSK5);
-		vf_mask &= ~ADF_ERR_REG_VF2PF_L(errmsk3);
-		vf_mask &= ~ADF_ERR_REG_VF2PF_U(errmsk5);
+		vf_mask = ((ADF_CSR_RD(pmisc_bar_addr, ADF_ERRSOU5) &
+			    0x0000FFFF) << 16) |
+			  ((ADF_CSR_RD(pmisc_bar_addr, ADF_ERRSOU3) &
+			    0x01FFFE00) >> 9);
 
 		if (vf_mask) {
 			struct adf_accel_vf_info *vf_info;
@@ -103,13 +86,15 @@ static irqreturn_t adf_msix_isr_ae(int irq, void *dev_ptr)
 			int i;
 
 			/* Disable VF2PF interrupts for VFs with pending ints */
-			adf_disable_vf2pf_interrupts_irq(accel_dev, vf_mask);
+			adf_disable_vf2pf_interrupts(accel_dev, vf_mask);
 
 			/*
-			 * Handle VF2PF interrupt unless the VF is malicious and
-			 * is attempting to flood the host OS with VF2PF interrupts.
+			 * Schedule tasklets to handle VF2PF interrupt BHs
+			 * unless the VF is malicious and is attempting to
+			 * flood the host OS with VF2PF interrupts.
 			 */
-			for_each_set_bit(i, &vf_mask, ADF_MAX_NUM_VFS) {
+			for_each_set_bit(i, (const unsigned long *)&vf_mask,
+					 (sizeof(vf_mask) * BITS_PER_BYTE)) {
 				vf_info = accel_dev->pf.vf_info + i;
 
 				if (!__ratelimit(&vf_info->vf2pf_ratelimit)) {
@@ -119,7 +104,8 @@ static irqreturn_t adf_msix_isr_ae(int irq, void *dev_ptr)
 					continue;
 				}
 
-				adf_schedule_vf2pf_handler(vf_info);
+				/* Tasklet will re-enable ints from this VF */
+				tasklet_hi_schedule(&vf_info->vf2pf_bh_tasklet);
 				irq_handled = true;
 			}
 

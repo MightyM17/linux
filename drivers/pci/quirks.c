@@ -27,7 +27,6 @@
 #include <linux/nvme.h>
 #include <linux/platform_data/x86/apple.h>
 #include <linux/pm_runtime.h>
-#include <linux/suspend.h>
 #include <linux/switchtec.h>
 #include <asm/dma.h>	/* isa_dma_bridge_buggy */
 #include "pci.h"
@@ -1822,45 +1821,6 @@ DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL,	PCI_DEVICE_ID_INTEL_E7525_MCH,	quir
 DECLARE_PCI_FIXUP_CLASS_FINAL(PCI_VENDOR_ID_HUAWEI, 0x1610, PCI_CLASS_BRIDGE_PCI, 8, quirk_pcie_mch);
 
 /*
- * HiSilicon KunPeng920 and KunPeng930 have devices appear as PCI but are
- * actually on the AMBA bus. These fake PCI devices can support SVA via
- * SMMU stall feature, by setting dma-can-stall for ACPI platforms.
- *
- * Normally stalling must not be enabled for PCI devices, since it would
- * break the PCI requirement for free-flowing writes and may lead to
- * deadlock.  We expect PCI devices to support ATS and PRI if they want to
- * be fault-tolerant, so there's no ACPI binding to describe anything else,
- * even when a "PCI" device turns out to be a regular old SoC device
- * dressed up as a RCiEP and normal rules don't apply.
- */
-static void quirk_huawei_pcie_sva(struct pci_dev *pdev)
-{
-	struct property_entry properties[] = {
-		PROPERTY_ENTRY_BOOL("dma-can-stall"),
-		{},
-	};
-
-	if (pdev->revision != 0x21 && pdev->revision != 0x30)
-		return;
-
-	pdev->pasid_no_tlp = 1;
-
-	/*
-	 * Set the dma-can-stall property on ACPI platforms. Device tree
-	 * can set it directly.
-	 */
-	if (!pdev->dev.of_node &&
-	    device_add_properties(&pdev->dev, properties))
-		pci_warn(pdev, "could not add stall property");
-}
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_HUAWEI, 0xa250, quirk_huawei_pcie_sva);
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_HUAWEI, 0xa251, quirk_huawei_pcie_sva);
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_HUAWEI, 0xa255, quirk_huawei_pcie_sva);
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_HUAWEI, 0xa256, quirk_huawei_pcie_sva);
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_HUAWEI, 0xa258, quirk_huawei_pcie_sva);
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_HUAWEI, 0xa259, quirk_huawei_pcie_sva);
-
-/*
  * It's possible for the MSI to get corrupted if SHPC and ACPI are used
  * together on certain PXH-based systems.
  */
@@ -1939,7 +1899,6 @@ static void quirk_ryzen_xhci_d3hot(struct pci_dev *dev)
 }
 DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_AMD, 0x15e0, quirk_ryzen_xhci_d3hot);
 DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_AMD, 0x15e1, quirk_ryzen_xhci_d3hot);
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_AMD, 0x1639, quirk_ryzen_xhci_d3hot);
 
 #ifdef CONFIG_X86_IO_APIC
 static int dmi_disable_ioapicreroute(const struct dmi_system_id *d)
@@ -3274,13 +3233,12 @@ static void fixup_mpss_256(struct pci_dev *dev)
 {
 	dev->pcie_mpss = 1; /* 256 bytes */
 }
-DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_SOLARFLARE,
-			PCI_DEVICE_ID_SOLARFLARE_SFC4000A_0, fixup_mpss_256);
-DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_SOLARFLARE,
-			PCI_DEVICE_ID_SOLARFLARE_SFC4000A_1, fixup_mpss_256);
-DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_SOLARFLARE,
-			PCI_DEVICE_ID_SOLARFLARE_SFC4000B, fixup_mpss_256);
-DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_ASMEDIA, 0x0612, fixup_mpss_256);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_SOLARFLARE,
+			 PCI_DEVICE_ID_SOLARFLARE_SFC4000A_0, fixup_mpss_256);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_SOLARFLARE,
+			 PCI_DEVICE_ID_SOLARFLARE_SFC4000A_1, fixup_mpss_256);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_SOLARFLARE,
+			 PCI_DEVICE_ID_SOLARFLARE_SFC4000B, fixup_mpss_256);
 
 /*
  * Intel 5000 and 5100 Memory controllers have an erratum with read completion
@@ -3589,18 +3547,6 @@ static void quirk_no_bus_reset(struct pci_dev *dev)
 }
 
 /*
- * Some NVIDIA GPU devices do not work with bus reset, SBR needs to be
- * prevented for those affected devices.
- */
-static void quirk_nvidia_no_bus_reset(struct pci_dev *dev)
-{
-	if ((dev->device & 0xffc0) == 0x2340)
-		quirk_no_bus_reset(dev);
-}
-DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_NVIDIA, PCI_ANY_ID,
-			 quirk_nvidia_no_bus_reset);
-
-/*
  * Some Atheros AR9xxx and QCA988x chips do not behave after a bus reset.
  * The device will throw a Link Down error on AER-capable systems and
  * regardless of AER, config space of the device is never accessible again
@@ -3619,16 +3565,6 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_ATHEROS, 0x0034, quirk_no_bus_reset);
  * accesses to the child may fail.
  */
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_CAVIUM, 0xa100, quirk_no_bus_reset);
-
-/*
- * Some TI KeyStone C667X devices do not support bus/hot reset.  The PCIESS
- * automatically disables LTSSM when Secondary Bus Reset is received and
- * the device stops working.  Prevent bus reset for these devices.  With
- * this change, the device can be assigned to VMs with VFIO, but it will
- * leak state between VMs.  Reference
- * https://e2e.ti.com/support/processors/f/791/t/954382
- */
-DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_TI, 0xb005, quirk_no_bus_reset);
 
 static void quirk_no_pm_reset(struct pci_dev *dev)
 {
@@ -3698,16 +3634,6 @@ static void quirk_apple_poweroff_thunderbolt(struct pci_dev *dev)
 		return;
 	if (pci_pcie_type(dev) != PCI_EXP_TYPE_UPSTREAM)
 		return;
-
-	/*
-	 * SXIO/SXFP/SXLF turns off power to the Thunderbolt controller.
-	 * We don't know how to turn it back on again, but firmware does,
-	 * so we can only use SXIO/SXFP/SXLF if we're suspending via
-	 * firmware.
-	 */
-	if (!pm_suspend_via_firmware())
-		return;
-
 	bridge = ACPI_HANDLE(&dev->dev);
 	if (!bridge)
 		return;
@@ -3743,7 +3669,7 @@ DECLARE_PCI_FIXUP_SUSPEND_LATE(PCI_VENDOR_ID_INTEL,
  * reset a single function if other methods (e.g. FLR, PM D0->D3) are
  * not available.
  */
-static int reset_intel_82599_sfp_virtfn(struct pci_dev *dev, bool probe)
+static int reset_intel_82599_sfp_virtfn(struct pci_dev *dev, int probe)
 {
 	/*
 	 * http://www.intel.com/content/dam/doc/datasheet/82599-10-gbe-controller-datasheet.pdf
@@ -3765,7 +3691,7 @@ static int reset_intel_82599_sfp_virtfn(struct pci_dev *dev, bool probe)
 #define NSDE_PWR_STATE		0xd0100
 #define IGD_OPERATION_TIMEOUT	10000     /* set timeout 10 seconds */
 
-static int reset_ivb_igd(struct pci_dev *dev, bool probe)
+static int reset_ivb_igd(struct pci_dev *dev, int probe)
 {
 	void __iomem *mmio_base;
 	unsigned long timeout;
@@ -3808,7 +3734,7 @@ reset_complete:
 }
 
 /* Device-specific reset method for Chelsio T4-based adapters */
-static int reset_chelsio_generic_dev(struct pci_dev *dev, bool probe)
+static int reset_chelsio_generic_dev(struct pci_dev *dev, int probe)
 {
 	u16 old_command;
 	u16 msix_flags;
@@ -3886,14 +3812,14 @@ static int reset_chelsio_generic_dev(struct pci_dev *dev, bool probe)
  *    Chapter 3: NVMe control registers
  *    Chapter 7.3: Reset behavior
  */
-static int nvme_disable_and_flr(struct pci_dev *dev, bool probe)
+static int nvme_disable_and_flr(struct pci_dev *dev, int probe)
 {
 	void __iomem *bar;
 	u16 cmd;
 	u32 cfg;
 
 	if (dev->class != PCI_CLASS_STORAGE_EXPRESS ||
-	    pcie_reset_flr(dev, PCI_RESET_PROBE) || !pci_resource_start(dev, 0))
+	    !pcie_has_flr(dev) || !pci_resource_start(dev, 0))
 		return -ENOTTY;
 
 	if (probe)
@@ -3960,77 +3886,17 @@ static int nvme_disable_and_flr(struct pci_dev *dev, bool probe)
  * device too soon after FLR.  A 250ms delay after FLR has heuristically
  * proven to produce reliably working results for device assignment cases.
  */
-static int delay_250ms_after_flr(struct pci_dev *dev, bool probe)
+static int delay_250ms_after_flr(struct pci_dev *dev, int probe)
 {
-	if (probe)
-		return pcie_reset_flr(dev, PCI_RESET_PROBE);
-
-	pcie_reset_flr(dev, PCI_RESET_DO_RESET);
-
-	msleep(250);
-
-	return 0;
-}
-
-#define PCI_DEVICE_ID_HINIC_VF      0x375E
-#define HINIC_VF_FLR_TYPE           0x1000
-#define HINIC_VF_FLR_CAP_BIT        (1UL << 30)
-#define HINIC_VF_OP                 0xE80
-#define HINIC_VF_FLR_PROC_BIT       (1UL << 18)
-#define HINIC_OPERATION_TIMEOUT     15000	/* 15 seconds */
-
-/* Device-specific reset method for Huawei Intelligent NIC virtual functions */
-static int reset_hinic_vf_dev(struct pci_dev *pdev, bool probe)
-{
-	unsigned long timeout;
-	void __iomem *bar;
-	u32 val;
+	if (!pcie_has_flr(dev))
+		return -ENOTTY;
 
 	if (probe)
 		return 0;
 
-	bar = pci_iomap(pdev, 0, 0);
-	if (!bar)
-		return -ENOTTY;
+	pcie_flr(dev);
 
-	/* Get and check firmware capabilities */
-	val = ioread32be(bar + HINIC_VF_FLR_TYPE);
-	if (!(val & HINIC_VF_FLR_CAP_BIT)) {
-		pci_iounmap(pdev, bar);
-		return -ENOTTY;
-	}
-
-	/* Set HINIC_VF_FLR_PROC_BIT for the start of FLR */
-	val = ioread32be(bar + HINIC_VF_OP);
-	val = val | HINIC_VF_FLR_PROC_BIT;
-	iowrite32be(val, bar + HINIC_VF_OP);
-
-	pcie_flr(pdev);
-
-	/*
-	 * The device must recapture its Bus and Device Numbers after FLR
-	 * in order generate Completions.  Issue a config write to let the
-	 * device capture this information.
-	 */
-	pci_write_config_word(pdev, PCI_VENDOR_ID, 0);
-
-	/* Firmware clears HINIC_VF_FLR_PROC_BIT when reset is complete */
-	timeout = jiffies + msecs_to_jiffies(HINIC_OPERATION_TIMEOUT);
-	do {
-		val = ioread32be(bar + HINIC_VF_OP);
-		if (!(val & HINIC_VF_FLR_PROC_BIT))
-			goto reset_complete;
-		msleep(20);
-	} while (time_before(jiffies, timeout));
-
-	val = ioread32be(bar + HINIC_VF_OP);
-	if (!(val & HINIC_VF_FLR_PROC_BIT))
-		goto reset_complete;
-
-	pci_warn(pdev, "Reset dev timeout, FLR ack reg: %#010x\n", val);
-
-reset_complete:
-	pci_iounmap(pdev, bar);
+	msleep(250);
 
 	return 0;
 }
@@ -4047,8 +3913,6 @@ static const struct pci_dev_reset_methods pci_dev_reset_methods[] = {
 	{ PCI_VENDOR_ID_INTEL, 0x0a54, delay_250ms_after_flr },
 	{ PCI_VENDOR_ID_CHELSIO, PCI_ANY_ID,
 		reset_chelsio_generic_dev },
-	{ PCI_VENDOR_ID_HUAWEI, PCI_DEVICE_ID_HINIC_VF,
-		reset_hinic_vf_dev },
 	{ 0 }
 };
 
@@ -4057,7 +3921,7 @@ static const struct pci_dev_reset_methods pci_dev_reset_methods[] = {
  * because when a host assigns a device to a guest VM, the host may need
  * to reset the device but probably doesn't have a driver for it.
  */
-int pci_dev_specific_reset(struct pci_dev *dev, bool probe)
+int pci_dev_specific_reset(struct pci_dev *dev, int probe)
 {
 	const struct pci_dev_reset_methods *i;
 
@@ -4652,18 +4516,6 @@ static int pci_quirk_qcom_rp_acs(struct pci_dev *dev, u16 acs_flags)
 		PCI_ACS_SV | PCI_ACS_RR | PCI_ACS_CR | PCI_ACS_UF);
 }
 
-/*
- * Each of these NXP Root Ports is in a Root Complex with a unique segment
- * number and does provide isolation features to disable peer transactions
- * and validate bus numbers in requests, but does not provide an ACS
- * capability.
- */
-static int pci_quirk_nxp_rp_acs(struct pci_dev *dev, u16 acs_flags)
-{
-	return pci_acs_ctrl_enabled(acs_flags,
-		PCI_ACS_SV | PCI_ACS_RR | PCI_ACS_CR | PCI_ACS_UF);
-}
-
 static int pci_quirk_al_acs(struct pci_dev *dev, u16 acs_flags)
 {
 	if (pci_pcie_type(dev) != PCI_EXP_TYPE_ROOT_PORT)
@@ -4890,10 +4742,6 @@ static const struct pci_dev_acs_enabled {
 	{ 0x10df, 0x720, pci_quirk_mf_endpoint_acs }, /* Emulex Skyhawk-R */
 	/* Cavium ThunderX */
 	{ PCI_VENDOR_ID_CAVIUM, PCI_ANY_ID, pci_quirk_cavium_acs },
-	/* Cavium multi-function devices */
-	{ PCI_VENDOR_ID_CAVIUM, 0xA026, pci_quirk_mf_endpoint_acs },
-	{ PCI_VENDOR_ID_CAVIUM, 0xA059, pci_quirk_mf_endpoint_acs },
-	{ PCI_VENDOR_ID_CAVIUM, 0xA060, pci_quirk_mf_endpoint_acs },
 	/* APM X-Gene */
 	{ PCI_VENDOR_ID_AMCC, 0xE004, pci_quirk_xgene_acs },
 	/* Ampere Computing */
@@ -4905,8 +4753,6 @@ static const struct pci_dev_acs_enabled {
 	{ PCI_VENDOR_ID_AMPERE, 0xE00A, pci_quirk_xgene_acs },
 	{ PCI_VENDOR_ID_AMPERE, 0xE00B, pci_quirk_xgene_acs },
 	{ PCI_VENDOR_ID_AMPERE, 0xE00C, pci_quirk_xgene_acs },
-	/* Broadcom multi-function device */
-	{ PCI_VENDOR_ID_BROADCOM, 0x16D7, pci_quirk_mf_endpoint_acs },
 	{ PCI_VENDOR_ID_BROADCOM, 0xD714, pci_quirk_brcm_acs },
 	/* Amazon Annapurna Labs */
 	{ PCI_VENDOR_ID_AMAZON_ANNAPURNA_LABS, 0x0031, pci_quirk_al_acs },
@@ -4914,39 +4760,6 @@ static const struct pci_dev_acs_enabled {
 	{ PCI_VENDOR_ID_ZHAOXIN, 0x3038, pci_quirk_mf_endpoint_acs },
 	{ PCI_VENDOR_ID_ZHAOXIN, 0x3104, pci_quirk_mf_endpoint_acs },
 	{ PCI_VENDOR_ID_ZHAOXIN, 0x9083, pci_quirk_mf_endpoint_acs },
-	/* NXP root ports, xx=16, 12, or 08 cores */
-	/* LX2xx0A : without security features + CAN-FD */
-	{ PCI_VENDOR_ID_NXP, 0x8d81, pci_quirk_nxp_rp_acs },
-	{ PCI_VENDOR_ID_NXP, 0x8da1, pci_quirk_nxp_rp_acs },
-	{ PCI_VENDOR_ID_NXP, 0x8d83, pci_quirk_nxp_rp_acs },
-	/* LX2xx0C : security features + CAN-FD */
-	{ PCI_VENDOR_ID_NXP, 0x8d80, pci_quirk_nxp_rp_acs },
-	{ PCI_VENDOR_ID_NXP, 0x8da0, pci_quirk_nxp_rp_acs },
-	{ PCI_VENDOR_ID_NXP, 0x8d82, pci_quirk_nxp_rp_acs },
-	/* LX2xx0E : security features + CAN */
-	{ PCI_VENDOR_ID_NXP, 0x8d90, pci_quirk_nxp_rp_acs },
-	{ PCI_VENDOR_ID_NXP, 0x8db0, pci_quirk_nxp_rp_acs },
-	{ PCI_VENDOR_ID_NXP, 0x8d92, pci_quirk_nxp_rp_acs },
-	/* LX2xx0N : without security features + CAN */
-	{ PCI_VENDOR_ID_NXP, 0x8d91, pci_quirk_nxp_rp_acs },
-	{ PCI_VENDOR_ID_NXP, 0x8db1, pci_quirk_nxp_rp_acs },
-	{ PCI_VENDOR_ID_NXP, 0x8d93, pci_quirk_nxp_rp_acs },
-	/* LX2xx2A : without security features + CAN-FD */
-	{ PCI_VENDOR_ID_NXP, 0x8d89, pci_quirk_nxp_rp_acs },
-	{ PCI_VENDOR_ID_NXP, 0x8da9, pci_quirk_nxp_rp_acs },
-	{ PCI_VENDOR_ID_NXP, 0x8d8b, pci_quirk_nxp_rp_acs },
-	/* LX2xx2C : security features + CAN-FD */
-	{ PCI_VENDOR_ID_NXP, 0x8d88, pci_quirk_nxp_rp_acs },
-	{ PCI_VENDOR_ID_NXP, 0x8da8, pci_quirk_nxp_rp_acs },
-	{ PCI_VENDOR_ID_NXP, 0x8d8a, pci_quirk_nxp_rp_acs },
-	/* LX2xx2E : security features + CAN */
-	{ PCI_VENDOR_ID_NXP, 0x8d98, pci_quirk_nxp_rp_acs },
-	{ PCI_VENDOR_ID_NXP, 0x8db8, pci_quirk_nxp_rp_acs },
-	{ PCI_VENDOR_ID_NXP, 0x8d9a, pci_quirk_nxp_rp_acs },
-	/* LX2xx2N : without security features + CAN */
-	{ PCI_VENDOR_ID_NXP, 0x8d99, pci_quirk_nxp_rp_acs },
-	{ PCI_VENDOR_ID_NXP, 0x8db9, pci_quirk_nxp_rp_acs },
-	{ PCI_VENDOR_ID_NXP, 0x8d9b, pci_quirk_nxp_rp_acs },
 	/* Zhaoxin Root/Downstream Ports */
 	{ PCI_VENDOR_ID_ZHAOXIN, PCI_ANY_ID, pci_quirk_zhaoxin_pcie_ports_acs },
 	{ 0 }
@@ -5118,7 +4931,7 @@ static int pci_quirk_enable_intel_spt_pch_acs(struct pci_dev *dev)
 	ctrl |= (cap & PCI_ACS_CR);
 	ctrl |= (cap & PCI_ACS_UF);
 
-	if (pci_ats_disabled() || dev->external_facing || dev->untrusted)
+	if (dev->external_facing || dev->untrusted)
 		ctrl |= (cap & PCI_ACS_TB);
 
 	pci_write_config_dword(dev, pos + INTEL_SPT_ACS_CTRL, ctrl);
@@ -5341,8 +5154,7 @@ DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_SERVERWORKS, 0x0422, quirk_no_ext_tags);
 static void quirk_amd_harvest_no_ats(struct pci_dev *pdev)
 {
 	if ((pdev->device == 0x7312 && pdev->revision != 0x00) ||
-	    (pdev->device == 0x7340 && pdev->revision != 0xc5) ||
-	    (pdev->device == 0x7341 && pdev->revision != 0x00))
+	    (pdev->device == 0x7340 && pdev->revision != 0xc5))
 		return;
 
 	if (pdev->device == 0x15d8) {
@@ -5369,7 +5181,6 @@ DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_ATI, 0x6900, quirk_amd_harvest_no_ats);
 DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_ATI, 0x7312, quirk_amd_harvest_no_ats);
 /* AMD Navi14 dGPU */
 DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_ATI, 0x7340, quirk_amd_harvest_no_ats);
-DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_ATI, 0x7341, quirk_amd_harvest_no_ats);
 /* AMD Raven platform iGPU */
 DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_ATI, 0x15d8, quirk_amd_harvest_no_ats);
 #endif /* CONFIG_PCI_ATS */
@@ -5716,7 +5527,7 @@ static void quirk_reset_lenovo_thinkpad_p50_nvgpu(struct pci_dev *pdev)
 
 	if (pdev->subsystem_vendor != PCI_VENDOR_ID_LENOVO ||
 	    pdev->subsystem_device != 0x222e ||
-	    !pci_reset_supported(pdev))
+	    !pdev->reset_fn)
 		return;
 
 	if (pci_enable_device_mem(pdev))

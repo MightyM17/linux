@@ -24,7 +24,6 @@
 #define MSM_DSI_6G_VER_MINOR_V2_3_0	0x20030000
 #define MSM_DSI_6G_VER_MINOR_V2_4_0	0x20040000
 #define MSM_DSI_6G_VER_MINOR_V2_4_1	0x20040001
-#define MSM_DSI_6G_VER_MINOR_V2_5_0	0x20050000
 
 #define MSM_DSI_V2_VER_MINOR_8064	0x0
 
@@ -48,7 +47,7 @@ struct msm_dsi_host_cfg_ops {
 	void* (*tx_buf_get)(struct msm_dsi_host *msm_host);
 	void (*tx_buf_put)(struct msm_dsi_host *msm_host);
 	int (*dma_base_get)(struct msm_dsi_host *msm_host, uint64_t *iova);
-	int (*calc_clk_rate)(struct msm_dsi_host *msm_host, bool is_bonded_dsi);
+	int (*calc_clk_rate)(struct msm_dsi_host *msm_host, bool is_dual_dsi);
 };
 
 struct msm_dsi_cfg_handler {

@@ -4,6 +4,8 @@
  * Copyright(c) 2007 - 2012 Realtek Corporation. All rights reserved.
  *
  ******************************************************************************/
+#define _XMIT_OSDEP_C_
+
 #include <drv_types.h>
 #include <rtw_debug.h>
 
@@ -137,11 +139,13 @@ static int rtw_mlcst2unicst(struct adapter *padapter, struct sk_buff *skb)
 
 	spin_lock_bh(&pstapriv->asoc_list_lock);
 	phead = &pstapriv->asoc_list;
-	/* free sta asoc_queue */
-	list_for_each(plist, phead) {
-		int stainfo_offset;
+	plist = get_next(phead);
 
-		psta = list_entry(plist, struct sta_info, asoc_list);
+	/* free sta asoc_queue */
+	while (phead != plist) {
+		int stainfo_offset;
+		psta = container_of(plist, struct sta_info, asoc_list);
+		plist = get_next(plist);
 
 		stainfo_offset = rtw_stainfo_offset(pstapriv, psta);
 		if (stainfo_offset_valid(stainfo_offset)) {

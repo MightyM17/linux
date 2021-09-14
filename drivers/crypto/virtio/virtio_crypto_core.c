@@ -187,9 +187,9 @@ static int virtcrypto_init_vqs(struct virtio_crypto *vi)
 	if (ret)
 		goto err_free;
 
-	cpus_read_lock();
+	get_online_cpus();
 	virtcrypto_set_affinity(vi);
-	cpus_read_unlock();
+	put_online_cpus();
 
 	return 0;
 

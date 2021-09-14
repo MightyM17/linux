@@ -4,6 +4,8 @@
  * Copyright(c) 2007 - 2012 Realtek Corporation. All rights reserved.
  *
  ******************************************************************************/
+#define _SDIO_HALINIT_C_
+
 #include <drv_types.h>
 #include <rtw_debug.h>
 #include <rtl8723b_hal.h>
@@ -226,6 +228,7 @@ static void _InitNormalChipOneOutEpPriority(struct adapter *Adapter)
 		value = QUEUE_NORMAL;
 		break;
 	default:
+		/* RT_ASSERT(false, ("Shall not reach here!\n")); */
 		break;
 	}
 
@@ -259,6 +262,7 @@ static void _InitNormalChipTwoOutEpPriority(struct adapter *Adapter)
 		valueLow = QUEUE_NORMAL;
 		break;
 	default:
+		/* RT_ASSERT(false, ("Shall not reach here!\n")); */
 		break;
 	}
 
@@ -323,6 +327,7 @@ static void _InitQueuePriority(struct adapter *Adapter)
 		_InitNormalChipThreeOutEpPriority(Adapter);
 		break;
 	default:
+		/* RT_ASSERT(false, ("Shall not reach here!\n")); */
 		break;
 	}
 
@@ -512,6 +517,9 @@ static void _InitOperationMode(struct adapter *padapter)
 	case WIRELESS_MODE_B:
 		regBwOpMode = BW_OPMODE_20MHZ;
 		break;
+	case WIRELESS_MODE_A:
+/* 			RT_ASSERT(false, ("Error wireless a mode\n")); */
+		break;
 	case WIRELESS_MODE_G:
 		regBwOpMode = BW_OPMODE_20MHZ;
 		break;
@@ -522,6 +530,10 @@ static void _InitOperationMode(struct adapter *padapter)
 		/*  It support CCK rate by default. */
 		/*  CCK rate will be filtered out only when associated AP does not support it. */
 		regBwOpMode = BW_OPMODE_20MHZ;
+		break;
+	case WIRELESS_MODE_N_5G:
+/* 			RT_ASSERT(false, ("Error wireless mode")); */
+		regBwOpMode = BW_OPMODE_5G;
 		break;
 
 	default: /* for MacOSX compiler warning. */
@@ -555,7 +567,14 @@ static void _InitRFType(struct adapter *padapter)
 {
 	struct hal_com_data *pHalData = GET_HAL_DATA(padapter);
 
+#if	DISABLE_BB_RF
+	pHalData->rf_chip	= RF_PSEUDO_11N;
+	return;
+#endif
+
 	pHalData->rf_chip	= RF_6052;
+
+	pHalData->rf_type = RF_1T1R;
 }
 
 static void _RfPowerSave(struct adapter *padapter)
@@ -676,23 +695,29 @@ static u32 rtl8723bs_hal_init(struct adapter *padapter)
 	/*  <Roger_Notes> Current Channel will be updated again later. */
 	pHalData->CurrentChannel = 6;
 
+#if (HAL_MAC_ENABLE == 1)
 	ret = PHY_MACConfig8723B(padapter);
 	if (ret != _SUCCESS)
 		return ret;
+#endif
 	/*  */
 	/* d. Initialize BB related configurations. */
 	/*  */
+#if (HAL_BB_ENABLE == 1)
 	ret = PHY_BBConfig8723B(padapter);
 	if (ret != _SUCCESS)
 		return ret;
+#endif
 
 	/*  If RF is on, we need to init RF. Otherwise, skip the procedure. */
 	/*  We need to follow SU method to change the RF cfg.txt. Default disable RF TX/RX mode. */
 	/* if (pHalData->eRFPowerState == eRfOn) */
 	{
+#if (HAL_RF_ENABLE == 1)
 		ret = PHY_RFConfig8723B(padapter);
 		if (ret != _SUCCESS)
 			return ret;
+#endif
 	}
 
 	/*  */
@@ -773,6 +798,8 @@ static u32 rtl8723bs_hal_init(struct adapter *padapter)
 
 	rtl8723b_InitHalDm(padapter);
 
+	/* DbgPrint("pHalData->DefaultTxPwrDbm = %d\n", pHalData->DefaultTxPwrDbm); */
+
 	/*  */
 	/*  Update current Tx FIFO page status. */
 	/*  */
@@ -851,9 +878,10 @@ static void CardDisableRTL8723BSdio(struct adapter *padapter)
 {
 	u8 u1bTmp;
 	u8 bMacPwrCtrlOn;
+	u8 ret = _FAIL;
 
 	/*  Run LPS WL RFOFF flow */
-	HalPwrSeqCmdParsing(padapter, PWR_CUT_ALL_MSK, PWR_FAB_ALL_MSK, PWR_INTF_SDIO_MSK, rtl8723B_enter_lps_flow);
+	ret = HalPwrSeqCmdParsing(padapter, PWR_CUT_ALL_MSK, PWR_FAB_ALL_MSK, PWR_INTF_SDIO_MSK, rtl8723B_enter_lps_flow);
 
 	/* 	==== Reset digital sequence   ====== */
 
@@ -881,8 +909,9 @@ static void CardDisableRTL8723BSdio(struct adapter *padapter)
 	/* 	==== Reset digital sequence end ====== */
 
 	bMacPwrCtrlOn = false;	/*  Disable CMD53 R/W */
+	ret = false;
 	rtw_hal_set_hwreg(padapter, HW_VAR_APFM_ON_MAC, &bMacPwrCtrlOn);
-	HalPwrSeqCmdParsing(padapter, PWR_CUT_ALL_MSK, PWR_FAB_ALL_MSK, PWR_INTF_SDIO_MSK, rtl8723B_card_disable_flow);
+	ret = HalPwrSeqCmdParsing(padapter, PWR_CUT_ALL_MSK, PWR_FAB_ALL_MSK, PWR_INTF_SDIO_MSK, rtl8723B_card_disable_flow);
 }
 
 static u32 rtl8723bs_hal_deinit(struct adapter *padapter)
@@ -1017,7 +1046,11 @@ static void _ReadRFType(struct adapter *Adapter)
 {
 	struct hal_com_data *pHalData = GET_HAL_DATA(Adapter);
 
+#if DISABLE_BB_RF
+	pHalData->rf_chip = RF_PSEUDO_11N;
+#else
 	pHalData->rf_chip = RF_6052;
+#endif
 }
 
 

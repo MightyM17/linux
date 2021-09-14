@@ -2108,9 +2108,7 @@ static int octnet_set_intrmod_cfg(struct lio *lio,
 }
 
 static int lio_get_intr_coalesce(struct net_device *netdev,
-				 struct ethtool_coalesce *intr_coal,
-				 struct kernel_ethtool_coalesce *kernel_coal,
-				 struct netlink_ext_ack *extack)
+				 struct ethtool_coalesce *intr_coal)
 {
 	struct lio *lio = GET_LIO(netdev);
 	struct octeon_device *oct = lio->oct_dev;
@@ -2414,9 +2412,7 @@ oct_cfg_tx_intrcnt(struct lio *lio,
 }
 
 static int lio_set_intr_coalesce(struct net_device *netdev,
-				 struct ethtool_coalesce *intr_coal,
-				 struct kernel_ethtool_coalesce *kernel_coal,
-				 struct netlink_ext_ack *extack)
+				 struct ethtool_coalesce *intr_coal)
 {
 	struct lio *lio = GET_LIO(netdev);
 	int ret;
