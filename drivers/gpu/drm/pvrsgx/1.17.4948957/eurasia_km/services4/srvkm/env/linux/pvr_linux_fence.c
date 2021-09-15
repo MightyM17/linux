@@ -428,7 +428,7 @@ static int update_dma_resv_fences_dst(struct pvr_fence_frame *pvr_fence_frame,
 	unsigned i;
 	int ret;
 
-	flist = dma_resv_get_list(resv);
+	flist = dma_resv_shared_list(resv);
 	shared_fence_count = flist ? flist->shared_count : 0;
 
 	fence_to_signal = create_fence_to_signal(pvr_fence_frame);
@@ -446,9 +446,9 @@ static int update_dma_resv_fences_dst(struct pvr_fence_frame *pvr_fence_frame,
 	if (!shared_fence_count)
 	{
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,10,0))
-		struct dma_fence *fence = dma_resv_get_excl(resv);
+		struct dma_fence *fence = dma_resv_excl_fence(resv);
 #else
-		struct fence *fence = dma_resv_get_excl(resv);
+		struct fence *fence = dma_resv_excl_fence(resv);
 #endif
 
 		if (fence && is_blocking_fence(fence, pvr_fence_frame))
@@ -563,7 +563,7 @@ static int update_dma_resv_fences_src(struct pvr_fence_frame *pvr_fence_frame,
 		return 0;
 	}
 
-	flist = dma_resv_get_list(resv);
+	flist = dma_resv_shared_list(resv);
 	shared_fence_count = flist ? flist->shared_count : 0;
 
 	/*
@@ -610,9 +610,9 @@ static int update_dma_resv_fences_src(struct pvr_fence_frame *pvr_fence_frame,
 	if (!blocking_fence && !shared_fence_count)
 	{
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,10,0))
-		struct dma_fence *fence = dma_resv_get_excl(resv);
+		struct dma_fence *fence = dma_resv_excl_fence(resv);
 #else
-		struct fence *fence = dma_resv_get_excl(resv);
+		struct fence *fence = dma_resv_excl_fence(resv);
 #endif
 
 		if (fence && is_blocking_fence(fence, pvr_fence_frame))
